@@ -77,7 +77,16 @@ function ReviewActions({
   actions: ViewActions;
   primary: boolean;
 }) {
-  const [confirm, setConfirm] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    sha: string;
+    digest: string | null;
+    branch: string;
+  }>();
+  const matchesConfirmation =
+    !!confirmation &&
+    review.sha === confirmation.sha &&
+    review.receiptDigest === confirmation.digest &&
+    view.state!.project.defaultBranch === confirmation.branch;
   const gate = reviewGate(review, view.state!);
   const title = actions.owner
     ? gate.reason
@@ -101,7 +110,13 @@ function ReviewActions({
         data-review={review.id}
         title={title}
         disabled={!actions.owner || !gate.promote || view.busy}
-        onClick={() => setConfirm(true)}
+        onClick={() =>
+          setConfirmation({
+            sha: review.sha,
+            digest: review.receiptDigest,
+            branch: view.state!.project.defaultBranch,
+          })
+        }
       >
         Promote
       </Button>
@@ -113,26 +128,39 @@ function ReviewActions({
           Return to agent
         </Button>
       </Tooltip>
-      <Dialog.Root open={confirm} onOpenChange={setConfirm}>
+      <Dialog.Root
+        open={!!confirmation}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(undefined);
+        }}
+      >
         <Dialog className="p-6">
-          <Dialog.Title>Promote to {view.state!.project.defaultBranch}</Dialog.Title>
+          <Dialog.Title>Promote to {confirmation?.branch}</Dialog.Title>
           <Dialog.Description>
             Promote {review.packet} from {review.repoName} at the exact head below. The server
             checks the head and receipt again.
           </Dialog.Description>
-          <ClipboardText text={review.sha} size="sm" />
+          <ClipboardText text={confirmation?.sha ?? review.sha} size="sm" />
+          {!matchesConfirmation && (
+            <Banner
+              variant="alert"
+              size="sm"
+              description="Fork moved since you reviewed it. Close and review again."
+            />
+          )}
           <div className="actions">
-            <Button onClick={() => setConfirm(false)}>Cancel</Button>
+            <Button onClick={() => setConfirmation(undefined)}>Cancel</Button>
             <Button
               variant="primary"
               data-action="confirm-promote"
-              disabled={view.busy}
+              disabled={!actions.owner || !matchesConfirmation || !gate.promote || view.busy}
               onClick={() => {
-                setConfirm(false);
+                if (!matchesConfirmation || !gate.promote) return;
+                setConfirmation(undefined);
                 void actions.action("promote", review.id);
               }}
             >
-              Promote to {view.state!.project.defaultBranch}
+              Promote to {confirmation?.branch}
             </Button>
           </div>
         </Dialog>

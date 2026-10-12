@@ -364,3 +364,29 @@ test("top tabs select one visible view and preserve focus across refreshes", asy
     context.cleanup();
   }
 });
+
+test("promotion confirmation stays bound to the displayed head when a fresh snapshot moves the fork", async () => {
+  const context = setup();
+  try {
+    await until(() => Boolean(context.root.querySelector("#reviews")));
+    button(context.root, "approve").click();
+    await until(() => button(context.root, "promote").disabled === false);
+    button(context.root, "promote").click();
+    await until(
+      () => !!context.dom.window.document.querySelector('[data-action="confirm-promote"]'),
+    );
+    context.fixture.state.forks[0].head = "f".repeat(40);
+    await context.app.refresh();
+    const confirm = context.dom.window.document.querySelector<HTMLButtonElement>(
+      '[data-action="confirm-promote"]',
+    )!;
+    assert.equal(confirm.disabled, true);
+    confirm.click();
+    assert.equal(
+      context.fixture.calls.filter((entry) => entry.url.pathname.endsWith("/promote")).length,
+      0,
+    );
+  } finally {
+    context.cleanup();
+  }
+});
