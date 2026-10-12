@@ -1,4 +1,5 @@
 import { publicEvents } from "./subscriptions";
+import { branchHead } from "./artifacts";
 import { body, digest, HttpError, isRecord, json, slug } from "./http";
 import { claimPath, filePath, overlaps, requireCovered } from "./paths";
 import { staleBase } from "./git";
@@ -61,7 +62,7 @@ export class Workflow {
   }
   async head(repoName: string, branch: string): Promise<string> {
     using repo = await this.env.ARTIFACTS.get(repoName);
-    return (await repo.log({ ref: `refs/heads/${branch}`, limit: 1 }))[0]?.hash ?? ZERO_SHA;
+    return await branchHead(repo, branch);
   }
   private async binding(
     project: Project,

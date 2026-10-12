@@ -2,7 +2,8 @@ import { EventSubscriptions, publicEvents, registerEvents } from "./subscription
 import { CallerCredentials } from "./caller-credentials";
 import { DurableObject } from "cloudflare:workers";
 import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, slug } from "./http";
-import { changedPaths, ZERO_SHA } from "./trees";
+import { changedPaths } from "./trees";
+import { branchHead } from "./artifacts";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import { WorkerGit } from "./git";
 import type { GitOperations } from "./git";
@@ -234,9 +235,7 @@ export class Supervisor extends DurableObject<Env> {
       records[`agent:${name}`] = { name, tokenHash: await digest(apiToken) };
       credentials.push({ agent: name, apiToken });
     }
-    const canonicalHead =
-      (await canonical.log({ ref: `refs/heads/${project.defaultBranch}`, limit: 1 }))[0]?.hash ??
-      ZERO_SHA;
+    const canonicalHead = await branchHead(canonical, project.defaultBranch);
     await this.ctx.storage.transaction(async (txn) => {
       await txn.put(records);
       await registerEvents(txn, project.namespace, project.repoName);

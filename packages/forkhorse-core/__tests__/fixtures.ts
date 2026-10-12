@@ -38,7 +38,8 @@ const trees = new Map<string, ArtifactsTreeEntry[]>([
 
 /** Explicit offline fixture implementing only the production binding surface. */
 export class FixtureArtifacts implements ArtifactsBinding {
-  calls: { method: string; repo: string; scope?: string; ttl?: number; sourceUrl?: string }[] = [];
+  calls: { method: string; repo: string; scope?: string; ttl?: number; sourceUrl?: string; ref?: string }[] = [];
+  defaultBranch = "main";
   private repos = new Set<string>();
   heads = new Map<string, string>();
   tokens = new Map<string, Map<string, ArtifactsTokenInfo>>();
@@ -75,7 +76,7 @@ export class FixtureArtifacts implements ArtifactsBinding {
       id: name,
       name,
       description: null,
-      defaultBranch: "main",
+      defaultBranch: this.defaultBranch,
       remote: `https://git.idiot.tax/fixture/${name}.git`,
       token: `initial-${name}`,
     };
@@ -90,7 +91,10 @@ export class FixtureArtifacts implements ArtifactsBinding {
     this.calls.push({ method: "get", repo: name });
     if (!this.repos.has(name)) throw new Error("fixture not found");
     return {
-      log: async () => {
+      log: async (options) => {
+        this.calls.push({ method: "log", repo: name, ref: options?.ref });
+        // Mirror the provider: HEAD and qualified Git refs do not resolve here.
+        if (options?.ref !== this.defaultBranch) return [];
         const hash = this.heads.get(name);
         return hash && hash !== "0".repeat(40)
           ? [
