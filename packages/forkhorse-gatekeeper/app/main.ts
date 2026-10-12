@@ -1,6 +1,7 @@
 import { newMessagePortRpcSession, RpcTarget } from "capnweb";
 import type { SidebarUi } from "../src/ui-types.ts";
 import { connectSidebar } from "../src/client.ts";
+import { hostConnection } from "../src/host-connection.ts";
 import { mountSidebar } from "../src/mount.ts";
 import brand from "../../../brand.json";
 import "../../forkhorse-dashboard/src/styles.css";
@@ -28,13 +29,22 @@ interface Host extends RpcTarget {
 
 const root = document.getElementById("sidebar")!;
 document.title = brand.name;
-const { port1, port2 } = new MessageChannel();
-// Matches the pinned OS opaque-origin iframe handshake. Only the private port is transferred.
-window.parent.postMessage({ type: "handshake" }, "*", [port2]);
 const receiver = new ThemeReceiver();
-const host = newMessagePortRpcSession<Host>(port1, receiver);
+const connection = hostConnection(() => {
+  const { port1, port2 } = new MessageChannel();
+  const host = newMessagePortRpcSession<Host>(port1, receiver);
+  // Only renew after the previous host getter failed; never re-handshake a healthy host.
+  window.parent.postMessage({ type: "handshake" }, "*", [port2]);
+  return {
+    host,
+    dispose() {
+      host[Symbol.dispose]();
+      port1.close();
+    },
+  };
+});
 async function resubscribeTheme(isCurrent: () => boolean) {
-  const theme = await host.subscribeTheme(receiver);
+  const theme = await connection.host.subscribeTheme(receiver);
   if (isCurrent()) receiver.setTheme(theme);
 }
 let dispose = () => {};
@@ -44,10 +54,10 @@ let failures = 0;
 async function start() {
   try {
     const client = await connectSidebar(
-      await host.ui,
+      await connection.acquireUi(),
       () => {},
       resubscribeTheme,
-      async () => await host.ui,
+      () => connection.acquireUi(),
     );
     if (closed) {
       client.dispose();
@@ -59,7 +69,7 @@ async function start() {
       transport: client.transport,
       fixture: root.dataset.fixture === "true",
       openPrompt: async (prompt) => {
-        await host.openPrompt(prompt);
+        await connection.host.openPrompt(prompt);
       },
     });
     dispose = () => {
@@ -85,8 +95,7 @@ window.addEventListener(
     stopSystem();
     clearTimeout(retryTimer);
     dispose();
-    host[Symbol.dispose]();
-    port1.close();
+    connection.dispose();
   },
   { once: true },
 );
