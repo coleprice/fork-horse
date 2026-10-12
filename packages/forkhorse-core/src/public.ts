@@ -4,6 +4,8 @@ import { dispatchApi } from "./api";
 import { verifyOwner } from "./access";
 import { errorResponse, HttpError, json, operation, slug } from "./http";
 import type { Env } from "./types";
+import brand from "../../../brand.json";
+import { markIconUrl } from "../../forkhorse-dashboard/src/mark";
 
 function settings(env: Env) {
   const origin = env.CORE_PUBLIC_ORIGIN;
@@ -59,7 +61,7 @@ async function oauth(request: Request, env: Env, ctx: ExecutionContext) {
       return { project, ...enrolled };
     },
   });
-  return createOAuthHandler({
+  const response = await createOAuthHandler({
     core,
     publicOrigin: config.origin,
     path: config.path,
@@ -71,6 +73,16 @@ async function oauth(request: Request, env: Env, ctx: ExecutionContext) {
       return verifiedOwner;
     },
   })(request, { OAUTH_KV: env.OAUTH_KV } as unknown as OAuthEnv, ctx);
+  // Add identity only to successful consent HTML; preserve redirects, cookies and auth checks.
+  if (new URL(request.url).pathname === "/authorize" && request.method === "GET" &&
+      response.status === 200 && response.headers.get("content-type")?.includes("text/html")) {
+    return new HTMLRewriter().on("head", {
+      element(element) {
+        element.append(`<link rel="icon" type="image/svg+xml" href="${markIconUrl(brand.mark)}">`, { html: true });
+      },
+    }).transform(response);
+  }
+  return response;
 }
 
 async function dashboard(request: Request, env: Env): Promise<Response> {

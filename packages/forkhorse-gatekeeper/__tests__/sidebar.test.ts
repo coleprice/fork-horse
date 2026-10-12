@@ -4,6 +4,7 @@ import { sidebarAccountDescription, type WorkerUpdateReceiver } from "../src/wor
 import type { SidebarBatch } from "../src/ui-types.ts";
 import type { FixtureHarness } from "./worker.ts";
 import brand from "../../../brand.json";
+import { markIconUrl } from "../../forkhorse-dashboard/src/mark.ts";
 
 declare global {
   namespace Cloudflare { interface Env { FIXTURE: Service<FixtureHarness> } }
@@ -36,6 +37,8 @@ describe("Worker-native sidebar capability (local fixtures)", () => {
     expect(navigator.userAgent).toBe("Cloudflare-Workers");
     expect(sidebarAccountDescription()).toMatchObject({ displayName: brand.name, providesUi: { title: brand.name } });
     expect(sidebarAccountDescription().singleton).toBeUndefined();
+    const icon = { url: markIconUrl(brand.mark) };
+    expect(sidebarAccountDescription()).toMatchObject({ avatar: icon, providesUi: { icon } });
   });
 
   it("authorizes before returning a capability", async () => {

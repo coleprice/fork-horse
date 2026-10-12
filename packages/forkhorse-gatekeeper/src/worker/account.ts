@@ -15,6 +15,8 @@ import { createSidebarFrame, sidebarAccountDescription } from "./sidebar.ts";
 import type { ProjectState } from "../../../forkhorse-dashboard/src/contracts.ts";
 import SIDEBAR_HTML from "../../dist/sidebar.html";
 import PICKER_HTML from "../../dist/picker.html";
+import brand from "../../../../brand.json";
+import { markIconUrl } from "../../../forkhorse-dashboard/src/mark.ts";
 
 export interface Env extends Cloudflare.Env { BASE_URL: string }
 interface Credentials extends ConnectionDraft { agent: string }
@@ -22,6 +24,7 @@ interface AccountProps { accountId: string }
 export const RESOURCE: SupportedResource = {
   urlPattern: "https://:host/projects/:project/forks/:repoName",
   title: "Agent fork", description: "A Git fork owned by the connected agent.",
+  icon: { url: markIconUrl(brand.mark) },
 };
 
 declare global {

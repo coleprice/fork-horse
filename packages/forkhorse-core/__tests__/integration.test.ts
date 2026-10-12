@@ -3,6 +3,8 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
+import brand from "../../../brand.json";
+import { markIconUrl } from "../../forkhorse-dashboard/src/mark";
 
 const origin = "https://api.idiot.tax";
 const issuer = "https://fixture.cloudflareaccess.com";
@@ -74,6 +76,8 @@ describe("public core integration with offline signed JWTs, KV, DO and built das
     expect(page.headers.get("cache-control")).toBe("private, no-store");
     expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
     const html = await page.text();
+    expect(html).toContain(`<link rel="icon" type="image/svg+xml" href="${markIconUrl(brand.mark)}">`);
+    expect(html.match(/rel="icon"/g)).toHaveLength(1);
     expect(html).toContain('id="dashboard"');
     expect(html).toContain('id="dashboard-config"');
     expect(html).toContain('"label":"mcp-fixture"');
@@ -198,6 +202,8 @@ describe("public core integration with offline signed JWTs, KV, DO and built das
     const page = await call(authorize, { headers: proof });
     expect(page.status).toBe(200);
     const html = await page.text();
+    expect(html).toContain(`<link rel="icon" type="image/svg+xml" href="${markIconUrl(brand.mark)}">`);
+    expect(html.match(/rel="icon"/g)).toHaveLength(1);
     const handle = /name="handle" value="([^"]+)"/.exec(html)![1]!;
     const cookie = page.headers
       .getSetCookie()

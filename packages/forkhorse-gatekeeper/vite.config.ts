@@ -1,6 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite-plus";
+import { markIconUrl } from "../forkhorse-dashboard/src/mark.ts";
 
 const brand = JSON.parse(readFileSync(new URL("../../brand.json", import.meta.url), "utf8"));
 const escape = (text: string) =>
@@ -68,7 +69,7 @@ export default defineConfig(({ mode }) => ({
               : mode === "configurator"
                 ? "configurator.html"
                 : "sidebar.html",
-          source: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(brand.name)}</title><script>document.documentElement.dataset.mode=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.style.colorScheme=document.documentElement.dataset.mode;</script><style>${styles.join("\n").replace(/<\/style/gi, "<\\/style")}</style></head><body><div id="sidebar"></div><script>${scripts.join("\n").replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
+          source: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(brand.name)}</title><link rel="icon" type="image/svg+xml" href="${markIconUrl(brand.mark)}"><script>document.documentElement.dataset.mode=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.style.colorScheme=document.documentElement.dataset.mode;</script><style>${styles.join("\n").replace(/<\/style/gi, "<\\/style")}</style></head><body><div id="sidebar"></div><script>${scripts.join("\n").replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
         });
       },
     },

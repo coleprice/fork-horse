@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { markIconUrl } from "../../forkhorse-dashboard/src/mark.ts";
 
 const { JSDOM, VirtualConsole } = createRequire(import.meta.url)("jsdom") as {
   JSDOM: new (
@@ -22,6 +23,7 @@ const brand = JSON.parse(readFileSync(new URL("../../../brand.json", import.meta
 const dom = new JSDOM(html, options);
 const document = dom.window.document;
 assert.equal(document.title, brand.name);
+assert.equal(document.querySelector('link[rel="icon"]')!.getAttribute("href"), markIconUrl(brand.mark));
 assert.equal(document.querySelectorAll('script[src],link[rel="stylesheet"]').length, 0);
 assert.equal(document.querySelectorAll("script").length, 2);
 assert.match(document.querySelector("script")!.textContent!, /prefers-color-scheme/);
@@ -36,6 +38,7 @@ const configurator = new JSDOM(
   options,
 );
 assert.equal(configurator.window.document.title, brand.name);
+assert.equal(configurator.window.document.querySelector('link[rel="icon"]')!.getAttribute("href"), markIconUrl(brand.mark));
 assert.equal(
   configurator.window.document.querySelectorAll('script[src],link[rel="stylesheet"]').length,
   0,
@@ -48,6 +51,7 @@ const picker = new JSDOM(
   options,
 );
 assert.equal(picker.window.document.title, brand.name);
+assert.equal(picker.window.document.querySelector('link[rel="icon"]')!.getAttribute("href"), markIconUrl(brand.mark));
 assert.equal(
   picker.window.document.querySelectorAll('script[src],link[rel="stylesheet"]').length,
   0,

@@ -5,10 +5,9 @@ import type { ProjectState } from "../../../forkhorse-dashboard/src/contracts.ts
 import type { SidebarBatch } from "../ui-types.ts";
 import { SnapshotFeed } from "../feed.ts";
 import brand from "../../../../brand.json";
+import { markIconUrl } from "../../../forkhorse-dashboard/src/mark.ts";
 
-const icon = { url: "data:image/svg+xml," + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h16v16H4z"/><path fill="none" stroke="white" stroke-width="2" d="M8 16 16 8M8 8h8v8"/></svg>',
-) };
+const icon = { url: markIconUrl(brand.mark) };
 
 /** Only an authenticated account may use this metadata; it grants no owner authority. */
 export function sidebarAccountDescription(): AccountDescription {

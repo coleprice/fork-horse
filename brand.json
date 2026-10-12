@@ -1,8 +1,9 @@
 {
   "codeName": true,
   "name": "Fork Horse",
+  "mark": "🐎",
   "slug": "forkhorse",
   "tagline": "Multi-agent collaboration for Git, on Cloudflare",
   "domains": { "primary": "forkhorse.com", "short": "fork.horse" },
-  "note": "Every user-visible name, domain and tagline comes from this file. 'Fork Horse' is a code name and may change at release."
+  "note": "Every user-visible name, domain, tagline and mark comes from this file. The mark is a placeholder drawn in the viewer's emoji font until an official logo exists. 'Fork Horse' is a code name and may change at release."
 }

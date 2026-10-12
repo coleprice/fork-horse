@@ -5,6 +5,7 @@ import { connectHandoffPageHtml, connectMutationError } from "@gadgets/gatekeepe
 import { readTextCapped } from "@gadgets/gatekeeper-kit/response-body";
 import { RESOURCE, type Env } from "./account.ts";
 import brand from "../../../../brand.json";
+import { markIconUrl } from "../../../forkhorse-dashboard/src/mark.ts";
 import TYPES from "../fork-types.txt";
 export { UserAccount, AgentAccount, AgentVerifier } from "./account.ts";
 export { ForkGatekeeper } from "./fork.ts";
@@ -12,6 +13,7 @@ export { ForkGatekeeper } from "./fork.ts";
 export class GatekeeperVendor extends WorkerEntrypoint<Env> implements Vendor {
   async describe(): Promise<VendorDescription> {
     return { displayName: brand.name, url: `https://${brand.domains.primary}`, tagline: brand.tagline,
+      logo: { url: markIconUrl(brand.mark) },
       description: "Connect an enrolled agent to read its forks and submit forward-only Git updates.",
       autoProvisionsAccount: false, providesAuth: false };
   }

@@ -2,6 +2,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { readFileSync } from "node:fs";
 import { defineConfig, type ViteDevServer } from "vite-plus";
 import { fixtureMiddleware } from "./test/fixture-api.ts";
+import { markIconUrl } from "./src/mark.ts";
 
 const brand = JSON.parse(readFileSync(new URL("../../brand.json", import.meta.url), "utf8"));
 export default defineConfig(({ mode }) => ({
@@ -21,6 +22,12 @@ export default defineConfig(({ mode }) => ({
   },
   esbuild: { jsx: "automatic" },
   plugins: [
+    {
+      name: "brand-favicon",
+      transformIndexHtml() {
+        return [{ tag: "link", attrs: { rel: "icon", type: "image/svg+xml", href: markIconUrl(brand.mark) }, injectTo: "head" }];
+      },
+    },
     tailwindcss(),
     ...(mode === "fixture"
       ? [
