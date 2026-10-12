@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
+import { modelFixture } from "./model-fixture.ts";
+import { fixtureState } from "../../../forkhorse-dashboard/test/fixtures.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "gatekeeper-local-"));
 const repo = join(dir, "fork-alpha.git"), seed = join(dir, "seed");
@@ -14,12 +16,14 @@ function git(args: string[], cwd = dir, input?: Buffer): Buffer {
   return execFileSync("git", args, { cwd, env: gitEnv, input, maxBuffer: 16 << 20, stdio: ["pipe", "pipe", "pipe"] });
 }
 let reads = 0, writes = 0, race = false;
+const started = Date.now();
 const head = () => git(["--git-dir", repo, "rev-parse", "refs/heads/main"]).toString().trim();
 const remote = "https://git.fixture.idiot.tax/fork-alpha.git";
 const server = createServer(async (req, res) => {
   try {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const body = Buffer.concat(chunks);
+    if (req.url?.split("?")[0].endsWith("/messages")) { modelFixture(body, res, head()); return; }
     if (req.url === "/record") { console.log(`LOCAL ACCEPTANCE: ${body.toString()}`); res.end("recorded"); return; }
     if (req.url === "/race") { race = true; res.end("armed"); return; }
     if (req.url === "/evidence") {
@@ -33,7 +37,10 @@ const server = createServer(async (req, res) => {
     }
     if (req.url === "/projects/fixture/state") {
       res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ project: { id: "fixture", repoName: "canonical", defaultBranch: "main" }, agents: [], forks: [], packets: [], claims: [], blockers: [], reviews: [], ledger: [], reconcilerAlerts: [] })); return;
+      const state = fixtureState(); state.project.id = "fixture";
+      state.packets[0].title = `LOCAL FIXTURE batch ${Math.floor((Date.now() - started) / 250)}`;
+      state.packets[0].goal = "Synthetic Core state and deterministic local model protocol. No live data or inference.";
+      res.end(JSON.stringify(state)); return;
     }
     if (req.url === "/projects/fixture/forks/fork-alpha/token") {
       const { scope, ttlSeconds } = JSON.parse(body.toString());
@@ -64,6 +71,7 @@ const server = createServer(async (req, res) => {
       }
       res.end(result.subarray(boundary + 4)); return;
     }
+    console.log(`Unknown local fixture path: ${req.url?.split("?")[0]}`);
     res.statusCode = 404; res.end("Unknown local fixture route");
   } catch (error) { console.error(error); res.statusCode = 500; res.end("Local fixture failed"); }
 });
@@ -86,13 +94,19 @@ try {
   git(["add", "README.md"], seed);
   git(["-c", "user.name=Fixture Agent", "-c", "user.email=agent@idiot.tax", "commit", "-m", "Fixture base"], seed);
   git(["push", repo, "main"], seed);
-  await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
+  const serve = process.argv.includes("--serve");
+  await new Promise<void>(done => server.listen(serve ? 4181 : 0, "127.0.0.1", done));
   const port = (server.address() as { port: number }).port;
+  if (serve) {
+    console.log(`LOCAL FIXTURE READY port=${port} head=${head()}`);
+    await new Promise<void>(done => { process.once("SIGTERM", done); process.once("SIGINT", done); });
+  } else {
   const executable = resolve("../../node_modules/.bin/vitest");
   const child = spawn(executable, ["run", "--config", "vitest.local.config.ts"], {
     cwd: process.cwd(), stdio: "inherit", env: { ...process.env, FH_LOCAL_FIXTURE_PORT: String(port), FH_LOCAL_GENERATED_DIR: generated },
   });
   process.exitCode = await new Promise<number>(done => child.on("exit", code => done(code ?? 1)));
+  }
 } finally {
   await new Promise<void>(done => server.close(() => done()));
   rmSync(dir, { recursive: true, force: true });

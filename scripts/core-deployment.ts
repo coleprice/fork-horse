@@ -30,6 +30,7 @@ export function validateCore(config: DeploymentConfig): void {
   if (
     Object.entries(config.workers).some(
       ([key, worker]) =>
+        key !== "customGatekeeper" &&
         (key !== "errorReporter" || config.errorReporting.enabled) &&
         worker.name === core.workerName,
     )

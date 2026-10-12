@@ -109,9 +109,13 @@ class Queue extends RpcTarget {
   readonly cache = new Cache();
   observations = 0;
   submitted: { id: number; description: any }[] = [];
+  loseReply = false;
   async authorizeObservation() { this.observations++; }
   async getGitCache() { return this.cache; }
-  async submitAction(id: number, description: unknown) { this.submitted.push({ id, description }); }
+  async submitAction(id: number, description: unknown) {
+    this.submitted.push({ id, description });
+    if (this.loseReply) throw new Error("Synthetic lost queue reply");
+  }
 }
 async function resource() {
   const { user } = await connect();
@@ -169,6 +173,32 @@ it("advertises heads and submits approval without minting or pushing until apply
   await gatekeeper.applyAction(queue.submitted[0].id, queue.cache as unknown as GitCache);
   expect(head).toBe(NEXT); expect(scopes).toEqual(["write"]); expect(queue.cache.builds).toBe(1);
   await gatekeeper.applyAction(queue.submitted[0].id, queue.cache as unknown as GitCache);
+  expect(pushes).toHaveLength(1);
+});
+
+it("recovers an ambiguous approval submission using the same action ID without an early write", async () => {
+  const { gatekeeper, queue, session } = await resource();
+  queue.loseReply = true;
+  await refuse(() => session.push("main", NEXT), "interrupted");
+  await refuse(() => session.push("main", "c".repeat(40)), "same branch and commit");
+  expect(scopes).toEqual([]); expect(pushes).toEqual([]);
+  queue.loseReply = false;
+  await session.push("main", NEXT);
+  expect(queue.submitted.map(action => action.id)).toEqual([1, 1]);
+  await gatekeeper.applyAction(1, queue.cache as unknown as GitCache);
+  await gatekeeper.applyAction(1, queue.cache as unknown as GitCache);
+  expect(pushes).toHaveLength(1);
+});
+
+it("can approve or reject an OS-queued action after its submission reply was lost", async () => {
+  const { gatekeeper, queue, session } = await resource();
+  queue.loseReply = true;
+  await refuse(() => session.push("main", NEXT), "interrupted");
+  await gatekeeper.applyAction(1, queue.cache as unknown as GitCache);
+  expect(head).toBe(NEXT);
+  await refuse(() => session.push("main", "c".repeat(40)), "interrupted");
+  await gatekeeper.rejectAction(2);
+  await refuse(() => gatekeeper.applyAction(2, queue.cache as unknown as GitCache), "not pending");
   expect(pushes).toHaveLength(1);
 });
 

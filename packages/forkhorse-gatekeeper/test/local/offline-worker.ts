@@ -4,9 +4,17 @@ import { fixtureState } from "../../../forkhorse-dashboard/test/fixtures.ts";
 import worker from "../../src/worker/index.ts";
 export { GatekeeperVendor, UserAccount, AgentAccount, AgentVerifier, ForkGatekeeper } from "../../src/worker/index.ts";
 const started = Date.now();
+const networkFetch = globalThis.fetch;
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const request = new Request(input, init);
   const url = new URL(request.url);
+  // Enabled only by the isolated full-OS test build. The fixture listener is loopback-only.
+  if (import.meta.env.MODE === "full-os") {
+    if (!["https://core.fixture.idiot.tax", "https://git.fixture.idiot.tax"].includes(url.origin)) {
+      throw new Error("This local fixture refuses external traffic.");
+    }
+    return networkFetch(new Request(`http://127.0.0.1:4181${url.pathname}`, request));
+  }
   if (url.origin !== "https://core.fixture.idiot.tax" || request.headers.get("authorization") !== "Bearer fixture-agent-credential-only") {
     throw new Error("This local fixture refuses external traffic.");
   }

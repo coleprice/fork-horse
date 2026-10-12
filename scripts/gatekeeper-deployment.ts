@@ -18,6 +18,7 @@ export function validateForkhorseGatekeeper(config: DeploymentConfig): void {
     throw new Error("forkhorseGatekeeper.workerName must use lowercase letters, numbers and hyphens.");
   }
   const names = Object.entries(config.workers)
+    .filter(([key]) => key !== "customGatekeeper")
     .filter(([key]) => key !== "errorReporter" || config.errorReporting.enabled)
     .map(([, worker]) => worker.name);
   if (config.core?.enabled) names.push(config.core.workerName);

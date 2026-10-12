@@ -227,11 +227,6 @@ test("generates Access-mode Workshop, Context, and custom Gatekeeper configs", a
       service: "acme-cloudflare-os-mcp",
       entrypoint: "GatekeeperVendor",
     },
-    {
-      binding: "GATEKEEPER_CUSTOM",
-      service: "acme-cloudflare-os-custom",
-      entrypoint: "GatekeeperVendor",
-    },
   ]);
   assert.deepEqual(generated.workshop.kv_namespaces, [
     { binding: "BLUEPRINTS", id: "blueprints-kv-id" },
@@ -244,11 +239,7 @@ test("generates Access-mode Workshop, Context, and custom Gatekeeper configs", a
     binding: "ARTIFACTS",
     namespace: "acme-context-collections",
   }]);
-  assert.equal(generated.customGatekeeper.name, "acme-cloudflare-os-custom");
-  assert.deepEqual(generated.customGatekeeper.vars, {
-    CUSTOM_NAME: "Acme",
-    CUSTOM_MESSAGE: "Use the company handbook.",
-  });
+  assert.ok(!("customGatekeeper" in generated), "the starter sample is no longer deployed");
   assert.equal(generated.errorReporter!.name, "acme-cloudflare-os-errors");
   assert.deepEqual(generated.workshop.observability!.logs, {
     invocation_logs: false,
@@ -275,7 +266,6 @@ test("gives the router the public route, the frontend, and every service binding
     { binding: "GATEKEEPER_CONTEXT", service: "acme-cloudflare-os-context" },
     { binding: "GATEKEEPER_SCHEDULER", service: "acme-cloudflare-os-scheduler" },
     { binding: "GATEKEEPER_MCP", service: "acme-cloudflare-os-mcp" },
-    { binding: "GATEKEEPER_CUSTOM", service: "acme-cloudflare-os-custom" },
   ]);
   // Inherited untouched: the base config already carries the ASSETS binding, the SPA fallback, and
   // the /gatekeeper/* prefix an OAuth Gatekeeper redirect needs.
@@ -357,11 +347,11 @@ test("deploys upstream MCP by default with its resources, secure endpoints and c
   assert.deepEqual(builds.map(({ args }) => args.at(-1)), ["build:configurator", "build"]);
   assert.ok(builds.every(({ args }) => args.at(-2) === "--no-cache"));
   assert.deepEqual(deploymentOrder(validConfig),
-    ["errorReporter", "context", "scheduler", "mcp", "customGatekeeper", "workshop", "router"]);
+    ["errorReporter", "context", "scheduler", "mcp", "workshop", "router"]);
   assert.deepEqual(deploymentOrder(withCore()),
-    ["core", "errorReporter", "context", "scheduler", "mcp", "customGatekeeper", "workshop", "router"]);
+    ["core", "errorReporter", "context", "scheduler", "mcp", "workshop", "router"]);
   assert.deepEqual(deploymentOrder(variant((c) => { c.errorReporting.enabled = false; })),
-    ["context", "scheduler", "mcp", "customGatekeeper", "workshop", "router"]);
+    ["context", "scheduler", "mcp", "workshop", "router"]);
 });
 
 test("requires a unique, valid MCP Worker identity", () => {

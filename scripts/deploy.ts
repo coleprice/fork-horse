@@ -27,7 +27,6 @@ const packageDirs = {
   context: "cloudflare-os/packages/gatekeeper-context",
   scheduler: "cloudflare-os/packages/gatekeeper-scheduler",
   mcp: "cloudflare-os/packages/gatekeeper-mcp",
-  customGatekeeper: "packages/custom-gatekeeper",
   errorReporter: "packages/error-reporter",
   core: "packages/forkhorse-core",
   forkhorseGatekeeper: "packages/forkhorse-gatekeeper",
@@ -45,14 +44,11 @@ const requiredPaths = [
   "workers.context.name",
   "workers.scheduler.name",
   "workers.mcp.name",
-  "workers.customGatekeeper.name",
   "access.issuer",
   "access.audience",
   "access.admins",
   "aiGateway.enabled",
   "errorReporting.enabled",
-  "customGatekeeper.name",
-  "customGatekeeper.message",
   "observability.enabled",
   "observability.headSamplingRate",
   "observability.logs.invocationLogs",
@@ -199,6 +195,9 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
   if (!config.forkhorseGatekeeper?.enabled) {
     activeConfig = { ...activeConfig, forkhorseGatekeeper: undefined };
   }
+  // The sample is retired. Older owner files may retain these unused placeholders.
+  activeConfig = { ...activeConfig, customGatekeeper: undefined,
+    workers: { ...activeConfig.workers, customGatekeeper: undefined } };
   const placeholder = JSON.stringify(activeConfig).match(/<[^>]+>/)?.[0];
   if (placeholder) throw new Error(`Replace deployment placeholder ${placeholder}.`);
 
@@ -223,11 +222,12 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
     throw new Error("Cloudflare account IDs must be 32 hexadecimal characters.");
   }
   const workerNames = Object.entries(config.workers)
+    .filter(([key]) => key !== "customGatekeeper")
     .filter(([key]) => key !== "errorReporter" || config.errorReporting.enabled)
     .map(([, worker]) => worker.name);
   if (new Set(workerNames).size !== workerNames.length) {
     throw new Error(
-      "Router, Workshop, Context, Scheduler, MCP, and custom Gatekeeper names must be unique.");
+      "Router, Workshop, Context, Scheduler and MCP Worker names must be unique.");
   }
   if (!workerNames.every((name) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))) {
     throw new Error("Worker names must use lowercase letters, numbers, and hyphens.");
@@ -447,7 +447,6 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   const context = structuredClone(bases.context);
   const scheduler = structuredClone(bases.scheduler);
   const mcp = structuredClone(bases.mcp);
-  const customGatekeeper = structuredClone(bases.customGatekeeper);
   const errorReporter = config.errorReporting.enabled
     ? structuredClone(bases.errorReporter)
     : undefined;
@@ -468,7 +467,6 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
     { binding: "GATEKEEPER_CONTEXT", service: config.workers.context.name },
     { binding: "GATEKEEPER_SCHEDULER", service: config.workers.scheduler.name },
     { binding: "GATEKEEPER_MCP", service: config.workers.mcp.name },
-    { binding: "GATEKEEPER_CUSTOM", service: config.workers.customGatekeeper.name },
   ];
 
   setCommon(workshop, config, config.workers.workshop.name);
@@ -534,11 +532,6 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
       service: config.workers.mcp.name,
       entrypoint: "GatekeeperVendor",
     },
-    {
-      binding: "GATEKEEPER_CUSTOM",
-      service: config.workers.customGatekeeper.name,
-      entrypoint: "GatekeeperVendor",
-    },
   ];
   workshop.kv_namespaces = [
     { binding: "BLUEPRINTS", ...(config.resources.blueprintsKvNamespaceId
@@ -577,12 +570,6 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   setCommon(mcp, config, config.workers.mcp.name);
   mcp.vars = { ...mcp.vars, BASE_URL: `${origin}/gatekeeper/mcp` };
 
-  setCommon(customGatekeeper, config, config.workers.customGatekeeper.name);
-  customGatekeeper.vars = {
-    CUSTOM_NAME: config.customGatekeeper.name,
-    CUSTOM_MESSAGE: config.customGatekeeper.message,
-  };
-
   if (errorReporter) {
     setCommon(errorReporter, config, config.workers.errorReporter!.name);
   }
@@ -592,6 +579,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   if (forkhorseGatekeeper) {
     const service = config.forkhorseGatekeeper!.workerName;
     setCommon(forkhorseGatekeeper, config, service);
+    forkhorseGatekeeper.vars = { BASE_URL: `${origin}/gatekeeper/forkhorse` };
     // HTTP forwarding and vendor RPC use separate entrypoints, matching pinned OS discovery.
     router.services!.push({ binding: "GATEKEEPER_FORKHORSE", service });
     workshop.services!.push({ binding: "GATEKEEPER_FORKHORSE", service, entrypoint: "GatekeeperVendor" });
@@ -600,7 +588,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   return {
     ...(forkhorseGatekeeper && { forkhorseGatekeeper }),
     ...(core && { core }),
-    router, workshop, context, scheduler, mcp, customGatekeeper,
+    router, workshop, context, scheduler, mcp,
     ...(errorReporter && { errorReporter }),
   };
 }
@@ -655,7 +643,6 @@ export function buildCommands(config: DeploymentConfig): BuildCommand[] {
       { args: ownBuild("forkhorse-dashboard") },
       { args: ownBuild("forkhorse-core") },
     ] : []),
-    { args: ownBuild("custom-gatekeeper") },
     ...(config.forkhorseGatekeeper?.enabled ? [{ args: ownBuild("forkhorse-gatekeeper") }] : []),
     ...(config.errorReporting.enabled ? [{ args: ownBuild("error-reporter") }] : []),
     // Access mode is a build-time constant in the frontend bundle (`src/useAuth.ts`), so it is set
@@ -671,7 +658,7 @@ export function deploymentOrder(config: DeploymentConfig): (keyof typeof package
   return [
     ...(config.core?.enabled ? ["core" as const] : []),
     ...(config.errorReporting.enabled ? ["errorReporter" as const] : []),
-    "context", "scheduler", "mcp", "customGatekeeper",
+    "context", "scheduler", "mcp",
     ...(config.forkhorseGatekeeper?.enabled ? ["forkhorseGatekeeper" as const] : []),
     "workshop", "router",
   ];
@@ -790,7 +777,6 @@ async function main(): Promise<void> {
     context: await readJsonc(join(root, packageDirs.context, "wrangler.jsonc")),
     scheduler: await readJsonc(join(root, packageDirs.scheduler, "wrangler.jsonc")),
     mcp: await readJsonc(join(root, packageDirs.mcp, "wrangler.jsonc")),
-    customGatekeeper: await readJsonc(join(root, packageDirs.customGatekeeper, "wrangler.jsonc")),
     errorReporter: await readJsonc(join(root, packageDirs.errorReporter, "wrangler.jsonc")),
   });
   reportAiGateway(config);

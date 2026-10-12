@@ -1,9 +1,9 @@
 # Agent fork gatekeeper
 
-**FH-008 remains in progress.** This package connects an enrolled agent to its own
+**Local S7/S9 verified; live installation remains separate.** This package connects an enrolled agent to its own
 Git forks and embeds the accepted dashboard in the pinned OS. Product names come
 from root `brand.json`. Core identity/token support from FH-013 is integrated;
-FH-016 deployment integration and final acceptance remain pending.
+FH-016 deployment integration is complete. The full popup UX remains a manual check.
 
 ## Account and Git authority
 
@@ -26,7 +26,8 @@ was lost can be recognized by its exact new head.
 Before each Git request the Worker rechecks ownership and requests a repo-scoped,
 60-second read or write token. Raw Git HTTP uses a git-style User-Agent and refuses
 redirects. Neither credentials nor tokens are returned to the browser or agent.
-Canonical repository writes are outside this package. Disconnect deletes the local
+Interrupted queue submissions retain their action ID for retry; duplicate OS
+approval rows cannot cause duplicate Git writes. Canonical repository writes are outside this package. Disconnect deletes the local
 connection and stops its capabilities; it does not revoke other clients' Core
 credentials or all tokens for that repository. Already issued tokens expire.
 
@@ -71,7 +72,10 @@ The build produces three self-contained HTML documents and `dist/worker.js`.
 Bundle checks exclude the offline entrypoint and its synthetic credentials/data
 from production. Worker types use native RPC validation. The production config has
 no public Workers URL; the generated deployment supplies its private base URL and
-Durable Object migrations. Only this package's lockfile importer is changed.
+Durable Object migrations. It replaces the starter sample in build/deploy order
+and bindings. The template wires the vendor by default, without provisioning an
+account; disabling it provides no sample fallback. Only this package's lockfile
+importer is changed relative to accepted main.
 
 The suite includes browser/MessagePort tests and native workerd tests for account
 lifecycle, ownership, approval, stale heads, Git transport and sidebar disposal.
@@ -93,8 +97,11 @@ its temporary repository and generated modules and never edits upstream source.
   `/me` and `/state`, and refuses every other outbound request. It must never be
   deployed. Production tooling consumes `dist/worker.js` only.
 
-The full local OS has also been exercised with a synthetic account, real OS
-connection handoff and actual native account/sidebar capabilities. This remains
+The full local OS has also executed the actual agent createWorktree/edit/commit,
+approval and Git push flow using a deterministic local model-protocol fixture.
+Its actual native account/sidebar capabilities passed the sustained update and
+prompt checks. Reproduce this with the [local harness guide](test/local/README.md).
+This remains
 local fixture evidence, not live Core/Artifacts or installed owner acceptance.
 See `HANDOFF.md` for exact coverage and outstanding gates.
 

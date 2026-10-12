@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { parse, type ParseError } from "jsonc-parser";
-import { buildCommands, generateConfigs, validateConfig } from "./deploy.ts";
+import { buildCommands, deploymentOrder, generateConfigs, validateConfig } from "./deploy.ts";
 import type { BaseConfigs, DeploymentConfig, ProdWranglerConfig } from "./deployment-config.ts";
 
 async function jsonc(path: string): Promise<any> {
@@ -20,6 +20,7 @@ async function fixture(): Promise<DeploymentConfig> {
   config.workers.router.route = { customDomain: "os.idiot.tax" };
   config.access = { issuer: "https://fixture.cloudflareaccess.com", audience: "fixture", admins: ["owner@idiot.tax"] };
   config.customGatekeeper = { name: "Fixture", message: "Local fixture only" };
+  config.forkhorseGatekeeper = { enabled: false, workerName: "fixture-agent-vendor" };
   return config;
 }
 
@@ -27,6 +28,7 @@ async function bases(): Promise<BaseConfigs> {
   const paths = {
     router: "cloudflare-os/packages/router", workshop: "cloudflare-os/packages/workshop-backend",
     context: "cloudflare-os/packages/gatekeeper-context", scheduler: "cloudflare-os/packages/gatekeeper-scheduler",
+    mcp: "cloudflare-os/packages/gatekeeper-mcp",
     customGatekeeper: "packages/custom-gatekeeper", errorReporter: "packages/error-reporter",
     forkhorseGatekeeper: "packages/forkhorse-gatekeeper",
   };
@@ -35,7 +37,7 @@ async function bases(): Promise<BaseConfigs> {
   ))) as unknown as BaseConfigs;
 }
 
-test("disabled template adds no vendor Worker, binding or build; absent key stays compatible", async () => {
+test("disabled or absent vendor adds no Worker or sample fallback", async () => {
   const config = await fixture();
   const base = await bases();
   for (const value of [config.forkhorseGatekeeper, undefined]) {
@@ -43,8 +45,10 @@ test("disabled template adds no vendor Worker, binding or build; absent key stay
     validateConfig(config);
     const generated = generateConfigs(config, base);
     assert.equal(generated.forkhorseGatekeeper, undefined);
+    assert.ok(!("customGatekeeper" in generated));
     for (const host of [generated.router, generated.workshop]) {
       assert.ok(!host.services?.some((s) => s.binding === "GATEKEEPER_FORKHORSE"));
+      assert.ok(!host.services?.some((s) => s.binding === "GATEKEEPER_CUSTOM"));
     }
     assert.ok(!buildCommands(config).some(({ args }) => args.includes("forkhorse-gatekeeper")));
   }
@@ -63,13 +67,21 @@ test("enabled vendor is private and bound through distinct HTTP and RPC entrypoi
   assert.equal(worker.workers_dev, false);
   assert.equal(worker.preview_urls, false);
   assert.equal(worker.routes, undefined);
-  for (const key of ["secrets", "vars", "services", "artifacts", "durable_objects"] as const) {
+  for (const key of ["secrets", "services", "artifacts"] as const) {
     assert.equal(worker[key], undefined, `wiring must not add ${key} authority`);
   }
+  assert.deepEqual(worker.vars, { BASE_URL: "https://os.idiot.tax/gatekeeper/forkhorse" });
+  assert.deepEqual(worker.durable_objects, base.forkhorseGatekeeper!.durable_objects);
   assert.deepEqual(generated.router.services?.filter((s) => s.binding === "GATEKEEPER_FORKHORSE"),
     [{ binding: "GATEKEEPER_FORKHORSE", service: worker.name }]);
   assert.deepEqual(generated.workshop.services?.filter((s) => s.binding === "GATEKEEPER_FORKHORSE"),
     [{ binding: "GATEKEEPER_FORKHORSE", service: worker.name, entrypoint: "GatekeeperVendor" }]);
+  for (const host of [generated.router, generated.workshop]) {
+    assert.ok(!host.services?.some(s => s.binding === "GATEKEEPER_CUSTOM"));
+    assert.equal(host.services?.filter(s => s.binding === "GATEKEEPER_MCP").length, 1);
+  }
+  assert.deepEqual(deploymentOrder(config), ["errorReporter", "context", "scheduler", "mcp", "forkhorseGatekeeper", "workshop", "router"]);
+  assert.ok(!buildCommands(config).some(({ args }) => args.includes("custom-gatekeeper")));
   assert.deepEqual(base, before);
   assert.ok(buildCommands(config).some(({ args }) => args.includes("forkhorse-gatekeeper") && args.includes("--no-cache")));
   delete base.forkhorseGatekeeper;
@@ -78,7 +90,7 @@ test("enabled vendor is private and bound through distinct HTTP and RPC entrypoi
 
 test("vendor config rejects malformed switches and colliding Worker identities", async () => {
   for (const value of [null, { enabled: "true" }, { enabled: true, workerName: "Bad/name" },
-    { enabled: true, workerName: "fixture-router" }, { enabled: true, workerName: "fixture-customgatekeeper" }]) {
+    { enabled: true, workerName: "fixture-router" }, { enabled: true, workerName: "fixture-mcp" }]) {
     const config = await fixture();
     config.forkhorseGatekeeper = value as DeploymentConfig["forkhorseGatekeeper"];
     assert.throws(() => validateConfig(config));
@@ -91,4 +103,21 @@ test("vendor config rejects malformed switches and colliding Worker identities",
     access: { issuer: "https://fixture.cloudflareaccess.com", audience: "fixture", owners: ["owner@idiot.tax"] },
   };
   assert.throws(() => validateConfig(config), /forkhorseGatekeeper.workerName must be unique/);
+});
+
+test("template selects the replacement and legacy sample placeholders grant no authority", async () => {
+  const template = await jsonc("../deployment.jsonc");
+  assert.equal(template.forkhorseGatekeeper.enabled, true);
+  assert.equal(template.workers.customGatekeeper, undefined);
+  const config = await fixture();
+  config.forkhorseGatekeeper = { enabled: true, workerName: "fixture-agent-vendor" };
+  config.workers.customGatekeeper = { name: "<RETIRED_SAMPLE>" };
+  config.customGatekeeper = { name: "<RETIRED_NAME>", message: "<RETIRED_MESSAGE>" };
+  validateConfig(config);
+  const generated = generateConfigs(config, await bases());
+  assert.ok(!("customGatekeeper" in generated));
+  for (const host of [generated.router, generated.workshop]) {
+    assert.equal(host.services?.filter(s => s.binding === "GATEKEEPER_FORKHORSE").length, 1);
+    assert.equal(host.services?.filter(s => s.binding === "GATEKEEPER_CUSTOM").length, 0);
+  }
 });

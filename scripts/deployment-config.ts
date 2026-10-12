@@ -115,7 +115,8 @@ export interface DeploymentConfig {
     scheduler: { name: string };
     /** Upstream connector for user-supplied MCP endpoints; deployed by default. */
     mcp: { name: string };
-    customGatekeeper: { name: string };
+    /** Legacy sample setting; ignored because the agent fork vendor replaces it. */
+    customGatekeeper?: { name: string };
     /** Only required when `errorReporting.enabled`. */
     errorReporter?: { name: string };
   };
@@ -124,8 +125,8 @@ export interface DeploymentConfig {
   access: AccessConfig;
   aiGateway: AiGatewayConfigInput;
   context: ContextConfig;
-  /** Display text the example custom Gatekeeper serves to agents. */
-  customGatekeeper: { name: string; message: string };
+  /** Legacy sample setting; ignored. The package is retained only as a reference. */
+  customGatekeeper?: { name: string; message: string };
   /** Private explicit-issue destination. */
   errorReporting: { enabled: boolean; environment?: string; release?: string | null };
   /** Workshop KV/R2. `null` requests Wrangler automatic provisioning. */
@@ -206,7 +207,6 @@ export interface GeneratedConfigs {
   context: ProdWranglerConfig;
   scheduler: ProdWranglerConfig;
   mcp: ProdWranglerConfig;
-  customGatekeeper: ProdWranglerConfig;
   /** Absent when `errorReporting.enabled` is false. */
   errorReporter?: ProdWranglerConfig;
 }
@@ -220,7 +220,7 @@ export interface BaseConfigs {
   context: ProdWranglerConfig;
   scheduler: ProdWranglerConfig;
   mcp: ProdWranglerConfig;
-  customGatekeeper: ProdWranglerConfig;
+  customGatekeeper?: ProdWranglerConfig;
   errorReporter: ProdWranglerConfig;
 }
 

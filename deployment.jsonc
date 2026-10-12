@@ -36,7 +36,6 @@
     // availability is controlled in admin -> Gatekeepers. No external storage or secrets required.
     "mcp": { "name": "<MCP_WORKER_NAME>" },
 
-    "customGatekeeper": { "name": "<CUSTOM_GATEKEEPER_WORKER_NAME>" },
     "errorReporter": { "name": "<ERROR_REPORTER_WORKER_NAME>" }
   },
 
@@ -70,10 +69,11 @@
     }
   },
 
-  // Optional private GATEKEEPER_FORKHORSE binding. Keep disabled pending account-flow acceptance.
-  // Wiring alone grants no accounts, resources or Git access. Owner values stay in the local file.
+  // Private GATEKEEPER_FORKHORSE replaces the starter sample in deployment and admin discovery.
+  // Wiring grants no accounts or Git access; each user must connect an enrolled agent.
+  // Set enabled false to omit this vendor entirely. Owner values stay in the local file.
   "forkhorseGatekeeper": {
-    "enabled": false,
+    "enabled": true,
     "workerName": "<FORKHORSE_GATEKEEPER_WORKER_NAME>"
   },
 
@@ -114,13 +114,6 @@
     //   // Optional override; defaults to "gatekeeper-context-collections".
     //   "namespace": "custom-context-collections"
     // }
-  },
-
-  // Displayed to agents when the example custom integration is enabled in /admin.
-  // Reference: docs/customization.md#custom-gatekeepers
-  "customGatekeeper": {
-    "name": "<ORGANIZATION_DISPLAY_NAME>",
-    "message": "<ORGANIZATION_GUIDANCE>"
   },
 
   // Explicit backend issue reports go to a private Worker that emits structured console errors.

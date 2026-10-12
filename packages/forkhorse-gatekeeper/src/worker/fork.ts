@@ -46,7 +46,18 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
       if (branch !== head.branch) throw new Error("Only the fork's default branch is supported.");
       if (head.commitId === commitId) return;
       const actions = this.ctx.storage.kv.list<Push>({ prefix: "push:" });
-      if ([...actions].some(([, a]) => a.status === "pending" || a.status === "preparing")) {
+      const interrupted = [...actions].find(([, a]) => a.status === "preparing");
+      if (interrupted) {
+        const [key, action] = interrupted;
+        if (action.branch !== branch || action.newSha !== commitId) {
+          throw new Error("Retry the interrupted push with the same branch and commit before submitting another.");
+        }
+        // Reuse the gatekeeper action ID after an ambiguous reply/crash. The OS may
+        // queue a duplicate, but applying this ID is serialized and idempotent.
+        await this.#queuePush(queue, Number(key.slice(5)), action, head.repoName);
+        return;
+      }
+      if ([...actions].some(([, a]) => a.status === "pending")) {
         throw new Error("Resolve the pending push before submitting another.");
       }
       using cache = await queue.getGitCache();
@@ -57,18 +68,21 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
       this.ctx.storage.kv.put("nextAction", id);
       const action: Push = { branch, oldSha: head.commitId, newSha: commitId, status: "preparing" };
       this.ctx.storage.kv.put(`push:${id}`, action);
-      try {
-        await queue.submitAction(id, {
-          title: `Push ${commitId.slice(0, 12)} to ${branch}`,
-          description: `Advance fork ${head.repoName} on branch ${branch} from ${head.commitId} to ${commitId}. The update fails if the branch moved.`,
-          pushedCommits: [commitId], implementsRevert: false, awaitDecision: true,
-        });
-        this.ctx.storage.kv.put(`push:${id}`, { ...action, status: "pending" });
-      } catch {
-        this.ctx.storage.kv.put(`push:${id}`, { ...action, status: "rejected" });
-        throw new Error("Push could not be submitted for approval.");
-      }
+      await this.#queuePush(queue, id, action, head.repoName);
     });
+  }
+  async #queuePush(queue: RpcStub<ApprovalQueue>, id: number, action: Push, repoName: string): Promise<void> {
+    try {
+      await queue.submitAction(id, {
+        title: `Push ${action.newSha.slice(0, 12)} to ${action.branch}`,
+        description: `Advance fork ${repoName} on branch ${action.branch} from ${action.oldSha} to ${action.newSha}. The update fails if the branch moved.`,
+        pushedCommits: [action.newSha], implementsRevert: false, awaitDecision: true,
+      });
+      this.ctx.storage.kv.put(`push:${id}`, { ...action, status: "pending" });
+    } catch {
+      // Keep the intent: the OS may have durably queued it before the reply failed.
+      throw new Error("Push submission was interrupted. Retry the same branch and commit.");
+    }
   }
   async gitPull(oids: GitOid[], cache: RpcStub<GitCache>, hints: GitPullHints): Promise<void> {
     await this.#account().pull(this.ctx.props.repoName, oids, hints, cache);
@@ -77,7 +91,8 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
     await this.#serial.run(async () => {
       const action = this.ctx.storage.kv.get<Push>(`push:${id}`);
       if (action?.status === "applied") return;
-      if (action?.status !== "pending") throw new Error("Push is not pending approval.");
+      // A queued OS action is still approvable if its submission reply was lost.
+      if (action?.status !== "pending" && action?.status !== "preparing") throw new Error("Push is not pending approval.");
       const head = await this.readHead();
       // Recover a lost successful reply; the approved exact commit is already present.
       if (head.commitId !== action.newSha) {

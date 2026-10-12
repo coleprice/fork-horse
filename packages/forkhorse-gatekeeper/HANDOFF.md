@@ -1,115 +1,141 @@
-# FH-008 WIP checkpoint
+# FH-008 local handback
 
-Status: **in progress; not for review or merge**. Authenticated agent accounts,
-owned-fork Git resources, approval-gated pushes and the read-only sidebar are
-implemented. Deployment integration with accepted FH-016 remains outstanding.
+Status: **local S7/S9 verified; WIP publication, no merge or deployment**. The
+private enrolled-agent vendor replaces the starter sample. Full popup UX remains a
+manual check; native negative-RPC diagnostics remain disclosed below.
 
 ## Provenance and scope
 
 - Branch: `fh/FH-008-gatekeeper`.
-- Published checkpoints `4ed940969e1e3a6f48cbc6a1c35326f7665b443e` and
-  `53bf918b14cb9dc7d95e9483efb28d2b40da7c1f` are preserved.
-- Accepted FH-013 `2b19a4f06c3f7b9e03ec0ebd193d43b997241eeb` was integrated by
-  normal merge `e99c96d`.
-- Upstream remains pinned, unmodified, at
-  `8cbfb2b67e3da6222e4d7faeade0ff88eb4253bf`.
-- This checkpoint covers the package and its lockfile importer. Earlier uncommitted
-  deployment changes remain outside this checkpoint while FH-016 owns tooling.
-- No core/dashboard/upstream/board changes, live owner configuration, Cloudflare
-  operations, real credentials, inference or deployment are part of this work.
+- Published checkpoints `4ed940969e1e3a6f48cbc6a1c35326f7665b443e`,
+  `53bf918b14cb9dc7d95e9483efb28d2b40da7c1f` and
+  `2a355a8e61bfb5aef4fe5d17683d57593f2c2e23` are preserved.
+- Accepted FH-013 was integrated by normal merge `e99c96d`. Accepted main
+  `ba05c76d7743278ede25880c197933a059279474`, including FH-016, was integrated by
+  normal merge `7325fd3`. The two owned script edits were stashed before this merge
+  and restored afterward; the one merge conflict combined the deployment-order
+  helper with this vendor before implementing the sample replacement.
+- Upstream remains pinned and unmodified at
+  `8cbfb2b67e3da6222e4d7faeade0ff88eb4253bf`. All 1,676 tracked files in the
+  disposable full-OS archive were hash-compared to that pin: zero differences.
+- Owned changes are confined to this package, its lockfile importer, deployment
+  scripts and the template. Other changes arrive only through accepted main.
+- No owner config, real credentials, external inference, Cloudflare operations,
+  board edits, deployment or canonical Git writes were performed.
 
-## Implementation
+## Implementation and deployment
 
-- `src/worker/account.ts`, `index.ts`: private credential DO, authenticated native
-  account, single-use connection handoff, staged reconnect, generation-based local
-  revocation, owned-fork discovery/picker and account UI.
-- `src/worker/core-client.ts`: authenticated `/me`, dashboard projection of `/state`,
-  scoped 60-second tokens, bounded responses/timeouts, no redirects and git UA.
-- `src/worker/fork.ts`, `src/fork-types.*`: observed/advertised heads, approval queue,
-  action-scoped pack building, fast-forward checks, exact old-SHA CAS and no force.
-- `src/feed.ts`, `client.ts`, `mount.ts`, `worker/sidebar.ts`: bounded subscription
-  and fallback, source authorization/disposal, dashboard reuse, iframe-local section
-  navigation and actual host prompt dispatch. Owner actions remain unavailable.
-- `app/picker.ts`: owned-fork selection with initial-resource support. The existing
-  draft-only configurator is retained as a fixture, separately from real connection.
-- Build/runtime configuration: three inline frames, bundled Worker, native runtime
-  validation and credential/fork Durable Object migrations.
+`UserAccount` stores an enrolled agent credential behind native capabilities.
+Connection uses authenticated `/me`, a single-use nonce and the pinned kit handoff.
+Reconnect is staged and retains the same origin/project/agent; revocation clears
+local credentials and stops sidebar disclosure. Ownership is rechecked before
+Git tokens are minted. The picker exposes only owned forks.
 
-## Local evidence
+`getHead()` records an observation and advertises the exact commit. Pushes require
+manual OS approval, a full SHA and a fast-forward on the fork's default branch.
+Applying the action builds its scoped pack and sends a real old-SHA CAS through
+kit transport with a git User-Agent. Tokens last 60 seconds and never reach the
+agent or iframe. There is no force push, canonical write or rewriting revert.
 
-1. The package suite covers 10 Node tests and 19 workerd tests. The latter includes
-   account connection/reconnect/revocation, owner and foreign-agent denial, scoped
-   discovery, dashboard state projection, no pre-approval token minting, fast-forward
-   and stale-head rejection, idempotent application, Git protocol and redirect denial.
-2. `pnpm --filter forkhorse-gatekeeper test:local` passed with the unchanged pinned
-   OS kernel and real local Git. It exercised native account and gatekeeper
-   capabilities, `getHead`, actual `createWorktree`, edit/commit/barrier, native OS
-   approval and action-scoped pack/CAS push. Before approval the remote stayed at
-   its original SHA; after approval the remote contained the expected file. A real
-   concurrent receive-pack ref update was rejected and its OS action stayed pending.
-   The printed receipt reported one pull and one successful push before the CAS race.
-   This is kernel acceptance in workerd, not that scenario inside the full run-local
-   server process. Core enrollment and tokens were synthetic.
-3. A browser harness using the actual pinned OS host component and default limiter
-   displayed 598 synthetic batches over 150 seconds. Counters stayed at one snapshot,
-   one subscription and zero polls; no browser errors/warnings appeared. Ask an agent
-   used the actual host prompt/router path.
-4. An isolated archive of the exact upstream pin ran its unchanged `pnpm run-local`
-   entrypoint with a fresh local HOME and no owner credentials. Package installation
-   fetched registry dependencies; this was not a network-free bootstrap. Only a new
-   test gatekeeper extension was added to that disposable copy. Its offline Worker
-   refused external Core/Git traffic and labeled all state synthetic.
-5. Full OS synthetic account connection and handoff redemption succeeded through
-   the real OS APIs. Browser form submission succeeded with the correct same-origin
-   policy. Automated browser access could not adopt the OS-created popup, so the
-   complete popup UX remains unverified; API handoff evidence does not substitute
-   for that UX. Reloading the pinned OS after account connection populated its app
-   navigation. No AI model was configured and no prompt was sent.
-6. Full OS sidebar testing caught and fixed two integration issues: projecting the
-   raw Core state before rendering, and preventing srcdoc hash links from navigating
-   to the parent OS route. The rebuilt frame stayed active across section navigation
-   and advanced 298 synthetic quarter-second batches over 74.6 seconds. Ask an agent
-   opened the actual Home composer with the expected project prompt. The native
-   resource picker listed the connected agent's fork, enabled Add connection only
-   after selection and added that fork to the composer. No message was sent; the
-   browser reported no errors.
+An interrupted approval submission retains its intent and can retry with the same
+gatekeeper action ID. If the OS queued it but lost its reply, that action remains
+approvable/rejectable. Retries can produce duplicate OS rows; applying the same ID
+is serialized and idempotent, so only one Git write occurs. If one duplicate is
+rejected, remaining duplicates fail closed and can be rejected in the OS. Tests
+cover both lost replies and duplicate application. Process-kill fault injection at
+every individual instruction is not claimed.
 
-## Checkpoint validation
+The sidebar reuses the accepted dashboard's projection, mount function and CSS.
+It exposes only read-only snapshot/subscription/poll methods, reauthorizes reads,
+coalesces updates and stops on disposal. Capture interception plus transport
+rejection disable owner actions. Its srcdoc section links scroll locally; Ask an
+agent uses the actual OS `host.openPrompt` without submitting the prompt.
+
+Deployment now omits the starter sample from generated configs, build/deploy order
+and both consumers' bindings. The sample package remains as reference code. The
+template enables the replacement vendor wiring; disabling it omits the vendor
+entirely, without a sample fallback. Legacy sample settings/placeholders are
+ignored. The new Worker gets its private BASE_URL and DO migrations and deploys
+before Workshop/router. Router HTTP and Workshop vendor RPC use distinct bindings.
+MCP remains installed as accepted in FH-016. Generated-config tests show exactly
+one `GATEKEEPER_FORKHORSE` and no `GATEKEEPER_CUSTOM`; this is local wiring evidence,
+not a claim about an installed owner's admin page.
+
+## Local acceptance evidence
+
+### S7: full OS server and real Git
+
+The unchanged pinned OS ran in a disposable archive, with its own empty HOME and
+synthetic user. A deterministic local Anthropic-protocol fixture supplied the tool
+sequence; no model inference or provider was involved. The real OS executed:
+
+1. Native account connection and handoff redemption.
+2. Owned-fork resource selection, observed `getHead` and commit advertisement.
+3. Its actual agent `createWorktree` tool, Git pull, read/write and commit.
+4. Native pending approval with the remote unchanged and zero Git writes.
+5. `approveAction`, action-scoped pack construction and successful Git CAS push.
+
+Final receipt: old SHA `5713416f094424cc79f1f7cb8aa03ad6218437da`, new SHA
+`0300b810687c0753b9cb715bc699fc5b842832c1`, one pull and one write. The actual bare
+repository contained `After full run-local approval` in `README.md`. The browser
+showed the same approved action, before/after SHAs, worktree head and file diff.
+
+The separate native kernel test also passed a real receive-pack race: another
+commit moved the branch after the gatekeeper read, Git rejected the old-SHA CAS,
+the losing commit was absent and the OS action remained pending. This case uses
+the native workerd kernel harness, distinct from the full-server positive flow.
+
+### S9: full OS browser and default limiter
+
+The final rebuilt sidebar advanced 347 labeled synthetic quarter-second batches
+in 86.8 seconds through the actual native account and pinned OS host. Section
+navigation preserved the iframe. Ask an agent navigated to Home with the expected
+project prompt. That prompt was not sent. Earlier full-OS picker checks listed
+only the connected fork, enabled Add connection after selection and added it to
+the composer. The retained component harness also observed 598 batches in 150
+seconds with one snapshot, one subscription and zero polls under the pinned
+8-concurrent/600-per-minute/128-pending limiter.
+
+On reopening the browser with an older synthetic account whose fixture identity
+had changed, the sidebar correctly denied it. Signing into the fresh fixture
+account succeeded. The stale-account denial is not suppressed or described as a
+successful session. No subsequent error appeared during the final S7/S9 browser
+interaction.
+
+## Checks and reproduction
 
 | Command | Result |
 | --- | --- |
-| `pnpm --filter forkhorse-gatekeeper build` | Exit 0; types, inline frames and production fixture-exclusion checks passed. |
-| `pnpm test` | Exit 0; repository suites including 10 package Node tests and 19 package workerd tests passed. |
-| `pnpm lint` | Exit 0; lint, script types and workspace builds passed. |
-| `pnpm --filter forkhorse-gatekeeper test:local` | Exit 0; pinned kernel, real Git approval/CAS evidence described above. |
-| Pinned `wrangler deploy --dry-run` with synthetic config | Exit 0; all networking denied, fresh HOME, no owner config or credentials. |
+| `pnpm install --frozen-lockfile` | Exit 0 on accepted merged workspace. |
+| `pnpm --filter forkhorse-gatekeeper build` | Exit 0; browser/Worker types and all production bundle checks. |
+| `pnpm --filter forkhorse-gatekeeper test` | Exit 0; 10 Node tests and 21 workerd tests. |
+| `pnpm --filter forkhorse-gatekeeper test:local` | Exit 0; native kernel and real Git CAS race. |
+| Full local OS API driver | Exit 0; receipt above, verified in the actual browser. |
+| `pnpm test` | Exit 0; all repository suites, including package Node/workerd tests. |
+| `pnpm lint` | Exit 0; lint, script types and workspace builds. |
+| Pinned Wrangler dry-run with synthetic config | Exit 0; Worker bundling only, no owner config, networking or deployment. |
+| Full-OS preparation helper | Exit 0; disposable exact-pin archive and separate fixture extension created. |
 | `git diff --check` | Exit 0. |
 
-Only three lockfile lines were added for the gatekeeper-kit dependency in this
-package's importer. Upstream source and its gitlink remained unchanged.
+See [the local harness guide](test/local/README.md) for reproducible preparation and
+commands. Only this package's lockfile importer differs from accepted main. Full OS
+bootstrap fetched registry dependencies; it was not a network-free installation.
+Production `dist/worker.js` excludes the test-only Worker, synthetic credential and
+model fixture. Deployment consumes only that production artifact.
 
-Negative native RPC diagnostics remain visible. A plain returned RpcTarget in the
-Vitest pool reproduces the hung-request warning, yet the expected rejection, later
-ping and disposal assertions pass. A standalone Miniflare version passes without
-the warning. The successful native kernel Git flow also completes without it. This
-narrows the issue but does not prove a root cause.
+## Explicit remaining boundaries
 
-## Remaining gates
-
-- Integrate latest accepted main and FH-016 with normal merges, preserving published
-  checkpoints. Then replace the starter sample in deployment order and bindings
-  with `GATEKEEPER_FORKHORSE`, so admin has exactly one branded row. Keeping the
-  sample package is allowed. Do not edit tooling concurrently with FH-016.
-- Finish exact S7/S9 acceptance against the packet: kernel S7 evidence is strong,
-  but the same Git scenario has not run inside the full run-local server process.
-  Complete popup UX remains distinct from the verified API handoff and sidebar.
-- A crash during approval preparation can leave a preparing action requiring
-  recovery; final review must assess this state transition before acceptance.
-- Pinned OS app discovery currently needs a reload after the manually completed
-  connection. The dashboard adapter relies on the accepted dashboard's selectors;
-  those assumptions are covered by tests.
-- Live Core/Artifacts, owner installation, deployment and production acceptance
-  remain unperformed and separately gated. No canonical push or promotion is exposed.
-
-WIP publication is authorized. This checkpoint does not request review, merge,
-publication of owner configuration or live operations.
+- The automated browser could not adopt the OS-created disowned popup. Browser
+  form submission and the real OS API handoff were verified separately. The entire
+  popup UX remains a manual acceptance item; no provider/install acceptance is claimed.
+- Negative native RPC tests still emit expected exceptions and, in the Vitest worker
+  pool, a hung-request diagnostic. A plain returned RpcTarget reproduces it while
+  rejecting correctly, responding to a later ping and disposing. A standalone
+  Miniflare control passes without the warning. The positive full-server flow and
+  native kernel flow complete. The underlying pool/runtime cause remains unproven;
+  logs are not filtered or suppressed.
+- Pinned OS app discovery needed a reload after API-only account connection and
+  selects the first management-UI account per vendor. This package does not change
+  those upstream behaviors. Dashboard selector coupling remains guarded by tests.
+- Live Core/Artifacts, owner installation, deployment, popup UX and production
+  acceptance remain separate. No review/merge authority is inferred from checks.
