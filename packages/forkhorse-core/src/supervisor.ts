@@ -1,7 +1,8 @@
 import { EventSubscriptions, publicEvents, registerEvents } from "./subscriptions";
 import { CallerCredentials } from "./caller-credentials";
 import { DurableObject } from "cloudflare:workers";
-import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, slug } from "./http";
+import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, operation, slug } from "./http";
+import type { ErrorContext } from "./http";
 import { changedPaths } from "./trees";
 import { branchHead } from "./artifacts";
 import type { Activity, Env, Project, PushEvent } from "./types";
@@ -125,6 +126,7 @@ export class Supervisor extends DurableObject<Env> {
 
   private async dispatch(request: Request, trustedOwner: boolean): Promise<Response> {
     return this.exclusive(async () => {
+      const diagnostic: ErrorContext = { op: operation(request) };
       try {
         const hash = trustedOwner ? "" : await bearerHash(request);
         const url = new URL(request.url);
@@ -175,14 +177,14 @@ export class Supervisor extends DurableObject<Env> {
         }
         const credentialResponse = await new CallerCredentials(this.ctx.storage, this.env).route(request, project, actor);
         if (credentialResponse) return credentialResponse;
-        const response = await new Workflow(this.ctx.storage, this.env, this.gitOperations()).route(
+        const response = await new Workflow(this.ctx.storage, this.env, this.gitOperations(), diagnostic).route(
           request,
           project,
           actor,
         );
         return response ?? json({ error: "Not found." }, 404);
       } catch (error) {
-        return errorResponse(error);
+        return errorResponse(error, diagnostic);
       }
     });
   }

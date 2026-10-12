@@ -117,6 +117,12 @@ bearer token, `403` unauthorized token/agent, `404` unknown route/project, `405`
 unsupported method, `409` conflicts/stale approvals/uncertain operations, `413` oversized bodies, and
 `502` sanitized provider failure. Authorization happens before repo operations.
 
+Unexpected failures keep the same public message and add a UUID `diagnosticId`.
+One JSON `core.error` log line carries that ID, a static operation label, the
+known promote stage, and validated error name/code and HTTP status when present.
+Name/code values must match `[A-Za-z0-9_.-]{1,64}`; messages, stacks, URLs,
+headers, tokens and response bodies are excluded. `HttpError` responses are unchanged.
+
 ## Queue and changed paths
 
 Connect a Cloudflare event subscription for `cf.artifacts.repo.pushed` to a Queue

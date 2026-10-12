@@ -11,10 +11,68 @@ export function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
 }
 
-export function errorResponse(error: unknown): Response {
-  // Provider exceptions may contain credentials; never echo or log their text.
+const operations = [
+  "request", "project.create", "project.join", "fork.commit", "review.create",
+  "review.approve", "review.promote", "dashboard", "oauth",
+] as const;
+const stages = ["heads", "prepare", "pending", "token", "push", "ledger"] as const;
+export interface ErrorContext {
+  op: typeof operations[number];
+  stage?: typeof stages[number];
+}
+
+/** Static labels only: project IDs, fork names, review IDs and query strings never enter logs. */
+export function operation(request: Request): ErrorContext["op"] {
+  const path = new URL(request.url).pathname;
+  if (request.method === "POST") {
+    if (path === "/projects") return "project.create";
+    if (/^\/projects\/[^/]+\/join$/.test(path)) return "project.join";
+    if (/^\/projects\/[^/]+\/forks\/[^/]+\/commit$/.test(path)) return "fork.commit";
+    if (/^\/projects\/[^/]+\/reviews$/.test(path)) return "review.create";
+    if (/^\/projects\/[^/]+\/reviews\/[^/]+\/approve$/.test(path)) return "review.approve";
+    if (/^\/projects\/[^/]+\/reviews\/[^/]+\/promote$/.test(path)) return "review.promote";
+  }
+  if (path === "/app" || path.startsWith("/app/")) return "dashboard";
+  if (path === "/mcp" || path === "/authorize" || path.startsWith("/oauth/") || path.startsWith("/.well-known/")) return "oauth";
+  return "request";
+}
+
+function errorField(error: unknown, key: string): unknown {
+  if ((typeof error !== "object" || error === null) && typeof error !== "function") return;
+  try {
+    return Reflect.get(error, key);
+  } catch {
+    // A provider's accessor must not hide the original failure or expose its exception.
+    return;
+  }
+}
+function tag(value: unknown): string | undefined {
+  // Test every character, including trailing newlines; never coerce provider values.
+  return typeof value === "string" && value.length >= 1 && value.length <= 64 &&
+    !/[^A-Za-z0-9_.-]/.test(value) ? value : undefined;
+}
+function httpStatus(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value : undefined;
+}
+
+export function errorResponse(error: unknown, context: ErrorContext = { op: "request" }): Response {
+  // Provider messages, stacks and nested objects never enter either output.
   if (error instanceof HttpError) return json({ error: error.message }, error.status);
-  return json({ error: "Repository operation failed; retry or ask the owner to inspect it." }, 502);
+  const id = crypto.randomUUID();
+  console.error(JSON.stringify({
+    event: "core.error",
+    id,
+    op: operations.includes(context.op) ? context.op : "request",
+    stage: context.stage && stages.includes(context.stage) ? context.stage : undefined,
+    name: tag(errorField(error, "name")),
+    code: tag(errorField(error, "code")),
+    status: httpStatus(errorField(error, "status")) ?? httpStatus(errorField(error, "statusCode")),
+  }));
+  return json({
+    error: "Repository operation failed; retry or ask the owner to inspect it.",
+    diagnosticId: id,
+  }, 502);
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
