@@ -287,3 +287,16 @@ the FH-007 sandbox Git runner. `GitOperations`/`PreparedPush` define the integra
 seam; no sandbox or live runner is installed by this packet. FH-007 receipt and
 large-repository integration, FH-012 MCP/dashboard/auth composition, deployment,
 and live acceptance remain separate work.
+
+## Public Worker composition (FH-012)
+
+The Worker now hosts the OAuth-wrapped MCP endpoint, Access-protected `/app` assets,
+and the existing project API. The trusted adapter validates enrolled-agent credentials
+through private Supervisor RPC and rejects owner credentials as MCP agents. Browser
+owner calls verify Access signatures, audience, issuer, time claims and an explicit
+owner allowlist; writes also require the configured origin and JSON content type.
+
+See [core integration](../../docs/core-integration.md) for the optional owner-local
+configuration, assets build, Queue consumer, event subscription prerequisites and
+separate live gates. `__tests__/integration.test.ts` uses offline signed JWTs, local
+KV/DOs, built dashboard assets and a mocked JWKS fetch. These are not live acceptance results.

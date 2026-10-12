@@ -78,16 +78,55 @@ export class Supervisor extends DurableObject<Env> {
     throw new HttpError(403, "Token is not authorized for this project.");
   }
 
-  async fetch(request: Request): Promise<Response> {
+  /** Private binding capability. The public Worker verifies Access before invoking this. */
+  async ownerRequest(input: {
+    url: string;
+    method: string;
+    body?: string;
+  }): Promise<{ status: number; body: string }> {
+    const response = await this.dispatch(
+      new Request(input.url, {
+        method: input.method,
+        body: input.body,
+        headers: { "content-type": "application/json" },
+      }),
+      true,
+    );
+    return { status: response.status, body: await response.text() };
+  }
+
+  /** Private MCP authentication seam; an owner credential can never become an agent. */
+  async authenticateAgent(token: string): Promise<{ project: string; agent: string } | null> {
+    if (!token || token.length > 512) return null;
     return this.exclusive(async () => {
       try {
-        const hash = await bearerHash(request);
+        const actor = await this.authorize(await digest(token));
+        const project = await this.ctx.storage.get<Project>("project");
+        return !actor.owner && actor.agent && project
+          ? { project: project.id, agent: actor.agent }
+          : null;
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 403) return null;
+        throw error;
+      }
+    });
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    return this.dispatch(request, false);
+  }
+
+  private async dispatch(request: Request, trustedOwner: boolean): Promise<Response> {
+    return this.exclusive(async () => {
+      try {
+        const hash = trustedOwner ? "" : await bearerHash(request);
         const url = new URL(request.url);
         if (request.method === "POST" && url.pathname === "/projects") {
-          if (!this.isOwner(hash)) throw new HttpError(403, "Only the owner can create projects.");
+          if (!trustedOwner && !this.isOwner(hash))
+            throw new HttpError(403, "Only the owner can create projects.");
           return await this.create(await body(request));
         }
-        const actor = await this.authorize(hash);
+        const actor = trustedOwner ? { owner: true } : await this.authorize(hash);
         const project = await this.ctx.storage.get<Project>("project");
         if (!project) throw new HttpError(404, "Project not found.");
         if (url.pathname === `/projects/${project.id}/join` && request.method === "POST") {

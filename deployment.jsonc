@@ -47,6 +47,25 @@
     "admins": ["<ADMIN_EMAIL>"]
   },
 
+  // Public core integration. Enable only in deployment.local.jsonc after review.
+  // See docs/core-integration.md for Access path policies and event subscription setup.
+  "core": {
+    "enabled": false,
+    "workerName": "<CORE_WORKER_NAME>",
+    "hostname": "<CORE_HOSTNAME>",
+    "mcpPath": "/mcp",
+    "project": "<PROJECT_SLUG>",
+    "artifactsNamespace": "<ARTIFACTS_NAMESPACE>",
+    "oauthKvNamespaceId": null,
+    "pushQueue": "<PUSH_QUEUE_NAME>",
+    "deadLetterQueue": "<DEAD_LETTER_QUEUE_NAME>",
+    "access": {
+      "issuer": "https://<TEAM_NAME>.cloudflareaccess.com",
+      "audience": "<CORE_ACCESS_AUDIENCE>",
+      "owners": ["<OWNER_EMAIL>"]
+    }
+  },
+
   // Model catalog served through Cloudflare AI Gateway. Enabled by default: the Workshop reaches
   // the gateway over its WORKERS_AI binding, which is pre-authenticated inside your own account,
   // so no API token is needed.

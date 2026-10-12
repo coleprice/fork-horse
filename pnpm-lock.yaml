@@ -190,9 +190,15 @@ importers:
 
   packages/forkhorse-core:
     dependencies:
+      forkhorse-mcp:
+        specifier: workspace:*
+        version: link:../forkhorse-mcp
       isomorphic-git:
         specifier: 1.42.2
         version: 1.42.2
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
     devDependencies:
       '@cloudflare/vitest-plugin':
         specifier: 1.4.0

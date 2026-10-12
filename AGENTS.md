@@ -20,3 +20,4 @@ Fork Horse (a code name) is a multi-agent collaboration layer for Git, built on 
 4. **Task packets.** Work arrives as packets that name scope, allowed paths and acceptance checks. Stay inside the packet. Report results with evidence: commands run and their output.
 5. **Tests.** `pnpm test`, `pnpm lint` and the touched package's own tests must pass before you hand work back.
 6. **Test data.** Use the `idiot.tax` domain for any fictional email address.
+7. **Worker runtime tests.** Packages deployed to Cloudflare Workers must test under workerd. Node-only tests do not satisfy runtime acceptance.
