@@ -32,6 +32,7 @@ console.log("Bundle verified: branded inline HTML, JavaScript and CSS; fixture d
 dom.window.close();
 const configurator = new JSDOM(
   readFileSync(new URL("../dist/configurator.html", import.meta.url), "utf8"),
+  options,
 );
 assert.equal(configurator.window.document.title, brand.name);
 assert.equal(
