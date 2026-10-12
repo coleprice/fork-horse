@@ -10,7 +10,7 @@
     "test:run": "pnpm run test:node && pnpm run test:workerd",
     "types:check": "tsc --noEmit && tsc -p tsconfig.worker.json --noEmit",
     "dev:fixture": "pnpm run build && vite --host 127.0.0.1",
-    "test:node": "node --import ./test/node-runtime.ts --test test/*.test.ts",
+    "test:node": "node --import ../forkhorse-dashboard/test/jsx-runtime.ts --import ./test/node-runtime.ts --test test/*.test.ts",
     "test:workerd": "pnpm run build:assets && vitest run",
     "test:local": "node test/local/run.ts",
     "dev:local-sidebar": "pnpm run build && vite --config vite.local.config.ts"
@@ -19,7 +19,7 @@
     "capnweb": "catalog:",
     "@gadgets/workshop-shared": "workspace:*",
     "capnweb-validate": "catalog:",
-    "@gadgets/gatekeeper-kit": "workspace:*"
+    "@gadgets/gatekeeper-kit": "link:../../cloudflare-os/packages/gatekeeper-kit"
   },
   "devDependencies": {
     "jsdom": "26.1.0",
@@ -29,6 +29,7 @@
     "vitest": "catalog:",
     "vite": "catalog:",
     "wrangler": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@tailwindcss/vite": "4.3.3"
   }
 }

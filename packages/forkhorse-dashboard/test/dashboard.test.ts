@@ -146,11 +146,11 @@ test("owner DOM Approve calls the review endpoint once; Promote refreshes head a
     approve.click();
     await until(() => context.root.textContent!.includes("Approved ui-01"));
     assert.equal(context.fixture.calls.filter((call) => call.options.method === "POST").length, 1);
-    const call = context.fixture.calls.find((entry) => entry.options.method === "POST")!;
-    assert.equal(call.url.pathname, "/projects/demo/reviews/review-1/approve");
-    assert.equal(call.options.credentials, "same-origin");
-    assert.equal(call.options.body, "{}");
-    assert.deepEqual(call.options.headers, { "Content-Type": "application/json" });
+    const approvalCall = context.fixture.calls.find((entry) => entry.options.method === "POST")!;
+    assert.equal(approvalCall.url.pathname, "/projects/demo/reviews/review-1/approve");
+    assert.equal(approvalCall.options.credentials, "same-origin");
+    assert.equal(approvalCall.options.body, "{}");
+    assert.deepEqual(approvalCall.options.headers, { "Content-Type": "application/json" });
     assert.equal(button(context.root, "promote").disabled, false);
     button(context.root, "promote").click();
     await until(

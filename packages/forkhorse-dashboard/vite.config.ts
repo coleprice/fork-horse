@@ -1,5 +1,6 @@
+import tailwindcss from "@tailwindcss/vite";
 import { readFileSync } from "node:fs";
-import { defineConfig } from "vite-plus";
+import { defineConfig, type ViteDevServer } from "vite-plus";
 import { fixtureMiddleware } from "./test/fixture-api.ts";
 
 const brand = JSON.parse(readFileSync(new URL("../../brand.json", import.meta.url), "utf8"));
@@ -8,17 +9,28 @@ export default defineConfig(({ mode }) => ({
   define: { __DASHBOARD_BRAND__: JSON.stringify({ name: brand.name, tagline: brand.tagline }) },
   build: {
     outDir: mode === "fixture" ? "dist-fixture" : "dist",
-    rollupOptions: { input: mode === "fixture" ? "fixtures.html" : "index.html" },
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Kumo is client-only here; Rollup may safely remove its React server directive.
+        if (warning.code === "MODULE_LEVEL_DIRECTIVE" && warning.message.includes("use client"))
+          return;
+        warn(warning);
+      },
+      input: mode === "fixture" ? "fixtures.html" : "index.html",
+    },
   },
-  plugins:
-    mode === "fixture"
+  esbuild: { jsx: "automatic" },
+  plugins: [
+    tailwindcss(),
+    ...(mode === "fixture"
       ? [
           {
             name: "local-fixture-api",
-            configureServer(server) {
+            configureServer(server: ViteDevServer) {
               server.middlewares.use(fixtureMiddleware());
             },
           },
         ]
-      : [],
+      : []),
+  ],
 }));

@@ -11,11 +11,23 @@
     "build": "tsc --noEmit && vite build",
     "build:fixture": "vite build --mode fixture",
     "dev:fixture": "vite --mode fixture --host 127.0.0.1",
-    "test": "node --test test/*.test.ts",
-    "test:run": "node --test test/*.test.ts",
+    "test": "node --import ./test/jsx-runtime.ts --test test/*.test.ts",
+    "test:run": "node --import ./test/jsx-runtime.ts --test test/*.test.ts",
     "types:check": "tsc --noEmit"
   },
   "devDependencies": {
-    "jsdom": "26.1.0"
+    "jsdom": "26.1.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@tailwindcss/vite": "4.3.3",
+    "tailwindcss": "4.3.3",
+    "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "@cloudflare/kumo": "2.14.0",
+    "@phosphor-icons/react": "2.1.10",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "@gadgets/workshop-shared": "workspace:*"
   }
 }
