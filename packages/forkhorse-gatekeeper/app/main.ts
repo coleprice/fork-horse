@@ -57,7 +57,7 @@ async function start() {
       await connection.acquireUi(),
       () => {},
       resubscribeTheme,
-      () => connection.acquireUi(),
+      (isCurrent) => connection.acquireUi(isCurrent),
     );
     if (closed) {
       client.dispose();

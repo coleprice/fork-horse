@@ -36,3 +36,23 @@ test("host getter reacquires on a healthy port and replaces only a failed host s
   connection.dispose();
   assert.equal(disposed, 2);
 });
+
+for (const dispose of [false, true])
+  test(`a late getter rejection cannot renew a ${dispose ? "disposed" : "retired"} connection`, async () => {
+    let connects = 0,
+      active = true,
+      reject!: (error: Error) => void;
+    const pending = new Promise<SidebarUi>((_resolve, fail) => {
+      reject = fail;
+    });
+    const connection = hostConnection(() => {
+      connects++;
+      return { host: { ui: pending }, dispose() {} };
+    });
+    const acquiring = connection.acquireUi(() => active);
+    if (dispose) connection.dispose();
+    else active = false;
+    reject(new Error("Late closed port"));
+    await assert.rejects(acquiring, /Late closed port/);
+    assert.equal(connects, 1);
+  });

@@ -5,14 +5,17 @@ export function hostConnection<T extends { readonly ui: PromiseLike<SidebarUi> |
   connect: () => { host: T; dispose(): void },
 ) {
   let connection = connect();
+  let disposed = false;
   return {
     get host() {
       return connection.host;
     },
-    async acquireUi(): Promise<SidebarUi> {
+    async acquireUi(isCurrent: () => boolean = () => true): Promise<SidebarUi> {
+      if (disposed) throw new Error("Host connection closed.");
       try {
         return await connection.host.ui;
-      } catch {
+      } catch (error) {
+        if (disposed || !isCurrent()) throw error;
         // The host's local ui getter has no service work: a failed getter means its RPC session
         // is unavailable. The pinned host resets its handshake when the frame capability changes.
         connection.dispose();
@@ -21,6 +24,7 @@ export function hostConnection<T extends { readonly ui: PromiseLike<SidebarUi> |
       }
     },
     dispose() {
+      disposed = true;
       connection.dispose();
     },
   };

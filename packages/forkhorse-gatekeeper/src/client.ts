@@ -17,7 +17,7 @@ export async function connectSidebar(
   initialUi: SidebarUi,
   onError: (message: string) => void,
   resubscribeTheme: (isCurrent: () => boolean) => Promise<void> = async () => {},
-  acquireUi?: () => Promise<SidebarUi>,
+  acquireUi?: (isCurrent: () => boolean) => Promise<SidebarUi>,
 ) {
   let batch = await initialUi.snapshot();
   assertState(batch.state);
@@ -176,7 +176,11 @@ export async function connectSidebar(
   async function recover(owner: Session) {
     await release(owner);
     if (!current(owner)) return;
-    if (acquireUi) owner.ui = await observe(owner, acquireUi());
+    if (acquireUi)
+      owner.ui = await observe(
+        owner,
+        acquireUi(() => current(owner)),
+      );
     else owner.ui = initialUi;
     // Host-local and current: apply theme even if the replacement UI snapshot then fails.
     await observe(
