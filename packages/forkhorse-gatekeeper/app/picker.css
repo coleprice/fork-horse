@@ -7,6 +7,8 @@
 .fork-picker p {
   margin: 0;
 }
-.fork-picker label {
+.fork-picker label,
+.fork-picker [id$="-label"] {
   font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
 }
