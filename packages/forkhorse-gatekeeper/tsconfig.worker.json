@@ -1,0 +1,10 @@
+{
+  "extends": "../../cloudflare-os/tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"],
+    "allowImportingTsExtensions": true,
+    "experimentalDecorators": false,
+    "noEmit": true
+  },
+  "include": ["src/worker/**/*.ts", "__tests__/**/*.ts", "vitest.config.ts"]
+}

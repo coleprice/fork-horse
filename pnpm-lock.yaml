@@ -219,6 +219,43 @@ importers:
         specifier: 26.1.0
         version: 26.1.0(supports-color@10.2.2)
 
+  packages/forkhorse-gatekeeper:
+    dependencies:
+      '@gadgets/workshop-shared':
+        specifier: workspace:*
+        version: link:../../cloudflare-os/packages/workshop-shared
+      capnweb:
+        specifier: 'catalog:'
+        version: 0.12.0
+      capnweb-validate:
+        specifier: 'catalog:'
+        version: 0.3.0(capnweb@0.12.0)(esbuild@0.28.2)(rolldown@1.2.2)(rollup@4.62.4)(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0))
+    devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: 'catalog:'
+        version: 0.22.0(@cloudflare/workers-types@5.20261011.1)(@types/node@26.1.0)(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11(@types/node@26.1.0)(@vitest/browser-preview@5.0.3)(jsdom@26.1.0(supports-color@10.2.2))(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0)))
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20261011.1
+      jsdom:
+        specifier: 26.1.0
+        version: 26.1.0(supports-color@10.2.2)
+      miniflare:
+        specifier: 5.20261001.0-alpha
+        version: 5.20261001.0-alpha(@types/node@26.1.0)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: 7.3.6(@types/node@26.1.0)(lightningcss@1.33.0)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@26.1.0)(@vitest/browser-preview@5.0.3)(jsdom@26.1.0(supports-color@10.2.2))(vite@7.3.6(@types/node@26.1.0)(lightningcss@1.33.0))
+      wrangler:
+        specifier: 'catalog:'
+        version: 4.149.0(@cloudflare/workers-types@5.20261011.1)(@types/node@26.1.0)
+
   packages/forkhorse-mcp:
     dependencies:
       '@cloudflare/workers-oauth-provider':

@@ -1,0 +1,10 @@
+:root { font: 16px system-ui, sans-serif; color: #243327; background: #f5f6f2; }
+body { margin: 0; padding: 1.25rem; }
+h1 { font-size: 1.35rem; margin-top: 0; }
+form { display: grid; gap: 1rem; max-width: 38rem; }
+label { display: grid; gap: .4rem; }
+input, button { font: inherit; padding: .65rem; border: 1px solid #809177; border-radius: .4rem; }
+button { width: fit-content; cursor: pointer; }
+button:disabled { opacity: .6; cursor: not-allowed; }
+input:focus-visible, button:focus-visible { outline: 3px solid #9ebd89; }
+[role=status] { min-height: 3rem; }

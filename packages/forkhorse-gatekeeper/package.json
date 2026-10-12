@@ -1,0 +1,30 @@
+{
+  "name": "forkhorse-gatekeeper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run types:check && vite build && vite build --mode configurator && node test/verify-bundle.ts",
+    "test": "pnpm run test:node && pnpm run test:workerd",
+    "test:run": "pnpm run test:node && pnpm run test:workerd",
+    "types:check": "tsc --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "dev:fixture": "pnpm run build && vite --host 127.0.0.1",
+    "test:node": "node --import ./test/node-runtime.ts --test test/*.test.ts",
+    "test:workerd": "vitest run"
+  },
+  "dependencies": {
+    "capnweb": "catalog:",
+    "@gadgets/workshop-shared": "workspace:*",
+    "capnweb-validate": "catalog:"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "miniflare": "5.20261001.0-alpha",
+    "vitest": "catalog:",
+    "vite": "catalog:",
+    "wrangler": "catalog:",
+    "typescript": "catalog:"
+  }
+}
