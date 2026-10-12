@@ -1,6 +1,7 @@
 import { publicFetch } from "./public";
 import { parsePush, projectForRepo } from "./events";
 import type { Env } from "./types";
+export { ReceiptRunner, GitReadGateway } from "../../forkhorse-runner/src/index";
 export { Supervisor } from "./supervisor";
 
 export default {

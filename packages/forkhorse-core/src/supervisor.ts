@@ -1,3 +1,5 @@
+import { Receipts, recoverInterruptedReceipts } from "./receipts";
+import type { ExecuteReceipt } from "./receipts";
 import { EventSubscriptions, publicEvents, registerEvents } from "./subscriptions";
 import { CallerCredentials } from "./caller-credentials";
 import { DurableObject } from "cloudflare:workers";
@@ -51,8 +53,22 @@ function publicImportUrl(value: unknown): string | undefined {
 
 /** One durable coordinator per project; all operations share the same serialization gate. */
 export class Supervisor extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    ctx.blockConcurrencyWhile(() => recoverInterruptedReceipts(ctx.storage));
+  }
+
   protected gitOperations(): GitOperations {
     return new WorkerGit(this.env.ARTIFACTS);
+  }
+
+  protected receiptExecution(): ExecuteReceipt {
+    return (request, authority, generation) =>
+      this.ctx.exports.ReceiptRunner.getByName(generation).run(request, authority);
+  }
+
+  private receipts(): Receipts {
+    return new Receipts(this.ctx.storage, this.env, this.receiptExecution(), job => this.ctx.waitUntil(job));
   }
 
   private tail: Promise<void> = Promise.resolve();
@@ -179,7 +195,7 @@ export class Supervisor extends DurableObject<Env> {
         }
         const credentialResponse = await new CallerCredentials(this.ctx.storage, this.env).route(request, project, actor);
         if (credentialResponse) return credentialResponse;
-        const response = await new Workflow(this.ctx.storage, this.env, this.gitOperations(), diagnostic).route(
+        const response = await new Workflow(this.ctx.storage, this.env, this.gitOperations(), diagnostic, this.receipts()).route(
           request,
           project,
           actor,
@@ -206,6 +222,8 @@ export class Supervisor extends DurableObject<Env> {
         "agents must contain 1 to 50 unique lowercase slugs of at most 32 characters.",
       );
     }
+    if (data.requireReceipt !== undefined && typeof data.requireReceipt !== "boolean")
+      throw new HttpError(400, "requireReceipt must be a boolean.");
     const sourceUrl = publicImportUrl(data.sourceUrl);
     if (await this.ctx.storage.get("project")) throw new HttpError(409, "Project already exists.");
     // Persist intent before the external create: after an uncertain outcome, never adopt
@@ -226,6 +244,7 @@ export class Supervisor extends DurableObject<Env> {
       repoName: created.name,
       remote: created.remote,
       defaultBranch: created.defaultBranch,
+      settings: { requireReceipt: data.requireReceipt !== false },
     };
     const credentials: { agent: string; apiToken: string }[] = [];
     const records: Record<string, Project | Agent | null> = {

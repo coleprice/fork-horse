@@ -22,6 +22,7 @@ these credentials privately. Do not include credentials in URLs or logs.
 ```json
 {
   "id": "demo",
+  "requireReceipt": true,
   "agents": ["builder", "reviewer"],
   "sourceUrl": "https://git.idiot.tax/public/template.git"
 }
@@ -253,16 +254,22 @@ Commit authors use the enrolled agent slug and a synthetic `@idiot.tax` address;
 this metadata is not a verified human identity.
 
 A review must name the current fork default-branch head and a live matching claim.
-It captures the canonical base at submission. `receiptDigest` starts null; FH-007
-will populate it through a trusted integration, not an agent-editable HTTP field.
-Approval binds `{sha,receiptDigest}` exactly, including null. A changed digest
-requires another owner approval. Null currently means **no check receipt**, and
-is not represented as passing checks. Moving the fork head or releasing its claim
-invalidates an outstanding review. Both approve and promote read the fork head
-fresh rather than relying only on queued push events. State also computes stale
-status from fresh heads and receipt mismatch.
+It captures the canonical base at submission. `receiptDigest` starts null; FH-032
+reserves a generation and starts the runner in the background through a trusted
+capability, not an agent-editable HTTP field. New projects require passing real
+container receipts for approval by default; legacy records without settings default
+to false until the owner opts in. See [receipts](../../docs/receipts.md).
+Approval records `{sha,receiptDigest}`, including null, but advisory projects never
+use receipts to gate approval or promotion. Null means **no check receipt**, not
+passing checks. Moving the fork head or releasing its claim invalidates an
+outstanding review. Both approve and promote read the fork head fresh rather than
+relying only on queued push events. State also computes stale status from fresh heads.
 
-Promote prepares the exact reviewed commit, verifies fast-forward ancestry, then
+With `requireReceipt: true`, promote waits for a new successful before-promote
+execution and compares its generation/commit/digest, including for reviews approved
+before the setting was enabled. With false, promote neither runs nor waits for
+checks; even failed advisory receipts gate nothing. In both modes, promote prepares
+the exact reviewed commit, verifies fast-forward ancestry, then
 re-reads both heads. The canonical head must equal the review's captured base.
 Only then does the supervisor mint a 60-second canonical write token, use it for
 one push, and revoke it in `finally`. It is never returned, stored or logged.
@@ -299,9 +306,9 @@ The production transport refuses redirects and bounds each Git HTTP request and
 response to 8 MiB with a 30-second fetch timeout. The ephemeral filesystem also caps stored bytes at 32 MiB. These bounds do not
 fully bound transient decompression allocations. Oversized operations fail closed with 413 and need
 the FH-007 sandbox Git runner. `GitOperations`/`PreparedPush` define the integration
-seam; no sandbox or live runner is installed by this packet. FH-007 receipt and
-large-repository integration, FH-012 MCP/dashboard/auth composition, deployment,
-and live acceptance remain separate work.
+seam; FH-032 wires container receipts separately from this Git transport. Large-repository
+Git transport and live container acceptance remain separate work; the local suite
+uses mocked container ports.
 
 ## Public Worker composition (FH-012)
 

@@ -799,7 +799,9 @@ async function main(): Promise<void> {
     const check = process.argv.includes("--check");
     if (check) run(["test"]);
     build(config);
-    const deployArgs = check ? ["--dry-run"] : [];
+    // Wrangler builds Dockerfiles even on dry runs unless container rollout is disabled.
+    // D5 must never build/pull images or contact a registry; live deploy resolves digests.
+    const deployArgs = check ? ["--dry-run", "--containers-rollout", "none"] : [];
     for (const name of deploymentOrder(config)) {
       if (!check && name === "core" && config.core?.secretsFile) {
         await withCoreSecrets(root, config.core.secretsFile, (secretArgs) =>

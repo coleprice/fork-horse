@@ -5,9 +5,15 @@
   "compatibility_date": "2026-10-11",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
-    "bindings": [{ "name": "SUPERVISOR", "class_name": "Supervisor" }]
+    "bindings": [{ "name": "SUPERVISOR", "class_name": "Supervisor" }, { "name": "RECEIPT_RUNNER", "class_name": "ReceiptRunner" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Supervisor"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Supervisor"] }, { "tag": "v2-receipts", "new_sqlite_classes": ["ReceiptRunner"] }],
+  "containers": [{
+    "class_name": "ReceiptRunner",
+    "scheduling_policy": "durable_object",
+    "images": { "default": { "dockerfile": "../forkhorse-runner/container/Dockerfile" } },
+    "observability": { "logs": { "enabled": false } }
+  }],
   "artifacts": [{ "binding": "ARTIFACTS", "namespace": "default" }],
   "vars": { "ARTIFACTS_NAMESPACE": "default" }
   // The deployment generator requires OWNER_API_TOKEN_HASH and CF_EVENTS_API_TOKEN

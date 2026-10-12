@@ -45,13 +45,14 @@ export class FixtureArtifacts implements ArtifactsBinding {
   tokens = new Map<string, Map<string, ArtifactsTokenInfo>>();
   tokenCounter = 0;
   tokenPageSize = 30;
-  beforeTokenCreate?: () => Promise<void>;
+  beforeTokenCreate?: (repo: string, scope: string) => Promise<void>;
   failRevoke = false;
   staleTokenListing = false;
   failTree = false;
   failCreate = false;
   // Optional complete push diff for activity-cap/runtime acceptance fixtures.
   changedPaths?: string[];
+  checks?: string;
 
   async create(name: string): Promise<ArtifactsCreateRepoResult> {
     this.calls.push({ method: "create", repo: name });
@@ -140,7 +141,7 @@ export class FixtureArtifacts implements ArtifactsBinding {
       },
       createToken: async (scope = "write", ttl = 3600) => {
         this.calls.push({ method: "createToken", repo: name, scope, ttl });
-        await this.beforeTokenCreate?.();
+        await this.beforeTokenCreate?.(name, scope);
         const plaintext =
           this.tokens.get(name)!.size === 1
             ? `scoped-${name}`
@@ -154,7 +155,7 @@ export class FixtureArtifacts implements ArtifactsBinding {
       },
       readCommit: async (hash) => {
         this.calls.push({ method: "readCommit", repo: name });
-        if (hash !== BEFORE && hash !== AFTER) return null;
+        if (hash !== BEFORE && hash !== AFTER && !(this.checks !== undefined && /^[a-f0-9]{40}$/.test(hash))) return null;
         return {
           hash,
           treeHash: hash === BEFORE ? OLD_TREE : NEW_TREE,
@@ -166,11 +167,16 @@ export class FixtureArtifacts implements ArtifactsBinding {
           committedAt: 1,
         };
       },
+      readBlob: async () => this.checks === undefined ? null : new Blob([this.checks]),
       readTree: async (hash) => {
         this.calls.push({ method: "readTree", repo: name });
         if (this.failTree) return null;
         if (this.changedPaths && hash === OLD_TREE) return [];
         if (this.changedPaths && hash === NEW_TREE) return this.changedPaths.map((path) => file(path));
+        if (this.checks !== undefined && (hash === OLD_TREE || hash === NEW_TREE))
+          return [...trees.get(hash)!, { name: ".forkhorse", type: "tree", mode: "40000", hash: "c".repeat(40) }];
+        if (this.checks !== undefined && hash === "c".repeat(40))
+          return [{ name: "checks", type: "blob", mode: "100644", hash: "d".repeat(40) }];
         return trees.get(hash) ?? null;
       },
     };

@@ -20,7 +20,9 @@ export async function dispatchApi(request: Request, env: Env, owner = false): Pr
       if (!match || !slug(match[1])) return json({ error: "Not found." }, 404);
       const suffix = match[2]!;
       const methods =
-        suffix === "/join" ||
+        suffix === "/settings" ? ["PATCH"]
+        : /^\/reviews\/[^/]+\/receipt$/.test(suffix) ? ["GET"]
+        : suffix === "/join" ||
         suffix === "/agents" ||
         suffix === "/reviews" ||
         /^\/agents\/[^/]+\/rotate$/.test(suffix) ||

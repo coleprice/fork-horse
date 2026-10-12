@@ -53,7 +53,7 @@ export interface StoredReceipt {
   digest: string;
   receipt: Receipt;
 }
-/** FH-005 integration contract, not an implementation of Supervisor storage or authorization. */
+/** Core supplies a per-execution RPC capability implementing this trusted contract. */
 export interface ReviewAuthority {
   /** Authenticate caller, authorize fork ownership/commit, reserve generation, clear stale digest. */
   authorize(request: RunRequest): Promise<AuthorizedReview>;

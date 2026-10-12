@@ -197,3 +197,7 @@ describe("checks manifest and Git egress", () => {
     expect(forward).toHaveBeenCalledOnce();
   });
 });
+
+it("executes the offline suite under workerd", () => {
+  expect(navigator.userAgent).toContain("Cloudflare-Workers");
+});
