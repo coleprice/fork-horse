@@ -4,18 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm run types:check && vite build && vite build --mode configurator && node test/verify-bundle.ts",
+    "build": "vite build && vite build --mode configurator && vite build --mode picker && pnpm run types:check && vite build --config vite.worker.config.ts && node test/verify-bundle.ts",
     "test": "pnpm run test:node && pnpm run test:workerd",
     "test:run": "pnpm run test:node && pnpm run test:workerd",
     "types:check": "tsc --noEmit && tsc -p tsconfig.worker.json --noEmit",
     "dev:fixture": "pnpm run build && vite --host 127.0.0.1",
     "test:node": "node --import ./test/node-runtime.ts --test test/*.test.ts",
-    "test:workerd": "vitest run"
+    "test:workerd": "vitest run",
+    "test:local": "node test/local/run.ts",
+    "dev:local-sidebar": "pnpm run build && vite --config vite.local.config.ts"
   },
   "dependencies": {
     "capnweb": "catalog:",
     "@gadgets/workshop-shared": "workspace:*",
-    "capnweb-validate": "catalog:"
+    "capnweb-validate": "catalog:",
+    "@gadgets/gatekeeper-kit": "workspace:*"
   },
   "devDependencies": {
     "jsdom": "26.1.0",

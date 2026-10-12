@@ -12,7 +12,7 @@ export function mountSidebar(root: HTMLElement, options: {
 }) {
   const document = root.ownerDocument;
   const note = document.createElement("p");
-  note.textContent = `${OWNER_UNAVAILABLE} Git access is awaiting the core access contract.`;
+  note.textContent = `${OWNER_UNAVAILABLE} Git pushes require approval on the connected fork.`;
   note.setAttribute("role", "note");
   const ask = document.createElement("button");
   ask.textContent = "Ask an agent";
@@ -31,6 +31,16 @@ export function mountSidebar(root: HTMLElement, options: {
     }
   };
   dashboard.addEventListener("click", blockOwnerAction, true);
+  // srcdoc inherits the parent's base URL: native hash navigation would load the OS
+  // route inside this sandbox. Keep dashboard section links within the document.
+  const navigateSection = (event: Event) => {
+    const link = (event.target as Element).closest<HTMLAnchorElement>('a[href^="#"]');
+    if (!link) return;
+    event.preventDefault();
+    const section = document.getElementById(link.getAttribute("href")!.slice(1));
+    if (section && dashboard.contains(section)) section.scrollIntoView({ block: "start" });
+  };
+  dashboard.addEventListener("click", navigateSection);
   const observer = new document.defaultView!.MutationObserver(() => {
     observer.disconnect();
     for (const button of dashboard.querySelectorAll<HTMLButtonElement>(ownerButton)) {
@@ -83,6 +93,7 @@ export function mountSidebar(root: HTMLElement, options: {
       observer.disconnect();
       view.dispose();
       dashboard.removeEventListener("click", blockOwnerAction, true);
+      dashboard.removeEventListener("click", navigateSection);
       ask.removeEventListener("click", onAsk);
       root.replaceChildren();
     },

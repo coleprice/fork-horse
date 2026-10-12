@@ -1,9 +1,40 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "forkhorse-gatekeeper",
-  "main": "src/worker/index.ts",
+  "main": "dist/worker.js",
   "compatibility_date": "2026-08-04",
-  "compatibility_flags": ["allow_irrevocable_stub_storage", "nodejs_compat"],
+  "compatibility_flags": [
+    "allow_irrevocable_stub_storage",
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
   "workers_dev": false,
-  "preview_urls": false
+  "preview_urls": false,
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "UserAccount",
+        "ForkGatekeeper"
+      ]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ACCOUNTS",
+        "class_name": "UserAccount"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "type": "Text",
+      "globs": [
+        "**/*.html",
+        "**/*.txt"
+      ],
+      "fallthrough": true
+    }
+  ]
 }

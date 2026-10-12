@@ -15,7 +15,7 @@ export function sidebarAccountDescription(): AccountDescription {
   return { displayName: brand.name, avatar: icon, providesUi: { title: brand.name, icon } };
 }
 
-/** Trusted host seam. FH-013 must supply a real, project-bound, revocable implementation. */
+/** Trusted host seam supplied by the authenticated, project-bound account. */
 export interface SidebarSource {
   authorize(): Promise<void>;
   read(): Promise<ProjectState>;
@@ -85,7 +85,7 @@ export class SidebarUiImpl extends RpcTarget {
   [Symbol.dispose](): void { this.#close(); }
 }
 
-/** Compose startAppUi only after account authorization. No real source is wired yet. */
+/** Compose startAppUi only after account authorization. */
 export async function createSidebarFrame(source: SidebarSource, iframeHtml: string): Promise<GatekeeperUiFrame> {
   let initial: ProjectState;
   try {

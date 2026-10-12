@@ -11,8 +11,8 @@ export default defineConfig(({ mode }) => ({
   resolve: { dedupe: ["capnweb"] },
   build: {
     outDir: "dist",
-    emptyOutDir: mode !== "configurator",
-    lib: { entry: mode === "configurator" ? "app/configurator.ts" : "app/main.ts", name: "SidebarApp", formats: ["iife"] },
+    emptyOutDir: mode !== "configurator" && mode !== "picker",
+    lib: { entry: mode === "picker" ? "app/picker.ts" : mode === "configurator" ? "app/configurator.ts" : "app/main.ts", name: "SidebarApp", formats: ["iife"] },
     cssCodeSplit: false,
     rollupOptions: { output: { inlineDynamicImports: true } },
   },
@@ -30,7 +30,7 @@ export default defineConfig(({ mode }) => ({
       }
       this.emitFile({
         type: "asset",
-        fileName: mode === "configurator" ? "configurator.html" : "sidebar.html",
+        fileName: mode === "picker" ? "picker.html" : mode === "configurator" ? "configurator.html" : "sidebar.html",
         source: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(brand.name)}</title><style>${styles.join("\n").replace(/<\/style/gi, "<\\/style")}</style></head><body><div id="sidebar"></div><script>${scripts.join("\n").replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
       });
     },

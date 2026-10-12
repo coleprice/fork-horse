@@ -1,131 +1,106 @@
-# Gatekeeper sidebar preparation
+# Agent fork gatekeeper
 
-**Partial FH-008 implementation; local UI fixtures and disabled deployment wiring.** This package prepares the
-read-only sidebar using the accepted dashboard's `mountDashboard`, stylesheet,
-and `DashboardTransport` embedding seam. No dashboard source is copied or edited.
-Product branding comes from root `brand.json`.
+**FH-008 remains in progress.** This package connects an enrolled agent to its own
+Git forks and embeds the accepted dashboard in the pinned OS. Product names come
+from root `brand.json`. Core identity/token support from FH-013 is integrated;
+FH-016 deployment integration and final acceptance remain pending.
 
-## What is available
+## Account and Git authority
 
-- `pnpm --filter forkhorse-gatekeeper build` creates `dist/sidebar.html`: one
-  self-contained iframe document with inline JavaScript/CSS and no external asset
-  URLs. The production build graph excludes fixture endpoints and fixture data.
-- The iframe uses the pinned OS private MessagePort handshake, `host.ui`, and
-  `host.openPrompt`. “Ask an agent” prefills a project-specific prompt; it does not
-  submit it or grant agent authority.
-- `SidebarUi` is a read-only, single-project capability: `snapshot()`,
-  `subscribe(receiver)`, and `waitForChanges(after)`. Full snapshots carry a
-  monotonically increasing UI-session version, independently of activity sequence.
-- `SnapshotFeed` coalesces bursts at 250ms and retains only the latest pending
-  snapshot for a slow receiver. One receiver and one pending long poll per feed
-  bound memory/concurrency. Long polls expire after 25 seconds. A client falls back
-  to polling when subscription setup fails or pushes go silent for 30 seconds.
-- Push takes two inbound calls at startup and no per-batch refresh calls. The
-  polling path takes about 240 calls/minute at four batches/second, plus startup.
-  Both fit the pinned app limits: 8 concurrent, 600/minute, 128 pending. The
-  dashboard's state/activity reads use the current batch locally.
-- Approve/Promote are disabled with an explicit reason and intercepted before
-  dashboard dispatch. The transport independently rejects them without any RPC.
-  No owner token is accepted, reused, exposed, or inferred from an OS admin flag.
+The private Worker implements the OS vendor, account and fork capabilities. Its
+connection form accepts a public HTTPS Core origin, project and already-enrolled
+agent credential. It checks `/me` and rejects owner credentials. A single-use,
+ten-minute nonce and the pinned kit's handoff bind connection completion to the OS
+user. Credentials remain in `UserAccount` Durable Object storage. Reconnection
+stages credentials and retains the same origin, project and agent identity.
 
-## Remaining integration gates
+Discovery and the resource picker expose only that agent's forks. `getHead()`
+records an observation and advertises the exact commit to the OS Git cache, so
+`createWorktree()` can pull it through the pinned kit transport. `push()` accepts a
+full commit ID on the default branch, requires a fast-forward, and queues an OS
+approval action. Only applying that exact action builds its scoped pack and
+performs a compare-and-swap push with the recorded old SHA. Changed heads fail;
+there is no force push or history-rewriting revert. A successful push whose reply
+was lost can be recognized by its exact new head.
 
-There is deliberately no deployable Worker entrypoint, connected account, fork grant,
-Git transport, or claimed live data source yet. A Worker-native read-only UI
-capability and a draft-only credential form are prepared and tested. D6 requires
-waiting for **FH-013 acceptance**, after FH-012, before implementing Git transport
-or S7/S9. FH-013 supplies authenticated caller identity, existing-fork short-lived
-tokens, revocation and audit; no Git proxy is planned. At the packet baseline, `/join` creates a
-new fork and returns a short-lived token; `/state` supplies fork heads but neither
-an authenticated actor nor an existing-fork credential renewal/proxy. Those gaps
-cannot be fixed in this package's allowed paths.
+Before each Git request the Worker rechecks ownership and requests a repo-scoped,
+60-second read or write token. Raw Git HTTP uses a git-style User-Agent and refuses
+redirects. Neither credentials nor tokens are returned to the browser or agent.
+Canonical repository writes are outside this package. Disconnect deletes the local
+connection and stops its capabilities; it does not revoke other clients' Core
+credentials or all tokens for that repository. Already issued tokens expire.
 
-After FH-013 acceptance, the account can reuse `sidebarAccountDescription()` for
-`providesUi` branding and `createSidebarFrame(source, html)` in `startAppUi()`.
-`src/worker/sidebar.ts` uses Worker-native RPC targets and runtime validation;
-`source` remains an unwired trusted-host interface. It authorizes before initial
-reads, snapshots, callbacks and final long-poll delivery, rejects cross-project
-updates and stops its source when revoked or disposed. Keep the publishing side of
-`SnapshotFeed` private to that trusted host. The browser receives only `SidebarUi`,
-never the feed, credentials, or a caller-selectable project. Bind lifetime cleanup
-to the account/UI session and stop polling on revocation. `test/fixture-ui.ts` is a browser/Node fixture RPC endpoint; the workerd harness
-exercises the actual Worker-native capability through a service binding. Neither
-is an authenticated account implementation.
+## Sidebar and resource picker
 
-The accepted dashboard currently has no read-only option. This host uses its
-documented transport seam, rejects writes there, and disables its stable
-`data-action` owner buttons after each render. It also labels the connection as an
-agent session and hides project switching because this capability is bound to one
-project. Capture-phase interception closes
-the gap before the DOM observer runs. DOM tests guard those selectors. A future
-dashboard-owned read-only option can replace this adapter when separately scoped.
+`AgentAccount.startAppUi()` supplies the built sidebar and a read-only native RPC
+capability. Core `/state` is projected through the accepted dashboard's `stateView`
+and rendered by its unchanged `mountDashboard`. Authorization is checked before
+reads and disclosures. Core polling has one request in flight and waits 250ms
+between reads; snapshot publication coalesces at 250ms. Disposal/revocation stops
+polling and releases subscribers.
 
-FH-012 is merged. The optional `forkhorseGatekeeper` template block now wires a
-private Worker through `GATEKEEPER_FORKHORSE`: the router uses its default HTTP
-handler and the Workshop uses its `GatekeeperVendor` RPC entrypoint. The Worker is
-built and deployed before the Workshop/router and has no public route, preview URL,
-core service binding, storage or secrets. The template remains disabled by default.
+The sidebar uses the pinned OS private MessagePort handshake, `host.ui` and
+`host.openPrompt`. Ask an agent prefills a project-specific prompt without sending
+it. Section links scroll within the srcdoc frame. Approve/Promote are disabled,
+capture-blocked, and independently rejected by the transport. Project switching is
+disabled because the capability is bound to one connection.
 
-The wiring-only vendor derives its description from `brand.json`, advertises no
-authentication or auto-provisioning, returns no resources/types, and refuses every
-connection attempt. Its HTTP handler returns uncached 503 responses without cookies
-or redirects. It does not complete or retain connection callbacks. Account creation
-and the real sidebar source remain held for FH-013; enabling wiring cannot grant
-an account. No core, dashboard, upstream source or gitlink is edited by FH-008. S7 and S9 require the completed gatekeeper in pinned local `run-local`;
-the checks below do not satisfy those acceptance scenarios. Live installation is
-a separate reviewed step.
+Push uses two inbound startup calls and no per-batch refresh calls. One receiver,
+one latest pending snapshot and one long poll bound backlog. A silent/unsupported
+push channel falls back to a 25-second long poll. Four updates per second fit the
+pinned limits of 8 concurrent calls, 600/minute and 128 pending calls. These are
+browser capability limits; Core authorization/state requests are separate traffic.
 
-## Local checks
+The resource picker lists owned forks, supports an owned initial selection, and
+returns only the selected resource URL. The separate draft configurator remains a
+clearly labeled fixture for format checks; it cannot establish a connection.
+
+## Builds and checks
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm --dir cloudflare-os install --frozen-lockfile
-pnpm --filter forkhorse-gatekeeper test
-pnpm --filter forkhorse-gatekeeper types:check
 pnpm --filter forkhorse-gatekeeper build
+pnpm --filter forkhorse-gatekeeper test
+pnpm --filter forkhorse-gatekeeper test:local
 pnpm test
 pnpm lint
-pnpm --filter forkhorse-gatekeeper dev:fixture
 ```
 
-Open the printed loopback address for the visibly labeled fixture host. It embeds
-the built document in a `sandbox="allow-scripts"` frame and marks that document as
-a fixture. It sends simulated batches through MessagePort RPC and the actual
-pinned OS rate limiter.
-Its prompt receiver displays the text locally; it cannot open a real OS chat.
+The build produces three self-contained HTML documents and `dist/worker.js`.
+Bundle checks exclude the offline entrypoint and its synthetic credentials/data
+from production. Worker types use native RPC validation. The production config has
+no public Workers URL; the generated deployment supplies its private base URL and
+Durable Object migrations. Only this package's lockfile importer is changed.
 
-Unit tests use virtual time for 240 quarter-second batches, real MessagePort RPC,
-and the unmodified pinned limiter. They cover push, fallback, coalescing, slow
-receivers, polling bounds, project isolation, read-only controls and prompt
-dispatch. Root/upstream install separate Cap'n Web copies; a test-only Node loader
-unifies their runtime identity. Vite's `dedupe` does the same in the fixture bundle.
-The production iframe contains one bundled runtime.
+The suite includes browser/MessagePort tests and native workerd tests for account
+lifecycle, ownership, approval, stale heads, Git transport and sidebar disposal.
+`test:local` uses a temporary real bare Git repository, actual `git http-backend`,
+the unchanged pinned OS kernel and a native workerd approval queue. It creates a
+worktree from the advertised fork head, edits/commits, verifies that the remote does
+not move before approval, applies the approval and verifies the remote file. It
+also races a real ref update against receive-pack and verifies CAS rejection.
+Core enrollment and tokens in this test are explicitly fixtures. The runner removes
+its temporary repository and generated modules and never edits upstream source.
 
-Only this package's lockfile importer is added; every dependency/snapshot already
-exists in the frozen lockfile.
+## Local browser acceptance and limits
 
-## D6 configurator preparation and D7 runtime coverage
+- `dev:fixture` hosts a visibly synthetic sidebar/draft configurator.
+- `dev:local-sidebar` uses the actual pinned `SandboxedGatekeeperApp` component,
+  router and limiter with a synthetic feed. This is a component harness.
+- `vite.run-local.config.ts` builds `dist/offline-worker.js` for a disposable copy
+  of pinned upstream `run-local`. Its fixture entrypoint supplies only synthetic
+  `/me` and `/state`, and refuses every other outbound request. It must never be
+  deployed. Production tooling consumes `dist/worker.js` only.
 
-`dist/configurator.html` is a second self-contained frame using the pinned resource
-configurator handshake. It always reports selection not ready and refuses
-`collectResourceUrl()`. The form checks origin/project/credential syntax only,
-clears the credential field on success or failure, never saves or returns the
-credential, and cannot enable Create connection. It is labeled for synthetic
-fixture values only. `/configurator.html` on the loopback fixture server embeds
-the actual built frame. The local check uses a button event because the OS sandbox
-permits scripts without permitting form submission.
+The full local OS has also been exercised with a synthetic account, real OS
+connection handoff and actual native account/sidebar capabilities. This remains
+local fixture evidence, not live Core/Artifacts or installed owner acceptance.
+See `HANDOFF.md` for exact coverage and outstanding gates.
 
-`pnpm test` includes both `test:node` and `test:workerd`. The workerd configuration
-uses the pinned runtime sentinel (`navigator.userAgent === "Cloudflare-Workers"`)
-and the validation transform with `tsconfig.worker.json`. Nine Node tests cover
-browser behavior, data budgets and draft handling; eleven application workerd tests cover native
-RPC callbacks, source authorization/revocation/disposal, polling, metadata, and
-credential-free configurator results.
-
-**Runtime diagnostic:** rejected native calls log expected exceptions. A retained
-plain `RpcTarget` control also reproduces the hung-request cancellation without
-running sidebar/feed/validation code: the caller receives the expected rejection,
-then successfully calls `ping()`, and observes the disposal hook after release.
-Run `pnpm exec vitest run __tests__/native-rpc.test.ts` in this package to reproduce
-both controls. The underlying runtime cause remains unproven; this evidence does
-not replace full OS acceptance after FH-013. Logs are not filtered or suppressed.
+Negative native RPC tests emit expected exceptions. A plain returned RpcTarget
+control reproduces a hung-request warning in the Vitest worker pool while still
+returning the rejection, responding to a later ping and disposing correctly. The
+standalone Miniflare control and successful pinned-kernel Git acceptance do not
+emit that warning. Logs remain unsuppressed; the underlying pool/runtime cause is
+not proven.

@@ -227,6 +227,9 @@ importers:
 
   packages/forkhorse-gatekeeper:
     dependencies:
+      '@gadgets/gatekeeper-kit':
+        specifier: workspace:*
+        version: link:../../cloudflare-os/packages/gatekeeper-kit
       '@gadgets/workshop-shared':
         specifier: workspace:*
         version: link:../../cloudflare-os/packages/workshop-shared

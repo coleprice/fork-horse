@@ -23,3 +23,10 @@ assert.equal(configurator.window.document.querySelectorAll('script[src],link[rel
 assert.ok(configurator.window.document.querySelector("style")!.textContent!.length > 300);
 console.log("Configurator verified: self-contained draft-only frame.");
 configurator.window.close();
+const picker = new JSDOM(readFileSync(new URL("../dist/picker.html", import.meta.url), "utf8"));
+assert.equal(picker.window.document.title, brand.name);
+assert.equal(picker.window.document.querySelectorAll('script[src],link[rel="stylesheet"]').length, 0);
+picker.window.close();
+const worker = readFileSync(new URL("../dist/worker.js", import.meta.url), "utf8");
+assert.doesNotMatch(worker, /fixture-agent-credential-only|LOCAL FIXTURE batch|This local fixture refuses/);
+console.log("Picker verified; production Worker excludes offline fixture entrypoints.");

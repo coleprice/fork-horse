@@ -1,14 +1,48 @@
-import { RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import { DurableObject, RpcTarget, RpcStub, WorkerEntrypoint } from "cloudflare:workers";
 import { createSidebarFrame, type SidebarUiImpl, type SidebarSource } from "../src/worker/sidebar.ts";
+import type { AgentForkSession } from "../src/fork-types.d.ts";
+import type { AgentAccount } from "../src/worker/account.ts";
+import type { ForkGatekeeper } from "../src/worker/fork.ts";
 import type { ProjectState } from "../../forkhorse-dashboard/src/contracts.ts";
 import { ConnectionDraftUiImpl } from "../src/worker/configurator.ts";
-import type { GatekeeperConnectCallback } from "@gadgets/workshop-shared/gatekeeper";
+import type { ApprovalQueue, GitCache, GitPullHints, GatekeeperUser, GatekeeperConnectCallback } from "@gadgets/workshop-shared/gatekeeper";
 
+let reconnectStage: string | undefined;
 export class FixtureConnectCallback extends WorkerEntrypoint implements GatekeeperConnectCallback {
-  async complete(): Promise<never> { throw new Error("Fixture callback must not be invoked."); }
-  async reconnectComplete(): Promise<never> { throw new Error("Fixture callback must not be invoked."); }
-  async credentialsExpired(): Promise<never> { throw new Error("Fixture callback must not be invoked."); }
-  async credentialsRestored(): Promise<never> { throw new Error("Fixture callback must not be invoked."); }
+  async complete(user: Fetcher<GatekeeperUser>) {
+    await this.env.WORKSPACES.getByName("callback-vault").saveAccount(user);
+    return { targetOrigin: "https://os.fixture.idiot.tax", ticket: "fixture-handoff-ticket" };
+  }
+  async reconnectComplete(stageId: string) {
+    reconnectStage = stageId;
+    return { targetOrigin: "https://os.fixture.idiot.tax", ticket: "fixture-reconnect-ticket" };
+  }
+  async credentialsExpired(): Promise<void> {}
+  async credentialsRestored(): Promise<void> {}
+}
+export class FixtureWorkspace extends DurableObject {
+  #fork() {
+    return this.ctx.facets.get<ForkGatekeeper>("fork", () => ({
+      class: this.ctx.storage.kv.get<DurableObjectClass<ForkGatekeeper>>("forkClass")!,
+    }));
+  }
+  async startSession(queue: RpcStub<ApprovalQueue>): Promise<AgentForkSession> {
+    return await this.#fork().startSession(queue as unknown as ApprovalQueue) as unknown as AgentForkSession;
+  }
+  async applyAction(id: number, cache: RpcStub<GitCache>): Promise<void> { await this.#fork().applyAction(id, cache); }
+  async gitPull(oids: string[], cache: RpcStub<GitCache>, hints: GitPullHints): Promise<void> { await this.#fork().gitPull(oids, cache, hints); }
+  async rejectAction(id: number): Promise<void> { await this.#fork().rejectAction(id); }
+
+  async saveAccount(user: Fetcher<GatekeeperUser>): Promise<void> { this.ctx.storage.kv.put("account", user); }
+  async getAccount(): Promise<AgentAccount> {
+    const user = this.ctx.storage.kv.get<Fetcher<GatekeeperUser>>("account");
+    if (!user) throw new Error("No fixture account completed.");
+    return user as unknown as AgentAccount;
+  }
+  async bind(user: Fetcher<GatekeeperUser>, url: string) {
+    const resolved = await user.getGatekeeperClassFor(url);
+    this.ctx.storage.kv.put("forkClass", resolved.class);
+  }
 }
 
 // Isolated, labeled fixture producer. No HTTP, account credentials or external service bindings.
@@ -60,6 +94,19 @@ class DiagnosticTarget extends RpcTarget {
 
 let diagnosticDisposals = 0;
 export class FixtureHarness extends WorkerEntrypoint {
+  async begin(): Promise<{ url: string }> {
+    const exports = this.ctx.exports as unknown as {
+      FixtureConnectCallback(options: {}): Fetcher<GatekeeperConnectCallback>;
+    };
+    return this.ctx.exports.GatekeeperVendor({}).connectAccount(exports.FixtureConnectCallback({}));
+  }
+  async account(): Promise<AgentAccount> {
+    return await this.env.WORKSPACES.getByName("callback-vault").getAccount() as unknown as AgentAccount;
+  }
+  async reconnectStage(): Promise<string> {
+    if (!reconnectStage) throw new Error("No fixture reconnect staged.");
+    return reconnectStage;
+  }
   async diagnosticTarget(): Promise<DiagnosticTarget> {
     return new DiagnosticTarget(() => { diagnosticDisposals++; });
   }
@@ -80,4 +127,4 @@ export class FixtureHarness extends WorkerEntrypoint {
     } catch { return { opened: false, reads }; }
   }
 }
-export { default, GatekeeperVendor } from "../src/worker/index.ts";
+export { default, GatekeeperVendor, UserAccount, AgentAccount, AgentVerifier, ForkGatekeeper } from "../src/worker/index.ts";

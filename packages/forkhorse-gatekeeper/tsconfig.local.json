@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.worker.json",
+  "include": ["test/local/worker.ts", "test/local/acceptance.test.ts", "test/local/worktree-turn.ts"],
+  "exclude": []
+}

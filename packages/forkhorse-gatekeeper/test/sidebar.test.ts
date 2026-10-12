@@ -152,12 +152,19 @@ for (const fixtureMode of [true, false]) test(`dashboard renders with fixture=${
   ask.click();
   await until(() => prompts.length === 1);
   assert.equal(prompts[0], "Help me review project demo in Fixture product.");
-  assert.match(root.textContent!, /Git access is awaiting/);
+  assert.match(root.textContent!, /Git pushes require approval/);
   assert.match(root.textContent!, /Fixture/);
   assert.doesNotMatch(root.textContent!, /Owner workspace|Owner Access session|Owner actions are authorized/);
   assert.equal(root.querySelector(".topbar > .badge")!.textContent,
     fixtureMode ? "FIXTURE · OFFLINE" : "AGENT SESSION");
   assert.equal(root.querySelector<HTMLElement>("#open-project")!.hidden, true);
+  const reviews = root.querySelector<HTMLElement>("#reviews")!;
+  let scrolled = false;
+  reviews.scrollIntoView = () => { scrolled = true; };
+  const navigation = new dom.window.MouseEvent("click", { bubbles: true, cancelable: true });
+  root.querySelector('a[href="#reviews"]')!.dispatchEvent(navigation);
+  assert.equal(navigation.defaultPrevented, true, "srcdoc section links must not navigate to the parent OS route");
+  assert.equal(scrolled, true);
 });
 
 test("silent push channel falls back after 30 seconds without overlapping polls", async (t) => {

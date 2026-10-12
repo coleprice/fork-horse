@@ -11,7 +11,7 @@ export interface DraftStatus {
   message: string;
 }
 
-export const CONNECTION_HELD = "Connection creation is unavailable until FH-013 is accepted.";
+export const CONNECTION_HELD = "This fixture checks format only. Open the account connection popup to connect.";
 
 /** Format checking only. Never fetch, store, echo or infer identity from an entered credential. */
 export function checkConnectionDraft(draft: ConnectionDraft): DraftStatus {
