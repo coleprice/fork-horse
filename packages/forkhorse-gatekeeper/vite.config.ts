@@ -18,6 +18,8 @@ const escape = (text: string) =>
 
 /** A network-free iframe file. Fixture host/data are separate and never in this build graph. */
 export default defineConfig(({ mode }) => ({
+  // Library builds retain this React switch by default; the iframe has no Node globals.
+  define: { "process.env.NODE_ENV": JSON.stringify("production") },
   resolve: { dedupe: ["capnweb"] },
   build: {
     outDir: "dist",

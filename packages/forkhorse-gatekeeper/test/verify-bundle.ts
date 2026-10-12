@@ -27,6 +27,7 @@ assert.equal(document.querySelectorAll("script").length, 2);
 assert.match(document.querySelector("script")!.textContent!, /prefers-color-scheme/);
 assert.ok(document.querySelector("style")!.textContent!.length > 1000, "dashboard CSS is inlined");
 assert.doesNotMatch(html, /Fixture update batch|LOCAL FIXTURE ONLY|git\.idiot\.tax/);
+assert.doesNotMatch(html, /\bprocess\.env\b/, "the sandboxed browser has no Node process global");
 assert.equal(document.getElementById("sidebar")!.dataset.fixture, undefined);
 console.log("Bundle verified: branded inline HTML, JavaScript and CSS; fixture data absent.");
 dom.window.close();
