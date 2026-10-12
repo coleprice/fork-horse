@@ -1,17 +1,22 @@
+import { followSystemTheme } from "../../forkhorse-dashboard/src/theme.ts";
 import { newMessagePortRpcSession, RpcTarget } from "capnweb";
 import { CONNECTION_HELD, type ConnectionDraft, type DraftStatus } from "../src/configuration.ts";
 import { mountConfiguration } from "../src/configuration-form.ts";
 import brand from "../../../brand.json";
 import "./configurator.css";
 
-interface DraftApi extends RpcTarget { checkDraft(draft: ConnectionDraft): Promise<DraftStatus> }
+interface DraftApi extends RpcTarget {
+  checkDraft(draft: ConnectionDraft): Promise<DraftStatus>;
+}
 interface Host extends RpcTarget {
   readonly gatekeeper: DraftApi;
   setSelectionReady(ready: boolean): Promise<void>;
   resize(height: number, layoutHeight: number): Promise<void>;
 }
 class ConfiguratorIframe extends RpcTarget {
-  async collectResourceUrl(): Promise<string> { throw new Error(CONNECTION_HELD); }
+  async collectResourceUrl(): Promise<string> {
+    throw new Error(CONNECTION_HELD);
+  }
   updateViewport(_iframeTop: number, _viewportHeight: number): void {}
   windowResized(): void {}
 }
@@ -24,6 +29,15 @@ const form = mountConfiguration(document.getElementById("sidebar")!, async (draf
 });
 void host.setSelectionReady(false).catch(() => {});
 void host.resize(540, 540).catch(() => {});
-window.addEventListener("pagehide", () => {
-  form.dispose(); host[Symbol.dispose](); port1.close();
-}, { once: true });
+window.addEventListener(
+  "pagehide",
+  () => {
+    form.dispose();
+    host[Symbol.dispose]();
+    port1.close();
+  },
+  { once: true },
+);
+
+const stopTheme = followSystemTheme();
+window.addEventListener("pagehide", stopTheme, { once: true });

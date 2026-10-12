@@ -1,3 +1,4 @@
+import { installDom } from "../../forkhorse-dashboard/test/dom.ts";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { setImmediate as turn } from "node:timers/promises";
@@ -13,7 +14,9 @@ import type { SidebarUi } from "../src/ui-types.ts";
 import { FixtureUi } from "./fixture-ui.ts";
 
 const { JSDOM } = createRequire(import.meta.url)("jsdom") as {
-  JSDOM: new (html: string) => { window: { document: Document; MouseEvent: typeof MouseEvent; close(): void } };
+  JSDOM: new (html: string) => {
+    window: { document: Document; MouseEvent: typeof MouseEvent; close(): void };
+  };
 };
 const fixture = () => stateView(fixtureState());
 async function until(predicate: () => boolean) {
@@ -26,18 +29,26 @@ function connection(push = true) {
   const service = new FixtureUi(feed, push);
   // Actual frozen upstream limiter, not a copy of its budget math.
   const limited = createRateLimitedCapability(service, {
-    maxConcurrency: 8, maxCallsPerMinute: 600, maxPendingCalls: 128,
-    onRateLimit: "throttle", label: "Fixture sidebar",
+    maxConcurrency: 8,
+    maxCallsPerMinute: 600,
+    maxPendingCalls: 128,
+    onRateLimit: "throttle",
+    label: "Fixture sidebar",
   });
   const { port1, port2 } = new MessageChannel();
   const server = newMessagePortRpcSession(port2, limited.capability);
   const remote = newMessagePortRpcSession<SidebarUi>(port1);
   return {
-    feed, service, remote,
+    feed,
+    service,
+    remote,
     close() {
-      feed.dispose(); limited.dispose();
-      server[Symbol.dispose](); remote[Symbol.dispose]();
-      port1.close(); port2.close();
+      feed.dispose();
+      limited.dispose();
+      server[Symbol.dispose]();
+      remote[Symbol.dispose]();
+      port1.close();
+      port2.close();
     },
   };
 }
@@ -61,8 +72,12 @@ test("240 quarter-second pushed batches traverse RPC and pinned limiter without 
   assert.equal((await client.transport.getState("demo")).packets[0]!.title, "Fixture 240");
   assert.deepEqual(link.service.calls, { snapshot: 1, subscribe: 1, poll: 0 });
   assert.deepEqual(errors, []);
-  await assert.rejects(client.transport.approve("demo", "review-1"), { message: OWNER_UNAVAILABLE });
-  await assert.rejects(client.transport.promote("demo", "review-1"), { message: OWNER_UNAVAILABLE });
+  await assert.rejects(client.transport.approve("demo", "review-1"), {
+    message: OWNER_UNAVAILABLE,
+  });
+  await assert.rejects(client.transport.promote("demo", "review-1"), {
+    message: OWNER_UNAVAILABLE,
+  });
   await assert.rejects(client.transport.getState("other"), /another project/);
 });
 
@@ -97,9 +112,14 @@ test("feed coalesces bursts and slow receivers, releases polls, refuses cross-pr
   const close = feed.subscribe({
     async receive(batch) {
       received.push(batch.version);
-      if (batch.version === 0) await new Promise<void>((resolve) => { release = resolve; });
+      if (batch.version === 0)
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
     },
-    dispose() { disposed++; },
+    dispose() {
+      disposed++;
+    },
   });
   await until(() => received.length === 1);
   for (let i = 0; i < 20; i++) feed.publish(fixture());
@@ -113,7 +133,8 @@ test("feed coalesces bursts and slow receivers, releases polls, refuses cross-pr
   release();
   await until(() => received.length === 2);
   assert.deepEqual(received, [0, 2]);
-  const state = fixture(); state.project.id = "foreign";
+  const state = fixture();
+  state.project.id = "foreign";
   assert.throws(() => feed.publish(state), /bound to one project/);
   await assert.rejects(feed.waitForChanges(99), /Invalid UI version/);
   const timeout = feed.waitForChanges(2);
@@ -126,46 +147,62 @@ test("feed coalesces bursts and slow receivers, releases polls, refuses cross-pr
   await assert.rejects(pending, /closed/);
 });
 
-for (const fixtureMode of [true, false]) test(`dashboard renders with fixture=${fixtureMode}, owner actions disabled, and host openPrompt`, async (t) => {
-  const dom = new JSDOM('<div id="root"></div>');
-  t.after(() => dom.window.close());
-  const link = connection();
-  t.after(() => link.close());
-  const client = await connectSidebar(link.remote, () => {});
-  t.after(() => client.dispose());
-  const root = dom.window.document.getElementById("root")!;
-  const prompts: string[] = [];
-  const view = mountSidebar(root, {
-    brand: { name: "Fixture product", tagline: "Fixture collaboration" },
-    project: client.project, transport: client.transport, fixture: fixtureMode,
-    async openPrompt(prompt) { prompts.push(prompt); },
+for (const fixtureMode of [true, false])
+  test(`dashboard renders with fixture=${fixtureMode}, owner actions disabled, and host openPrompt`, async (t) => {
+    const dom = new JSDOM('<div id="root"></div>');
+    t.after(() => dom.window.close());
+    const link = connection();
+    t.after(() => link.close());
+    const client = await connectSidebar(link.remote, () => {});
+    t.after(() => client.dispose());
+    installDom(dom.window as unknown as Window & typeof globalThis);
+    const root = dom.window.document.getElementById("root")!;
+    const prompts: string[] = [];
+    const view = mountSidebar(root, {
+      brand: { name: "Fixture product", tagline: "Fixture collaboration" },
+      project: client.project,
+      transport: client.transport,
+      fixture: fixtureMode,
+      async openPrompt(prompt) {
+        prompts.push(prompt);
+      },
+    });
+    t.after(() => view.dispose());
+    await until(() => !!root.querySelector('button[data-action="approve"]'));
+    for (const button of root.querySelectorAll<HTMLButtonElement>(
+      'button[data-action="approve"], button[data-action="promote"]',
+    )) {
+      assert.ok(button.disabled);
+      assert.match(
+        root.querySelector(".agent-notice")!.textContent!,
+        /Promote and approve stay with the owner/,
+      );
+      // Even a synthetic dispatch that skips HTML disabled behavior is capture-blocked.
+      button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    }
+    const ask = [...root.querySelectorAll("button")].find(
+      (button) => button.textContent === "Ask an agent",
+    )!;
+    ask.click();
+    await until(() => prompts.length === 1);
+    assert.equal(prompts[0], "Help me review project demo in Fixture product.");
+    assert.match(root.textContent!, /your pushes need approval on your fork/);
+    assert.ok(root.querySelector(".tab-gutter + .content .agent-notice"));
+    assert.ok(root.querySelector(".page-header [data-action=ask]"));
+    if (fixtureMode) assert.match(root.textContent!, /FIXTURE · OFFLINE/);
+    assert.doesNotMatch(
+      root.textContent!,
+      /Owner workspace|Owner Access session|Owner actions are authorized/,
+    );
+    assert.equal(root.querySelector(".sidebar, .topbar"), null);
+    assert.equal(root.querySelector<HTMLElement>("#open-project")!.hidden, true);
+    const reviewTab = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((button) =>
+      button.textContent!.startsWith("Review"),
+    )!;
+    reviewTab.click();
+    await until(() => !root.querySelector<HTMLElement>("#view-review")!.hidden);
+    assert.equal(root.querySelectorAll('[role="tab"]').length, 4);
   });
-  t.after(() => view.dispose());
-  await until(() => !!root.querySelector('button[data-action="approve"]'));
-  for (const button of root.querySelectorAll<HTMLButtonElement>('button[data-action="approve"], button[data-action="promote"]')) {
-    assert.ok(button.disabled);
-    assert.equal(button.title, OWNER_UNAVAILABLE);
-    // Even a synthetic dispatch that skips HTML disabled behavior is capture-blocked.
-    button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-  }
-  const ask = [...root.querySelectorAll("button")].find((button) => button.textContent === "Ask an agent")!;
-  ask.click();
-  await until(() => prompts.length === 1);
-  assert.equal(prompts[0], "Help me review project demo in Fixture product.");
-  assert.match(root.textContent!, /Git pushes require approval/);
-  assert.match(root.textContent!, /Fixture/);
-  assert.doesNotMatch(root.textContent!, /Owner workspace|Owner Access session|Owner actions are authorized/);
-  assert.equal(root.querySelector(".topbar > .badge")!.textContent,
-    fixtureMode ? "FIXTURE · OFFLINE" : "AGENT SESSION");
-  assert.equal(root.querySelector<HTMLElement>("#open-project")!.hidden, true);
-  const reviews = root.querySelector<HTMLElement>("#reviews")!;
-  let scrolled = false;
-  reviews.scrollIntoView = () => { scrolled = true; };
-  const navigation = new dom.window.MouseEvent("click", { bubbles: true, cancelable: true });
-  root.querySelector('a[href="#reviews"]')!.dispatchEvent(navigation);
-  assert.equal(navigation.defaultPrevented, true, "srcdoc section links must not navigate to the parent OS route");
-  assert.equal(scrolled, true);
-});
 
 test("silent push channel falls back after 30 seconds without overlapping polls", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });

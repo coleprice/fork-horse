@@ -1,3 +1,4 @@
+import { installDom } from "./dom.ts";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { test } from "node:test";
@@ -88,6 +89,7 @@ async function until(check: () => boolean) {
 
 function setup() {
   const dom = new JSDOM('<div id="dashboard"></div>');
+  installDom(dom.window as unknown as Window & typeof globalThis);
   const root = dom.window.document.getElementById("dashboard")!;
   const fixture = apiFixture();
   const app = mountDashboard(root, {
@@ -151,6 +153,17 @@ test("owner DOM Approve calls the review endpoint once; Promote refreshes head a
     assert.deepEqual(call.options.headers, { "Content-Type": "application/json" });
     assert.equal(button(context.root, "promote").disabled, false);
     button(context.root, "promote").click();
+    await until(
+      () => !!context.dom.window.document.querySelector('[data-action="confirm-promote"]'),
+    );
+    assert.equal(
+      context.fixture.calls.filter((call) => call.options.method === "POST").length,
+      1,
+      "opening confirmation performs no write",
+    );
+    context.dom.window.document
+      .querySelector<HTMLButtonElement>('[data-action="confirm-promote"]')!
+      .click();
     await until(() => context.root.textContent!.includes("Promoted ui-01"));
     assert.equal(context.fixture.state.ledger[0].after, NEXT_HEAD);
     assert.equal(context.fixture.state.ledger.length, 1);
@@ -323,6 +336,30 @@ test("activity request follows the recent snapshot cursor instead of showing the
     const activity = context.fixture.calls.find((call) => call.url.pathname.endsWith("/activity"))!;
     assert.equal(activity.url.searchParams.get("after"), "3");
     assert.equal(context.root.querySelectorAll(".activity").length, 3);
+  } finally {
+    context.cleanup();
+  }
+});
+
+test("top tabs select one visible view and preserve focus across refreshes", async () => {
+  const context = setup();
+  try {
+    await until(() => Boolean(context.root.querySelector("#reviews")));
+    const tabs = [...context.root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    assert.deepEqual(
+      tabs.map((tab) => tab.textContent!.replace(/\s*\d+$/, "").trim()),
+      ["Overview", "Work", "Review", "Agents"],
+    );
+    tabs[1].focus();
+    tabs[1].click();
+    assert.equal(context.root.querySelector<HTMLElement>("#view-work")!.hidden, false);
+    assert.equal(context.root.querySelector<HTMLElement>("#view-overview")!.hidden, true);
+    await context.app.refresh();
+    assert.equal(
+      context.dom.window.document.activeElement,
+      tabs[1],
+      "refresh preserves the same focused Kumo tab",
+    );
   } finally {
     context.cleanup();
   }

@@ -105,6 +105,7 @@ export function stateView(wire: StateResponse): ProjectState {
     })),
     reviews: wire.reviews.map((review) => ({
       ...review,
+      requestedAt: review.createdAt,
       status: review.promoted
         ? "promoted"
         : review.stale ||

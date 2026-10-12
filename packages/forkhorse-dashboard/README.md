@@ -77,7 +77,8 @@ host adapter implements that interface from its authorized `ui` capability.
   not expose command output or pass/fail details; the HTTP adapter never invents
   them. A capability transport may supply those optional details later.
 - Core currently does not return the canonical head in state. The shell says
-  “Not included in snapshot”; it does not infer a current head from push history.
+  “Head unavailable” when commits are recorded, or “No commits yet” for an empty
+  snapshot; it does not infer a current head from push history.
 - `GET /projects/:id/activity?after=:sequence&limit=100` follows the last receive
   sequence in the recent snapshot. It deduplicates and displays the latest 100
   available events; event timestamps do not determine ordering.
@@ -107,3 +108,27 @@ conflicts, session expiry, project selection, empty views, escaping, exact fork 
 receipt gates, activity cursors and socket origin/cleanup. Browser acceptance uses
 `/fixtures.html` at phone and desktop widths against the loopback fixture API.
 The API deliberately returns the FH-005 wire shape, not a separate mock UI model.
+
+## Kumo workspace UI
+
+The same real Kumo components render the standalone dashboard and agent frame.
+Overview, Work, Review and Agents use underline tabs with hash selection. Activity
+is a collapsible panel and a Kumo modal drawer below 1024px. Packet details replace
+the feed without navigating. React retains focus during snapshot refreshes.
+
+The agent frame subscribes to the pinned host theme once, implements
+`GatekeeperAppThemeReceiver.setTheme`, and uses upstream `applyAccentColor`.
+The standalone copy follows system appearance. The reviewed host palette, font
+and radius definitions are in `src/host-tokens.json`; component CSS consumes
+semantic variables. Appearance never supplies authorization.
+
+Approval still binds the exact SHA and receipt digest. Promotion confirms the
+target branch and exact head in a Kumo Dialog, then the existing server gate runs
+again. Agent connections disable these actions and refuse them in the controller
+and transport. Ask an agent opens the host composer without sending the prompt.
+
+Contract gaps remain visible: no Return-to-agent method; no older-history cursor
+on the snapshot capability; no event-registration state, receipt runner/duration,
+packet update time, or connected-agent identity. Those fields/actions are labeled
+unavailable or pending rather than synthesized. Activity preference storage is
+best-effort: an opaque sandbox may deny browser storage.

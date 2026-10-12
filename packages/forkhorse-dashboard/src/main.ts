@@ -1,3 +1,4 @@
+import { followSystemTheme } from "./theme.ts";
 import { mountDashboard } from "./dashboard.ts";
 import { createHttpTransport } from "./transport.ts";
 import type { Brand, ProjectOption } from "./contracts.ts";
@@ -18,3 +19,6 @@ mountDashboard(root, {
   initialProject: new URLSearchParams(location.search).get("project") ?? undefined,
   transport: createHttpTransport({ origin: location.origin }),
 });
+
+const stopTheme = followSystemTheme();
+window.addEventListener("pagehide", stopTheme, { once: true });

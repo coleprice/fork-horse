@@ -1,6 +1,6 @@
 /** View projection of the public FH-005 wire state; never includes credentials. */
 export interface ProjectState {
-  project: { id: string; repoName: string; defaultBranch: string };
+  project: { id: string; repoName: string; defaultBranch: string; remote?: string };
   canonicalHead?: string;
   recentActivity?: Activity[];
   agents: { name: string }[];
@@ -27,6 +27,7 @@ export interface Review {
   packet: string;
   sha: string;
   receiptDigest: string | null;
+  requestedAt?: string;
   status: "pending" | "approved" | "stale" | "promoted";
   receipt?: { status: "passed" | "failed"; commands: string[] };
 }

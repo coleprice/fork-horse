@@ -1,6 +1,9 @@
 import type { Brand, DashboardTransport, ProjectOption } from "./contracts.ts";
 import { assertState, reviewGate, type ViewModel } from "./model.ts";
-import { renderDashboard } from "./render.ts";
+import { createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { DashboardView, type Section } from "./view.tsx";
 
 export interface DashboardOptions {
   transport: DashboardTransport;
@@ -9,6 +12,9 @@ export interface DashboardOptions {
   initialProject?: string;
   /** Only the fixture entry sets this. Hosts should leave it false. */
   fixture?: boolean;
+  agent?: string;
+  owner?: boolean;
+  openPrompt?(prompt: string): Promise<void>;
 }
 
 /** The same view mounts in the web shell, sidebar app or gadget with a host transport. */
@@ -33,16 +39,51 @@ export function mountDashboard(
   let unsubscribe: (() => void) | undefined;
   let invalidated = false;
 
+  const react = createRoot(root);
+  const window = root.ownerDocument.defaultView!;
+  const sectionFromHash = (): Section => {
+    const hash = window.location.hash.slice(1);
+    return ["overview", "work", "review", "agents"].includes(hash) ? (hash as Section) : "overview";
+  };
+  let section = sectionFromHash();
+  function setSection(value: Section) {
+    section = value;
+    // srcdoc inherits the OS URL; never let native anchors navigate its frame.
+    try {
+      window.history.replaceState(null, "", `#${value}`);
+    } catch {
+      /* Opaque srcdoc keeps local selection. */
+    }
+    draw();
+  }
+  function onHash() {
+    section = sectionFromHash();
+    draw();
+  }
+  window.addEventListener("hashchange", onHash);
   function draw() {
     if (disposed) return;
-    const focus = root.ownerDocument.activeElement as HTMLElement | null;
-    const key = focus?.dataset.action;
-    const review = focus?.dataset.review;
-    root.innerHTML = renderDashboard(view);
-    if (key)
-      Array.from(root.querySelectorAll<HTMLButtonElement>("button[data-action]"))
-        .find((button) => button.dataset.action === key && button.dataset.review === review)
-        ?.focus();
+    flushSync(() =>
+      react.render(
+        createElement(DashboardView, {
+          view: { ...view },
+          actions: {
+            section,
+            setSection,
+            selectProject,
+            owner: options.owner ?? true,
+            agent: options.agent,
+            ask: options.openPrompt
+              ? () =>
+                  options.openPrompt!(
+                    `Help me review project ${view.project} in ${view.brand.name}.`,
+                  )
+              : undefined,
+            action,
+          },
+        }),
+      ),
+    );
   }
 
   async function load() {
@@ -97,6 +138,7 @@ export function mountDashboard(
   }
 
   async function selectProject(id: string) {
+    if (options.owner === false && id !== initial) return;
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) || id.length > 48) {
       view.error =
         "Project IDs use lowercase letters, digits and internal hyphens (maximum 48 characters).";
@@ -126,7 +168,7 @@ export function mountDashboard(
   }
 
   async function action(kind: "approve" | "promote", reviewId: string) {
-    if (view.busy || !view.state) return;
+    if (options.owner === false || view.busy || !view.state) return;
     const review = view.state.reviews.find((entry) => entry.id === reviewId);
     if (!review || !reviewGate(review, view.state)[kind]) return;
     view.busy = true;
@@ -167,21 +209,18 @@ export function mountDashboard(
     if (!button || !root.contains(button) || button.disabled) return;
     const kind = button.dataset.action;
     if (kind === "refresh") void refresh();
-    if ((kind === "approve" || kind === "promote") && button.dataset.review)
-      void action(kind, button.dataset.review);
-  }
-  function onChange(event: Event) {
-    const target = event.target as HTMLSelectElement;
-    if (target.id === "project" && !view.busy) void selectProject(target.value);
   }
   function onSubmit(event: Event) {
     const form = event.target as HTMLFormElement;
-    if (form.id !== "open-project") return;
+    if (form.id !== "open-project" || options.owner === false) return;
     event.preventDefault();
-    if (!view.busy) void selectProject(String(new FormData(form).get("project") ?? ""));
+    if (!view.busy)
+      void selectProject(
+        String(new root.ownerDocument.defaultView!.FormData(form).get("project") ?? ""),
+      );
   }
   root.addEventListener("click", onClick);
-  root.addEventListener("change", onChange);
+
   root.addEventListener("submit", onSubmit);
   draw();
   if (initial) void selectProject(initial);
@@ -192,9 +231,10 @@ export function mountDashboard(
       generation++;
       unsubscribe?.();
       root.removeEventListener("click", onClick);
-      root.removeEventListener("change", onChange);
+
       root.removeEventListener("submit", onSubmit);
-      root.replaceChildren();
+      window.removeEventListener("hashchange", onHash);
+      flushSync(() => react.unmount());
     },
   };
 }
