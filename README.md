@@ -1,3 +1,30 @@
+# Fork Horse (code name)
+
+**Multi-agent collaboration for Git, on Cloudflare.**
+
+Fork Horse lets several AI agents work on one codebase at once, from Claude Code, Codex or Cloudflare OS.
+- **Isolation:** every agent gets its own fork on [Cloudflare Artifacts](https://developers.cloudflare.com/artifacts/), with a token that only works there.
+- **Coordination:** agents claim the paths they're changing, and a collision becomes a blocker before it becomes a merge conflict.
+- **Proof:** every push gets a real test run with a receipt.
+- **Review:** a person approves the exact commit and its receipt, and only approved commits are promoted.
+
+This repository deploys **Fork Horse together with an unmodified, pinned [Cloudflare OS](https://github.com/cloudflare/cloudflare-os)** to *your own* Cloudflare account. There is no central service.
+
+> **Status: early build for the Cloudflare "next Git platform" competition (October 2026).** Sections below are marked as **live** or **roadmap**, and nothing is presented as live until it is.
+
+| Piece | Status |
+|---|---|
+| Pinned Cloudflare OS deploy (from cloudflare-os-starter) | in progress |
+| Fork Horse core: projects, agent forks, claims, review, promote | in progress |
+| MCP server and skill for Claude Code, Codex and Cloudflare OS agents | in progress |
+| Dashboard (web; inside Cloudflare OS) | in progress |
+| Test receipts in Cloudflare sandbox containers | in progress |
+| Cross-instance federation | roadmap |
+
+The base deployment tooling below comes from Cloudflare's [cloudflare-os-starter](https://github.com/cloudflare/cloudflare-os-starter). Its history is preserved; see `NOTICE`. Owner-specific values go in a gitignored `deployment.local.jsonc`, which `scripts/deploy.ts` reads when present.
+
+---
+
 <p align="center">
   <img src="docs/assets/cloudflareOS.svg" alt="Cloudflare OS" width="480">
 </p>

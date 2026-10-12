@@ -1,0 +1,16 @@
+Fork Horse (code name)
+Copyright 2026 The Fork Horse Authors
+
+This repository began as a copy of cloudflare-os-starter
+(https://github.com/cloudflare/cloudflare-os-starter, commit 3d21147),
+Copyright Cloudflare, Inc., licensed under the Apache License, Version 2.0.
+Its history is preserved in this repository.
+
+Cloudflare OS (https://github.com/cloudflare/cloudflare-os) is included as
+an unmodified git submodule at ./cloudflare-os, licensed under the Apache
+License, Version 2.0.
+
+"Cloudflare", "Cloudflare OS", "Workers" and "Artifacts" are trademarks of
+Cloudflare, Inc. "Git" is a trademark of the Software Freedom Conservancy.
+Fork Horse is an independent project and is not affiliated with or endorsed
+by either.
