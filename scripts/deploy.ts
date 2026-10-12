@@ -713,7 +713,10 @@ function reportAiGateway(config: DeploymentConfig): void {
 
 async function main(): Promise<void> {
   requireSubmodule();
-  const config = await readDeployment(join(root, "deployment.jsonc"));
+  // Fork Horse: a gitignored deployment.local.jsonc holds an owner's real values (account,
+  // hostname, Access audience, admin emails) so the tracked deployment.jsonc stays a template.
+  const localConfig = join(root, "deployment.local.jsonc");
+  const config = await readDeployment(existsSync(localConfig) ? localConfig : join(root, "deployment.jsonc"));
   const generated = generateConfigs(config, {
     router: await readJsonc(join(root, packageDirs.router, "wrangler.jsonc")),
     workshop: await readJsonc(join(root, packageDirs.workshop, "wrangler.jsonc")),
