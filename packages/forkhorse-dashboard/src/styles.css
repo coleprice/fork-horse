@@ -262,6 +262,8 @@ footer {
   right: 0 !important;
   left: auto !important;
   transform: none !important;
+  /* Tailwind 4 translates dialogs with the independent translate property. */
+  translate: none !important;
   width: min(var(--layout-activity-panel), 92vw) !important;
   min-width: 0 !important;
   max-height: 100dvh !important;
