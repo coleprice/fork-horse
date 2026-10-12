@@ -321,6 +321,11 @@ footer {
 .path-more {
   flex-shrink: 0;
 }
+/* Bound the table's intrinsic path width; reserve the full count before truncating the path. */
+.work-paths .path-summary {
+  display: flex;
+  width: 12rem;
+}
 .collision-copy {
   display: block;
 }

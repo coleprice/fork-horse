@@ -132,8 +132,40 @@ test("fixture DOM renders every packet view with fork-bound claims and evidence"
     assert.equal(button(context.root, "promote"), null);
     assert.equal(button(context.root, "approve", "review-2"), null);
     assert.equal(button(context.root, "approve", "review-3"), null);
+    const blocked = Array.from(context.root.querySelectorAll(".review-card")).find((row) =>
+      row.textContent!.includes("api-02"),
+    )!;
+    assert.match(blocked.textContent!, /Waiting for a passing receipt/);
   } finally {
     context.cleanup();
+  }
+});
+
+test("review rows explain blocker gates and activity is empty only after a successful snapshot", () => {
+  const state = stateView(fixtureState());
+  state.reviews.find((review) => review.packet === "api-02")!.receiptDigest = DIGEST;
+  const base = { brand, projects: [], project: "demo", fixture: true, activity: [], busy: false };
+  for (const snapshot of [
+    { ...base, state },
+    { ...base, busy: true },
+    { ...base, error: "Snapshot unavailable" },
+  ]) {
+    const dom = new JSDOM(renderDashboard(snapshot));
+    try {
+      const activity = dom.window.document.querySelector("#activity")!;
+      assert.equal(activity.textContent!.includes("No pushes yet."), "state" in snapshot);
+      if ("state" in snapshot) {
+        const blocked = Array.from(dom.window.document.querySelectorAll(".review-card")).find(
+          (row) => row.textContent!.includes("api-02"),
+        )!;
+        assert.match(blocked.textContent!, /Resolve the packet's blockers first/);
+        assert.equal(activity.querySelectorAll("p").length, 1);
+      } else {
+        assert.equal(activity.textContent, "");
+      }
+    } finally {
+      dom.window.close();
+    }
   }
 });
 

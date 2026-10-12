@@ -15,7 +15,7 @@ import {
   TooltipProvider,
   useKumoToastManager,
 } from "@cloudflare/kumo";
-import { ArrowLeft, ArrowLineUp, Pulse, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowLineUp, Pulse, Warning, X } from "@phosphor-icons/react";
 import { reviewGate, type ViewModel } from "./model.ts";
 import type { Activity, ProjectState, Review } from "./contracts.ts";
 
@@ -456,7 +456,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               </time>
             </article>
           ))}
-          {!view.activity.length && empty("No recorded pushes.")}
+          {!view.activity.length && state && !view.busy && !view.error && (
+            <p className="caption muted">No pushes yet.</p>
+          )}
           {view.activity.length === 100 && (
             <p className="caption muted">Showing the latest 100 events.</p>
           )}
@@ -570,6 +572,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               {view.error && (
                 <Banner
                   variant="error"
+                  className="text-kumo-default"
+                  icon={<Warning size={20} />}
                   role="alert"
                   description={view.error}
                   action={
@@ -591,6 +595,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     <Banner
                       key={index}
                       variant="error"
+                      className="text-kumo-default"
+                      icon={<Warning size={20} />}
                       title="Canonical reconciliation alert"
                       description={
                         <>
@@ -718,7 +724,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       <TruncatedCode key={c.repoName} value={c.repoName} />
                                     ))}
                                   </Table.Cell>
-                                  <Table.Cell>
+                                  <Table.Cell className="work-paths">
                                     <Paths paths={p.paths} />
                                   </Table.Cell>
                                   <Table.Cell>
@@ -758,6 +764,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             ]}
                           >
                             {reviews.map((r) => {
+                              const gate = reviewGate(r, state);
                               const stale =
                                 r.status === "stale" ||
                                 state.forks.find((f) => f.repoName === r.repoName)?.head !== r.sha;
@@ -804,6 +811,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                         The agent must request review again.
                                       </div>
                                     )}
+                                    {!stale && !gate.approve && !gate.promote && (
+                                      <div className="caption muted state-reason">
+                                        {gate.reason}
+                                      </div>
+                                    )}
                                   </Table.Cell>
                                   <Table.Cell>
                                     {r.receipt && (
@@ -814,7 +826,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     )}
                                     <div className="caption">
                                       {r.receiptDigest ? (
-                                        <code>Receipt {r.receiptDigest.slice(0, 7)}</code>
+                                        <>
+                                          Receipt <code>{r.receiptDigest.slice(0, 7)}</code>
+                                        </>
                                       ) : (
                                         "No receipt"
                                       )}
