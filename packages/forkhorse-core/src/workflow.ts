@@ -274,7 +274,7 @@ export class Workflow {
       };
       if (!this.receipts) throw new Error("Receipt integration required");
       const run = await this.receipts.reserve(project, review, fork, "review-created");
-      this.receipts.start(run);
+      this.receipts.start(run, !settings(project).requireReceipt);
       return json({ review: publicReview(review) }, 201);
     }
     const reviewing = /^\/reviews\/([^/]+)\/(approve|promote)$/.exec(path);
@@ -294,13 +294,17 @@ export class Workflow {
         await this.storage.put(`review:${review.id}`, { ...review, stale: true });
         throw new HttpError(409, "Approval is stale; request review again.");
       }
+      const requireReceipt = settings(project).requireReceipt;
       if (reviewing[2] === "approve") {
-        if (!this.receipts) throw new Error("Receipt integration required");
-        await this.receipts.requirePassing(project, review);
+        if (requireReceipt) {
+          if (!this.receipts) throw new Error("Receipt integration required");
+          await this.receipts.requirePassing(project, review);
+        }
         const approved = await this.storage.transaction(async txn => {
           const current = await txn.get<Review>(`review:${review.id}`);
-          if (!current || current.stale || current.promoted || current.sha !== review.sha ||
-              current.receiptGeneration !== review.receiptGeneration || current.receiptDigest !== review.receiptDigest)
+          if (!current || current.stale || current.promoted || current.sha !== review.sha)
+            throw new HttpError(409, "Approval is stale; request review again.");
+          if (requireReceipt && (current.receiptGeneration !== review.receiptGeneration || current.receiptDigest !== review.receiptDigest))
             throw new HttpError(409, "Receipt changed; approve again.");
           current.approval = { sha: current.sha, receiptDigest: current.receiptDigest };
           await txn.put(`review:${review.id}`, current);
@@ -310,28 +314,31 @@ export class Workflow {
       }
       if (
         !review.approval ||
-        review.approval.sha !== review.sha ||
-        review.approval.receiptDigest !== review.receiptDigest
+        review.approval.sha !== review.sha
       )
-        throw new HttpError(409, "Approval does not match the commit and receipt digest.");
+        throw new HttpError(409, "Approval does not match the commit.");
       if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
         throw staleBase();
-      if (!this.receipts) throw new Error("Receipt integration required");
-      const run = await this.receipts.reserve(project, review, fork, "before-promote");
-      const result = await this.receipts.run(run);
-      const current = await this.storage.get<Review>(`review:${review.id}`);
-      if (!current || current.stale || current.promoted || current.sha !== run.commit ||
-          current.receiptGeneration !== run.generation || current.receipt?.trigger !== "before-promote")
-        throw new HttpError(409, "Approval is stale; request review again.");
-      Object.assign(review, current);
-      if (!result || result.digest !== review.receiptDigest || result.receipt.trigger !== "before-promote" || result.receipt.commit !== run.commit ||
-          result.receipt.generation !== run.generation || result.receipt.reviewId !== run.reviewId ||
-          result.receipt.projectId !== project.id || result.receipt.forkRepoName !== fork.repoName ||
-          !result.receipt.checks.length || result.receipt.checks.some(c => c.outcome !== "passed" || c.exitStatus !== 0))
-        throw new HttpError(409, "Checks failed before promote.");
-      if (settings(project).requireReceipt) {
+      // Advisory promotion neither invokes nor waits for the check runner. Owner
+      // consent binds the commit; required projects establish fresh receipt evidence below.
+      let checkedGeneration: string | undefined;
+      if (requireReceipt) {
+        if (!this.receipts) throw new Error("Receipt integration required");
+        const run = await this.receipts.reserve(project, review, fork, "before-promote");
+        const result = await this.receipts.run(run);
+        const current = await this.storage.get<Review>(`review:${review.id}`);
+        if (!current || current.stale || current.promoted || current.sha !== run.commit ||
+            current.receiptGeneration !== run.generation || current.receipt?.trigger !== "before-promote")
+          throw new HttpError(409, "Approval is stale; request review again.");
+        Object.assign(review, current);
+        if (!result || result.digest !== review.receiptDigest || result.receipt.trigger !== "before-promote" || result.receipt.commit !== run.commit ||
+            result.receipt.generation !== run.generation || result.receipt.reviewId !== run.reviewId ||
+            result.receipt.projectId !== project.id || result.receipt.forkRepoName !== fork.repoName ||
+            !result.receipt.checks.length || result.receipt.checks.some(c => c.outcome !== "passed" || c.exitStatus !== 0))
+          throw new HttpError(409, "Checks failed before promote.");
         try { await this.receipts.requirePassing(project, review); }
         catch { throw new HttpError(409, "Checks failed before promote."); }
+        checkedGeneration = run.generation;
       }
       this.diagnostic.stage = "prepare";
       const prepared = await this.git.preparePromote(
@@ -347,10 +354,13 @@ export class Workflow {
       if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
         throw staleBase();
       const checked = await this.storage.get<Review>(`review:${review.id}`);
-      if (!checked || checked.stale || checked.promoted || checked.sha !== run.commit ||
-          checked.receiptGeneration !== run.generation || checked.receiptDigest !== review.receiptDigest ||
-          checked.receipt?.trigger !== "before-promote")
+      if (!checked || checked.stale || checked.promoted || checked.sha !== review.sha)
+        throw new HttpError(409, "Approval is stale; request review again.");
+      if (requireReceipt && (checked.receiptGeneration !== checkedGeneration || checked.receiptDigest !== review.receiptDigest ||
+          checked.receipt?.trigger !== "before-promote"))
         throw new HttpError(409, "Receipt changed before promote.");
+      // A background advisory receipt may have completed during preparation.
+      Object.assign(review, checked);
       const entry: LedgerEntry = {
         id: crypto.randomUUID(),
         review: review.id,
@@ -372,10 +382,12 @@ export class Workflow {
         await prepared.push(project.remote, token.plaintext, review.base);
         this.diagnostic.stage = "ledger";
         await this.storage.transaction(async (txn) => {
+          const latest = await txn.get<Review>(`review:${review.id}`);
           await txn.put({
             [`ledger:${entry.id}`]: entry,
             canonicalHead: review.sha,
-            [`review:${review.id}`]: { ...review, promoted: true },
+            // Keep any advisory result attached while the canonical push was in flight.
+            [`review:${review.id}`]: { ...latest!, promoted: true },
           });
           await txn.delete("promotionPending");
         });
@@ -432,8 +444,6 @@ export class Workflow {
           }
         });
       }
-      if (!review.promoted && review.approval && review.approval.receiptDigest !== review.receiptDigest)
-        review.stale = true;
     }
     const current = await this.head(project.repoName, project.defaultBranch);
     const expected = await this.storage.get<string>("canonicalHead");

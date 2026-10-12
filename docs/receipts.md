@@ -24,24 +24,38 @@ Supervisor starts checks in the background. Authority comes from the stored
 project, registered caller-owned fork, live packet claim and exact fork head.
 Public input cannot select a generation, image URL, authority, remote or digest.
 
-Approval calls the runner validator against the exact commit's checks and the
-attached immutable record. When required, it rejects missing, stale, altered,
-incomplete, failed and `mocked-container-port` evidence. A false setting bypasses
-this approval requirement; it does not turn missing checks into passing checks.
+The packet ruling of **2026-10-12 16:55 ET** supersedes the original unconditional
+before-promote requirement and 409 wording. The state wire shape below is unchanged.
 
-Promote first validates the existing owner approval, then **always reruns** checks
-with a new generation and the `before-promote` trigger, holding the Supervisor's
-workflow mutex until completion. The original owner approval authorizes this
-specific commit and its previously attached receipt; the fresh successful run is
-an additional pre-write condition. Core compares the returned digest and trigger,
-and rechecks the stored commit/generation/digest and both repository heads before
-minting a canonical write credential. The ledger records the fresh digest.
+When `requireReceipt` is **true**, approval calls the runner validator against the
+exact commit's checks and attached immutable record. It rejects missing, stale,
+altered, incomplete, failed and `mocked-container-port` evidence. Promote validates
+owner consent for the exact commit, then reruns checks with a new generation and
+the `before-promote` trigger, holding the Supervisor's workflow mutex until
+completion. It compares the new digest, trigger, commit and generation and
+rechecks both repository heads before minting a canonical write credential. The
+ledger records this fresh digest. A failed, timed-out, missing or infrastructure
+result returns exactly `409 { "error": "Checks failed before promote." }`.
+The failed before-promote summary stays visible. Mocked successful evidence also
+fails the required gate.
 
-A failed, missing or infrastructure-failed rerun returns exactly
-`409 { "error": "Checks failed before promote." }`, including when
-`requireReceipt` is false. The failed before-promote summary stays visible. It
-requires another owner approval before retry because its digest differs from the
-previous approval. A required project also rejects a mocked successful rerun.
+When `requireReceipt` is **false**, receipts are advisory. Review-created checks
+still execute when the commit contains `.forkhorse/checks`; their results remain
+visible, including failures. An absent check file leaves `receipt: null` after
+configuration discovery. Invalid or unsafe configuration is an infrastructure
+error, but does not gate approval or promotion. Approve and promote ignore receipt
+status, digest changes and in-flight execution. Promote starts no checks and does
+not wait for checks or return a check-related 409. A review-created result can
+attach after advisory promotion without overwriting the promotion or owner consent.
+The ledger captures the digest known at promotion; a later advisory result can
+therefore differ from that historical ledger entry.
+
+A settings change affects later approve and promote calls. Turning the requirement
+on also gates an already-approved review at its next promote: it must complete a
+new required run, even if its earlier approval or receipt was advisory. Turning it
+off makes subsequent calls advisory. Owner authorization, exact-commit consent,
+live claims, fork-head checks, canonical fast-forward/CAS and uncertain-outcome
+fencing apply in both modes.
 
 ## Fixed state wire contract
 

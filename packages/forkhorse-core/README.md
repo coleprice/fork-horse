@@ -259,15 +259,17 @@ reserves a generation and starts the runner in the background through a trusted
 capability, not an agent-editable HTTP field. New projects require passing real
 container receipts for approval by default; legacy records without settings default
 to false until the owner opts in. See [receipts](../../docs/receipts.md).
-Approval binds `{sha,receiptDigest}` exactly, including null. A changed digest
-requires another owner approval. Null currently means **no check receipt**, and
-is not represented as passing checks. Moving the fork head or releasing its claim
-invalidates an outstanding review. Both approve and promote read the fork head
-fresh rather than relying only on queued push events. State also computes stale
-status from fresh heads and receipt mismatch.
+Approval records `{sha,receiptDigest}`, including null, but advisory projects never
+use receipts to gate approval or promotion. Null means **no check receipt**, not
+passing checks. Moving the fork head or releasing its claim invalidates an
+outstanding review. Both approve and promote read the fork head fresh rather than
+relying only on queued push events. State also computes stale status from fresh heads.
 
-Promote always waits for a new successful before-promote check execution, compares
-the generation/commit/digest, prepares the exact reviewed commit, verifies fast-forward ancestry, then
+With `requireReceipt: true`, promote waits for a new successful before-promote
+execution and compares its generation/commit/digest, including for reviews approved
+before the setting was enabled. With false, promote neither runs nor waits for
+checks; even failed advisory receipts gate nothing. In both modes, promote prepares
+the exact reviewed commit, verifies fast-forward ancestry, then
 re-reads both heads. The canonical head must equal the review's captured base.
 Only then does the supervisor mint a 60-second canonical write token, use it for
 one push, and revoke it in `finally`. It is never returned, stored or logged.

@@ -355,7 +355,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     });
   });
 
-  it("invalidates approval when its receipt digest changes or its claim is released", async () => {
+  it("ignores advisory receipt changes but invalidates approval when its claim is released", async () => {
     const f = await fixture();
     await packet(f.id);
     await claim(f.id, f.alpha);
@@ -367,7 +367,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
         receiptDigest: "e".repeat(64),
       });
     });
-    expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(409);
+    expect((await state(f.id)).reviews[0]?.stale).toBe(false);
     expect((await api(f.id, `/reviews/${r.id}/approve`, OWNER, {})).status).toBe(200);
     await api(f.id, "/packets/one/claim", f.alpha, undefined, "DELETE");
     await claim(f.id, f.alpha);

@@ -11,17 +11,22 @@ import { FixtureArtifacts } from "./fixtures";
 
 /** Test-only Worker injects fixtures; production has no fixture switch or public event route. */
 export class TestSupervisor extends Supervisor {
+  receiptFixtureExecutor?: ExecuteReceipt;
   useRpcRunner = false;
   receiptExitStatus = 0;
   receiptBarrier?: Promise<void>;
   receiptRuns: string[] = [];
+  receiptContainers: MockContainer[] = [];
   protected override receiptExecution(): ExecuteReceipt {
-    return async (request, authority) => {
+    return async (request, authority, generation) => {
       this.receiptRuns.push(request.trigger);
+      if (this.receiptFixtureExecutor) return this.receiptFixtureExecutor(request, authority, generation);
       await this.receiptBarrier;
       if (this.useRpcRunner) return super.receiptExecution()(request, authority, crypto.randomUUID());
+      const container = new MockContainer(this.receiptExitStatus);
+      this.receiptContainers.push(container);
       return runReviewChecks(request, {
-        authority, container: new MockContainer(this.receiptExitStatus),
+        authority, container,
         getFork: name => this.fixture.get(name), evidence: "mocked-container-port",
         gitGateway: () => ({}) as Fetcher,
       });

@@ -3,11 +3,12 @@ import type { ContainerPort } from "../../forkhorse-runner/src/types";
 /** Explicit mocked container port: no process or container is started. */
 export class MockContainer implements ContainerPort {
   running = false;
+  starts = 0;
   images = { default: `registry.idiot.tax/fixture@sha256:${"a".repeat(64)}` };
   commands: string[][] = [];
   commit = "";
   constructor(public exitStatus = 0) {}
-  start() { this.running = true; }
+  start() { this.starts++; this.running = true; }
   async destroy() { this.running = false; }
   async setInactivityTimeout() {}
   async interceptOutboundHttps() {}

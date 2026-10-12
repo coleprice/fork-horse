@@ -1,5 +1,5 @@
 import { RpcTarget } from "cloudflare:workers";
-import { loadChecks } from "../../forkhorse-runner/src/checks";
+import { loadChecks, MissingChecksError } from "../../forkhorse-runner/src/checks";
 import { receiptJson, requirePassingReceipt, sha256 } from "../../forkhorse-runner/src/runner";
 import type { AuthorizedReview, ReviewAuthority, RunRequest, StoredReceipt } from "../../forkhorse-runner/src/types";
 import { HttpError } from "./http";
@@ -14,7 +14,7 @@ export type ExecuteReceipt = (
   request: RunRequest, authority: ReceiptAuthority, generation: string,
 ) => Promise<StoredReceipt>;
 const same = (review: Review | undefined, run: AuthorizedReview) =>
-  review && !review.stale && !review.promoted && review.id === run.reviewId &&
+  review && !review.stale && (!review.promoted || run.trigger === "review-created") && review.id === run.reviewId &&
   review.sha === run.commit && review.repoName === run.forkRepoName &&
   review.receiptGeneration === run.generation && review.receipt?.trigger === run.trigger;
 
@@ -126,10 +126,10 @@ export class Receipts {
     await this.storage.put(`review:${review.id}`, review);
     return run;
   }
-  start(run: AuthorizedReview): void {
-    this.background(this.run(run).then(() => {}));
+  start(run: AuthorizedReview, advisory = false): void {
+    this.background(this.run(run, advisory).then(() => {}));
   }
-  async run(run: AuthorizedReview): Promise<StoredReceipt | null> {
+  async run(run: AuthorizedReview, advisory = false): Promise<StoredReceipt | null> {
     try {
       const authority = new ReceiptAuthority(this.storage, run);
       await authority.authorize(run);
@@ -142,12 +142,18 @@ export class Receipts {
         await txn.put(`review:${review.id}`, review);
       });
       return await this.execute({ reviewId: run.reviewId, trigger: run.trigger }, authority, run.generation);
-    } catch {
+    } catch (error) {
       // Missing checks/images, startup and cleanup errors have no publishable receipt.
       // Never expose provider exceptions, tokens, or commands in the state projection.
       await this.storage.transaction(async txn => {
         const review = await txn.get<Review>(`review:${run.reviewId}`);
         if (!same(review, run) || !review || review.receiptDigest) return;
+        if (advisory && error instanceof MissingChecksError) {
+          review.receipt = null;
+          review.receiptGeneration = undefined;
+          await txn.put(`review:${review.id}`, review);
+          return;
+        }
         const finishedAt = new Date().toISOString();
         review.receipt = { ...review.receipt!, status: "infrastructure-error", finishedAt,
           durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(review.receipt!.startedAt)),
@@ -160,12 +166,12 @@ export class Receipts {
   }
   async requirePassing(project: Project, review: Review): Promise<void> {
     try {
-      const required = settings(project).requireReceipt;
-      using repo = required ? await this.env.ARTIFACTS.get(review.repoName) : undefined;
+      if (!settings(project).requireReceipt) return;
+      using repo = await this.env.ARTIFACTS.get(review.repoName);
       await requirePassingReceipt(await readReceipt(this.storage, review.receiptDigest), {
         projectId: project.id, reviewId: review.id, forkRepoName: review.repoName, commit: review.sha,
         generation: review.receiptGeneration ?? "", digest: review.receiptDigest,
-        checks: repo ? await loadChecks(repo, review.sha) : [], requireReceipt: required,
+        checks: await loadChecks(repo, review.sha), requireReceipt: true,
       });
     } catch { throw new HttpError(409, "A current passing container receipt is required."); }
   }

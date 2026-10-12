@@ -68,10 +68,14 @@ a per-execution RPC capability rather than a globally reusable authority binding
    Reserve a new execution generation and clear the old receipt digest before
    returning `AuthorizedReview`. Never accept these authority fields from a
    public request. The runner receives only review ID and trigger.
-2. **Before-promote trigger:** always call `run()` again and wait for it. Do not
-   reuse the review-created receipt, even if the commit is unchanged. Serialize
-   promotion against review edits, compare commit/generation, and require the
-   newly returned digest/trigger before writing the canonical repository.
+2. **Before-promote trigger:** when `requireReceipt` is true, call `run()` again
+   and wait; do not reuse the review-created receipt even if the commit is unchanged.
+   Serialize promotion against review edits, compare commit/generation, and require
+   the newly returned digest/trigger before writing the canonical repository.
+   The 2026-10-12 16:55 ET packet ruling makes false advisory: review-created checks
+   still run when configured, but approve/promote ignore receipts and promote does
+   not rerun or wait. Enabling the setting gates later calls, including already
+   approved reviews. See [the updated contract](../../docs/receipts.md).
 3. **Artifacts capability:** provide `ARTIFACTS.get()` scoped to the owner's
    namespace. Authorization must verify the selected repo is this review's fork;
    this package never opens the canonical repo or mints a write token.

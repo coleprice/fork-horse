@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import worker from "../src/index";
 import { ReceiptAuthority, Receipts, readReceipt, storeReceipt, recoverInterruptedReceipts } from "../src/receipts";
 import { receiptJson, sha256 } from "../../forkhorse-runner/src/runner";
-import type { AuthorizedReview, Check, Receipt, StoredReceipt } from "../../forkhorse-runner/src/types";
+import type { AuthorizedReview, Check, CheckReceipt, Receipt, StoredReceipt } from "../../forkhorse-runner/src/types";
 import type { Fork, Review, StateSnapshot } from "../src/workflow-types";
 import type { Project } from "../src/types";
 import { TestSupervisor } from "./worker";
@@ -57,13 +57,13 @@ async function fixture(requireReceipt?: boolean) {
 }
 
 /** Fabricated validator input only. This does not relabel a mocked runner result. */
-async function fabricated(run: AuthorizedReview, checks = [CHECK], log = ""): Promise<StoredReceipt> {
+async function fabricated(run: AuthorizedReview, checks = [CHECK], log = "", outcome: CheckReceipt["outcome"] = "passed"): Promise<StoredReceipt> {
   const logs = { stdout: log, stderr: log, truncated: false };
   const receipt: Receipt = {
     schema: 1, evidence: "container", projectId: run.projectId, reviewId: run.reviewId,
     forkRepoName: run.forkRepoName, commit: run.commit, generation: run.generation, trigger: run.trigger,
     checks: await Promise.all(checks.map(async check => ({
-      commit: run.commit, check, imageDigest: `sha256:${"a".repeat(64)}`, exitStatus: 0, outcome: "passed" as const,
+      commit: run.commit, check, imageDigest: `sha256:${"a".repeat(64)}`, exitStatus: outcome === "passed" ? 0 : outcome === "failed" ? 1 : null, outcome,
       startedAt: "2026-10-12T00:00:00.000Z", finishedAt: "2026-10-12T00:00:01.000Z", durationMs: 1000,
       logs, logDigest: await sha256(JSON.stringify(logs)),
     }))),
@@ -151,11 +151,78 @@ describe("receipt integration in workerd; all container execution is explicitly 
     });
   });
 
-  it("always reruns before promote, waits, publishes the failed run and refuses canonical writes even when optional", async () => {
+  it("advisory failed receipts gate neither approval nor promotion and start no container at promote", async () => {
     const f = await fixture(false);
-    const review = await f.submit();
-    const first = await finished(f.id, review.id);
+    await inspect(f.id, instance => { instance.receiptExitStatus = 1; });
+    const review = await f.submit(), first = await finished(f.id, review.id);
+    expect(first.receipt?.status).toBe("failed");
     expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(200);
+    expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
+    const snapshot = await state(f.id);
+    expect(snapshot.reviews[0]).toMatchObject({ promoted: true, stale: false, receiptDigest: first.receiptDigest });
+    expect(snapshot.reviews[0]?.receipt).toMatchObject({ status: "failed", trigger: "review-created" });
+    await inspect(f.id, instance => {
+      expect(instance.receiptRuns).toEqual(["review-created"]);
+      expect(instance.receiptContainers.map(c => c.starts)).toEqual([1]);
+      expect(instance.fixture.calls.filter(c => c.method === "createToken" && c.scope === "read")).toHaveLength(1);
+    });
+  });
+
+  it("advisory promotion does not wait for a running receipt; its late result is still recorded", async () => {
+    const f = await fixture(false);
+    let release!: () => void;
+    await inspect(f.id, instance => {
+      instance.receiptExitStatus = 1;
+      instance.receiptBarrier = new Promise<void>(resolve => { release = resolve; });
+    });
+    const review = await f.submit();
+    expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(200);
+    expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
+    await inspect(f.id, instance => {
+      expect(instance.receiptRuns).toEqual(["review-created"]);
+      expect(instance.receiptContainers).toHaveLength(0);
+      release();
+    });
+    const done = await finished(f.id, review.id);
+    expect(done).toMatchObject({ promoted: true, receipt: { status: "failed", trigger: "review-created" } });
+    expect(done.receiptDigest).not.toBeNull();
+    expect((await api(f.id, `/reviews/${review.id}/receipt`)).status).toBe(200);
+  });
+
+  it("advisory receipt changes after approval cannot block promotion", async () => {
+    const f = await fixture(false);
+    let release!: () => void;
+    await inspect(f.id, instance => { instance.receiptBarrier = new Promise<void>(resolve => { release = resolve; }); });
+    const review = await f.submit();
+    await api(f.id, `/reviews/${review.id}/approve`, {});
+    await inspect(f.id, () => { release(); });
+    const done = await finished(f.id, review.id);
+    expect(done.approval?.receiptDigest).toBeNull();
+    expect(done.receiptDigest).not.toBeNull();
+    expect((await state(f.id)).reviews[0]?.stale).toBe(false);
+    expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
+    await inspect(f.id, instance => { expect(instance.receiptRuns).toEqual(["review-created"]); });
+  });
+
+  it("advisory missing check configuration gates nothing and starts no container", async () => {
+    const f = await fixture(false);
+    await inspect(f.id, instance => { instance.fixture.checks = undefined; });
+    const review = await f.submit();
+    await finished(f.id, review.id);
+    expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(200);
+    expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
+    expect((await state(f.id)).reviews[0]?.receipt).toBeNull();
+    await inspect(f.id, instance => {
+      expect(instance.receiptRuns).toEqual([]);
+      expect(instance.receiptContainers).toHaveLength(0);
+    });
+  });
+
+  it("turning the requirement on reruns an already-approved review and records a failed before-promote result", async () => {
+    const f = await fixture(false);
+    const review = await f.submit(), first = await finished(f.id, review.id);
+    expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(200);
+    await api(f.id, "/settings", { requireReceipt: true }, OWNER, "PATCH");
     await inspect(f.id, instance => { instance.receiptExitStatus = 1; });
     const failed = await api(f.id, `/reviews/${review.id}/promote`, {});
     expect(failed.status).toBe(409);
@@ -165,22 +232,88 @@ describe("receipt integration in workerd; all container execution is explicitly 
     expect(current.receiptDigest).not.toBe(first.receiptDigest);
     await inspect(f.id, instance => {
       expect(instance.receiptRuns).toEqual(["review-created", "before-promote"]);
+      expect(instance.receiptContainers.map(c => c.starts)).toEqual([1, 1]);
       expect(instance.fixture.calls.filter(c => c.method === "createToken" && c.repo === f.id)).toEqual([]);
     });
-    // Optional project can reapprove the failure; promotion still demands a fresh successful run.
-    expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(200);
-    await inspect(f.id, instance => { instance.receiptExitStatus = 0; });
+  });
+
+  it("required promotion waits for its fresh run before attempting any canonical write", async () => {
+    const f = await fixture(false), review = await f.submit();
+    await finished(f.id, review.id);
+    await api(f.id, `/reviews/${review.id}/approve`, {});
+    await api(f.id, "/settings", { requireReceipt: true }, OWNER, "PATCH");
+    let release!: () => void, resolved = false;
+    await inspect(f.id, instance => { instance.receiptBarrier = new Promise<void>(resolve => { release = resolve; }); });
+    const pending = api(f.id, `/reviews/${review.id}/promote`, {}).then(response => { resolved = true; return response; });
+    await inspect(f.id, async (instance, ctx) => {
+      for (let i = 0; i < 200 && instance.receiptRuns.length < 2; i++) {
+        await ctx.storage.get(`review:${review.id}`);
+        await new Promise(resolve => setTimeout(resolve, 1));
+      }
+      expect(instance.receiptRuns).toEqual(["review-created", "before-promote"]);
+      expect(resolved).toBe(false);
+      expect(instance.fixture.calls.filter(c => c.method === "createToken" && c.repo === f.id)).toEqual([]);
+      release();
+    });
+    // A completed mock run still cannot satisfy the production required-evidence gate.
+    expect(await (await pending).json()).toEqual({ error: "Checks failed before promote." });
+  });
+
+  it.each(["timed-out", "infrastructure-error"] as const)("required %s validator input produces the specified 409", async outcome => {
+    const f = await fixture(false), review = await f.submit();
+    await finished(f.id, review.id);
+    await api(f.id, `/reviews/${review.id}/approve`, {});
+    await api(f.id, "/settings", { requireReceipt: true }, OWNER, "PATCH");
+    await inspect(f.id, instance => {
+      instance.receiptFixtureExecutor = async (request, authority) => {
+        const run = await authority.authorize(request), record = await fabricated(run, [CHECK], "", outcome);
+        await authority.storeReceipt(record);
+        await authority.setReviewReceiptDigest(run, record.digest);
+        return record;
+      };
+    });
+    const response = await api(f.id, `/reviews/${review.id}/promote`, {});
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Checks failed before promote." });
+    expect((await state(f.id)).reviews[0]?.receipt).toMatchObject({ status: outcome, trigger: "before-promote" });
+    await inspect(f.id, instance => {
+      expect(instance.fixture.calls.filter(c => c.method === "createToken" && c.repo === f.id)).toEqual([]);
+    });
+  });
+
+  it("required promotion accepts fresh fabricated validator evidence after an advisory approval", async () => {
+    const f = await fixture(false), review = await f.submit();
+    await finished(f.id, review.id);
+    await api(f.id, `/reviews/${review.id}/approve`, {});
+    await api(f.id, "/settings", { requireReceipt: true }, OWNER, "PATCH");
+    await inspect(f.id, instance => {
+      // Fresh fabricated validator input, never a relabeled mocked execution result.
+      instance.receiptFixtureExecutor = async (request, authority) => {
+        const run = await authority.authorize(request), record = await fabricated(run);
+        await authority.storeReceipt(record);
+        expect(await authority.setReviewReceiptDigest(run, record.digest)).toBe(true);
+        return record;
+      };
+    });
     expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
     const snapshot = await state(f.id);
     expect(snapshot.reviews[0]?.receipt?.trigger).toBe("before-promote");
     expect(snapshot.ledger[0]?.receiptDigest).toBe(snapshot.reviews[0]?.receiptDigest);
+    await inspect(f.id, instance => { expect(instance.receiptRuns).toEqual(["review-created", "before-promote"]); });
   });
 
   it("refuses a generation change during Git preparation before minting a canonical token", async () => {
     const f = await fixture(false), review = await f.submit();
     await finished(f.id, review.id);
     await api(f.id, `/reviews/${review.id}/approve`, {});
+    await api(f.id, "/settings", { requireReceipt: true }, OWNER, "PATCH");
     await inspect(f.id, (instance, ctx) => {
+      instance.receiptFixtureExecutor = async (request, authority) => {
+        const run = await authority.authorize(request), record = await fabricated(run);
+        await authority.storeReceipt(record);
+        await authority.setReviewReceiptDigest(run, record.digest);
+        return record;
+      };
       const prepare = instance.gitFixture.preparePromote.bind(instance.gitFixture);
       instance.gitFixture.preparePromote = async (...args) => {
         const prepared = await prepare(...args);
