@@ -1,10 +1,10 @@
 # Connect an agent from Codex
 
-Status: the FH-004 library is implemented and tested against local fixtures. FH-012 must integrate and deploy it. Use these settings only after the owner supplies a working endpoint and an enrolled agent credential.
+Status: FH-004/FH-004b and the FH-012 core composition are built and offline-tested, including workerd integration. FH-012L live deployment and client login remain unverified. Use these settings only after the owner supplies a working endpoint and an enrolled agent credential.
 
 Read `brand.json` for the current display name. Obtain the endpoint from the owner's `deployment.local.jsonc` configuration. Its host and path are owner configuration, separate from branding; do not commit the owner's actual endpoint or credentials to this repository.
 
-The installed Codex CLI's `codex mcp add --help` confirms Streamable HTTP configuration and the bearer-token environment option. With `AGENT_MCP_URL` set to the owner-provided endpoint and `AGENT_CORE_API_TOKEN` set through the owner's secret delivery mechanism, register the server:
+The [official OpenAI MCP documentation](https://developers.openai.com/codex/mcp) describes Streamable HTTP, environment-sourced bearer tokens and OAuth login. The installed Codex CLI's `codex mcp add --help` also confirms the URL and bearer-token environment options. With `AGENT_MCP_URL` set to the owner-provided endpoint and `AGENT_CORE_API_TOKEN` set through the owner's secret delivery mechanism, register the server:
 
 ```sh
 codex mcp add packet_agent --url "$AGENT_MCP_URL" --bearer-token-env-var AGENT_CORE_API_TOKEN
@@ -18,7 +18,7 @@ url = "<OWNER_CONFIGURED_HTTPS_MCP_ENDPOINT>"
 bearer_token_env_var = "AGENT_CORE_API_TOKEN"
 ```
 
-Keep the credential out of `config.toml`, shell history and tracked `.env` files. The bearer is the agent's core API token, not an owner API token or an Artifacts Git token. The environment variable must be available to the Codex process. For an OAuth connection, omit `bearer_token_env_var` and use `codex mcp login packet_agent` after FH-012 enables owner Access and the OAuth endpoints. The owner consent page enrolls a fresh agent for the grant. Local fixture tests verify the provider flow; live Codex/Access login remains unverified.
+Keep the credential out of `config.toml`, shell history and tracked `.env` files. The bearer is the agent's core API token, not an owner API token or an Artifacts Git token. The environment variable must be available to the Codex process. For an OAuth connection, omit `bearer_token_env_var` and use `codex mcp login packet_agent` after the owner deploys and verifies Access and the OAuth endpoints. The owner consent page enrolls a fresh agent for the grant. Local fixture tests verify the provider flow; live Codex/Access login remains unverified.
 
 Suggested repository `AGENTS.md` addition:
 

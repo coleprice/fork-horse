@@ -2,28 +2,138 @@
 
 **Multi-agent collaboration for Git, on Cloudflare.**
 
-Fork Horse lets several AI agents work on one codebase at once, from Claude Code, Codex or Cloudflare OS.
-- **Isolation:** every agent gets its own fork on [Cloudflare Artifacts](https://developers.cloudflare.com/artifacts/), with a token that only works there.
-- **Coordination:** agents claim the paths they're changing, and a collision becomes a blocker before it becomes a merge conflict.
-- **Proof:** every push gets a real test run with a receipt.
-- **Review:** a person approves the exact commit and its receipt, and only approved commits are promoted.
+Fork Horse is a collaboration layer for several AI agents working on one Git project: each agent works in its own Artifacts fork, claims packet paths, and submits an exact commit for owner review and promotion. It pairs a core Worker and per-project supervisor Durable Object with MCP and an owner dashboard, alongside a pinned, unmodified Cloudflare OS. Every owner deploys an instance to their own Cloudflare account; there is no central service.
 
-This repository deploys **Fork Horse together with an unmodified, pinned [Cloudflare OS](https://github.com/cloudflare/cloudflare-os)** to *your own* Cloudflare account. There is no central service.
+The current name and tagline above come from [brand.json](brand.json), the naming authority for this repository.
 
-> **Status: early build for the Cloudflare "next Git platform" competition (October 2026).** Sections below are marked as **live** or **roadmap**, and nothing is presented as live until it is.
+## Live versus roadmap
 
-| Piece | Status |
-|---|---|
-| Pinned Cloudflare OS deploy (from cloudflare-os-starter) | in progress |
-| Fork Horse core: projects, agent forks, claims, review, promote | in progress |
-| MCP server and skill for Claude Code, Codex and Cloudflare OS agents | in progress |
-| Dashboard (web; inside Cloudflare OS) | in progress |
-| Test receipts in Cloudflare sandbox containers | in progress |
-| Cross-instance federation | roadmap |
+Status as of **2026-10-12**, from the project board's deployment and acceptance records. An accepted implementation or passing fixture suite does not establish a live service.
 
-The base deployment tooling below comes from Cloudflare's [cloudflare-os-starter](https://github.com/cloudflare/cloudflare-os-starter). Its history is preserved; see `NOTICE`. Owner-specific values go in a gitignored `deployment.local.jsonc`, which `scripts/deploy.ts` reads when present.
+| Piece | Status | Evidence and remaining acceptance |
+| --- | --- | --- |
+| Pinned Cloudflare OS deployment | **live, limited verification** | FH-002: deployment and Access redirects verified; only the router has a public route. Owner Access sign-in and `/admin` acceptance remain pending. |
+| Core: projects, canonical repo, agent forks, push activity | **built, offline-tested** | FH-003: workerd tests with fixture Artifacts and Queue events; live Git and event delivery unverified. |
+| Claims, blockers, review and compare-and-swap promote | **built, offline-tested** | FH-005: fixture Git, race/stale approval and reconciler tests; receipt enforcement is an open integration gap. |
+| MCP, OAuth, skill and enrolled-agent credentials | **built, offline-tested** | FH-004/FH-004b/FH-013: local SDK, OAuth and workerd tests; no live client login claimed. |
+| Owner dashboard and public core composition | **built, offline-tested** | FH-006/FH-012: fixture UI and workerd Access/asset tests. FH-012L live deployment remains blocked. |
+| Sandbox receipt adapter | **built, offline-tested** | FH-007: Node tests use a labeled mocked container port. No container execution or core receipt integration is accepted. |
+| Cloudflare OS gatekeeper and sidebar app | **in progress, partially offline-tested** | FH-008: WIP implementation on its packet branch; pinned local Git/sidebar acceptance (S7/S9) and live installation remain pending. |
+| Federation between owner instances | **roadmap** | No cross-instance service or protocol shipped. |
+| Mac execution lane and native app | **roadmap** | Current project scope is cloud-only; upstream OS features do not establish these project features. |
+
+## Architecture
+
+The core Worker hosts the project API, OAuth-wrapped MCP endpoint and Access-protected `/app` dashboard. Its supervisor serializes each project's claims and promotions. Artifacts holds the canonical repository and registered agent forks; repository push subscriptions feed a Queue, whose consumer records changed paths, raises claim-collision blockers and reconciles canonical moves against the promotion ledger.
+
+```mermaid
+flowchart TD
+  Agent[Claude Code / Codex / OS agent] -->|agent bearer or OAuth| MCP[MCP in core Worker]
+  Owner[Owner through Access] --> UI[Dashboard at /app]
+  UI --> Core[Core Worker project API]
+  MCP --> Core
+  Core --> DO[Supervisor Durable Object per project]
+  DO -->|fork-scoped expiring tokens| Forks[Artifacts agent forks]
+  DO -->|owner-approved fast-forward / compare-and-swap| Canonical[Artifacts canonical repo]
+  Forks -->|pushed event subscription| Queue[Push Queue and dead-letter Queue]
+  Canonical -->|pushed event subscription| Queue
+  Queue --> Core
+  DO --> Claims[Claims / blockers / reviews / ledger]
+  DO -. receipt authority integration pending .-> Runner[Sandbox receipt adapter]
+  Runner -. exact-commit checks; live run pending .-> Forks
+  OS[Pinned Cloudflare OS] -->|MCP connector / OAuth; live connection pending| MCP
+  OS -. FH-008 in progress .-> Gatekeeper[Gatekeeper and sidebar app]
+  Gatekeeper -. agent capability / dashboard transport .-> Core
+```
+
+A claim binds a packet, agent and fork immutably. Owner approval binds the review's SHA and receipt digest; promote re-reads the heads, checks fast-forward ancestry, and pushes against the captured canonical base with compare-and-swap. Blockers currently record collisions; core does not make them an additional approval gate. The receipt adapter defines exact-commit container checks and bounded logs, but its execution triggers, trusted storage, default passing-receipt requirement and pre-promote rerun are **not wired into core**. See the [core contract](packages/forkhorse-core/README.md), [integration guide](docs/core-integration.md) and [runner integration requirements](packages/forkhorse-runner/README.md#fh-005-integration-dependencies-not-implemented-here).
+
+## Deploy your own instance
+
+These are owner-operated run instructions, not evidence that the core has been deployed. Use Node.js 24.19 or newer and pnpm 11.17. Keep the reviewed submodule pin unchanged.
+
+```sh
+git clone --recurse-submodules https://github.com/coleprice/forkhorse.git
+cd forkhorse
+pnpm install --frozen-lockfile
+pnpm --dir cloudflare-os install --frozen-lockfile
+cp deployment.jsonc deployment.local.jsonc
+```
+
+1. Fill in the **gitignored** `deployment.local.jsonc`; keep [deployment.jsonc](deployment.jsonc) as the public template. Set OS routing, Access and storage values. For core, set `core.enabled: true`, a distinct core hostname, worker name, project, Artifacts namespace, OAuth KV and separate push/dead-letter Queue names. Core requires Artifacts access; the starter's optional Context Artifacts feature is separate.
+2. Configure the OS Access application for its public hostname. Configure a separate core owner Access application for `/app`, `/app/*` and `/authorize`, with the matching issuer, audience and owner allowlist. Keep the MCP, OAuth token/registration/discovery and bearer project API routes reachable by their clients. Verify that the core application's authorization cookie also reaches browser project API calls. Follow the exact [Access and routing contract](docs/core-integration.md#access-and-routing).
+3. Create the push Queue and dead-letter Queue before enabling the core consumer. In the push Queue dashboard, choose **Subscriptions → Subscribe to events**, source `artifacts.repo`, the configured namespace and exact repo name, event `pushed` (delivered as `cf.artifacts.repo.pushed`). Subscribe the canonical repo after creation and **every agent fork**, including future forks; automatic subscription provisioning is not implemented. See [subscription prerequisites and live checks](docs/core-integration.md#push-event-subscription-prerequisite).
+4. Supply an owner-scoped deployment credential through a private environment or secret manager, pinned to the intended account and zones. Generate a separate high-entropy owner API credential; retain the plaintext privately and provision **only its SHA-256 hash** as the core Worker secret `OWNER_API_TOKEN_HASH` before using owner routes. Distribute enrolled-agent API credentials privately; use neither owner credentials nor Artifacts Git tokens as MCP agent credentials. No credential, hash or real deployment value belongs in tracked files.
+5. Validate the owner configuration, then deploy:
+
+   ```sh
+   pnpm check
+   pnpm deploy
+   ```
+
+   `pnpm check` runs tests/builds and Worker dry runs; it does not prove live behavior. The unfilled tracked template intentionally fails placeholder validation. `pnpm deploy` deploys the OS wrapper and, when enabled, core; it does not install a receipt runner or the in-progress gatekeeper. See the [starter deployment instructions](#deploy) and [core integration guide](docs/core-integration.md).
+6. Complete the [OS verification checklist](#4-verify-the-deployment). Use the [owner API contract](packages/forkhorse-core/README.md#http-contract) to create the configured project and enroll agents, then add its repo subscriptions. Verify Access sign-in/assets, OAuth login, canonical and fork push delivery, idempotency, dead-letter handling, claims, review and promotion against real services before describing your instance as live. Container receipts need their separate integration and operational acceptance.
+
+For offline development, run `pnpm test` and `pnpm lint`. The [dashboard fixture instructions](packages/forkhorse-dashboard/README.md#run-and-check) provide a labeled local UI; fixture approval and promotion operate only on its fictional API.
+
+## Connect agents
+
+Use these examples only after the owner supplies a working HTTPS MCP endpoint. `AGENT_MCP_URL` is the owner-configured endpoint, including its MCP path; it is separate from branding. Client registration syntax is documented by the clients, while live connections to this project remain unverified.
+
+### Claude Code
+
+Register a Streamable HTTP server and complete OAuth through `/mcp` in Claude Code; owner Access consent enrolls a fresh agent for the grant:
+
+```sh
+claude mcp add --transport http --scope local packet_agent "$AGENT_MCP_URL"
+```
+
+This command contains no credential. Follow [Claude Code's MCP and authentication instructions](https://code.claude.com/docs/en/mcp), and use the repository's [task-packet skill](skills/forkhorse/SKILL.md) for the join/claim/review workflow.
+
+### Codex
+
+For an already enrolled agent, put the following in your local Codex `config.toml` and replace the endpoint placeholder locally. Supply `AGENT_CORE_API_TOKEN` through the Codex process environment:
+
+```toml
+[mcp_servers.packet_agent]
+url = "<OWNER_CONFIGURED_HTTPS_MCP_ENDPOINT>"
+bearer_token_env_var = "AGENT_CORE_API_TOKEN"
+```
+
+For OAuth, omit `bearer_token_env_var`, then run `codex mcp login packet_agent`. See [the Codex connection guide](docs/agents/codex.md) and [official OpenAI MCP documentation](https://developers.openai.com/codex/mcp). Never put a credential value in the TOML file.
+
+### Cloudflare OS
+
+Once the owner has deployed and enabled its MCP connector, add the owner-provided HTTPS MCP URL through that connector and complete OAuth/Access consent. The [pinned upstream MCP connector](cloudflare-os/packages/gatekeeper-mcp/README.md#how-the-connect-flow-works) describes discovery, registration and PKCE. This repo's starter deployment does not provision that upstream MCP gatekeeper; owners need separate connector deployment/binding setup. The dedicated project gatekeeper/sidebar alternative is FH-008, still in progress and not installed by current main. Do not treat either connection path as accepted live behavior.
+
+After connecting any client, verify the seven agent tools: `get_context`, `join`, `claim`, `request_review`, `submit_work`, `status`, `activity`. Join a fork, pass its returned `repoName` explicitly to claim, work within the packet paths, and request review for the exact resulting SHA. Owner enrollment, approval and promotion are not agent tools.
+
+## Security model
+
+- **Agent isolation:** authenticate and authorize before minting Artifacts tokens. Git tokens are short-lived and scoped to a registered agent fork. Enrolled-agent API credentials are a separate credential class, stored hashed; owners control rotation and fork-token revocation.
+- **Canonical authority:** the canonical write token stays inside owner-only promote, is used for one compare-and-swap push, and is revoked afterwards. Canonical pushes never use force.
+- **Owner boundary:** signed Access JWTs, exact issuer/audience, time claims and an explicit allowlist protect browser owner access. Browser writes also check origin and JSON content type; the dashboard receives no owner API token. MCP grants authorize agent tools only.
+- **Secret handling:** owner values stay in `deployment.local.jsonc`, Worker secrets or private credential delivery. Never commit tokens, account values, personal details or machine paths. Raw Git HTTP requests send a git-style `User-Agent`.
+
+## Limits and known gaps
+
+- The core/MCP/dashboard are not deployed or accepted live. The OS deployment still needs owner sign-in and admin acceptance; FH-008 needs its pinned local S7/S9 checks and later live installation.
+- **Checks are not currently enforced by core.** Core can approve a review with a null receipt digest; null means no check evidence. The runner's default-required receipt validator exists separately. Review-trigger execution, durable receipt attachment, default enforcement, pre-promote execution and large-repository sandbox Git remain open integration work.
+- MCP is POST/JSON Streamable HTTP, with seven tools, a 25-second call deadline and responses strictly below 1 MiB; there is no persistent GET/SSE session. Server-side commits accept at most 200 text files within a bounded 1 MiB request; they do not delete files.
+- Core's current Git transport bounds requests/responses to 8 MiB and its ephemeral filesystem to 32 MiB. Oversized operations fail closed; transient decompression is not fully bounded. This is not a large-repository execution lane.
+- New forks need manual event subscription coverage. Blockers and historical alerts are retained, state arrays are mostly unpaged, and the production dashboard has no server WebSocket endpoint or command-log receipt API.
+- Uncertain project creation, token revocation or promotion outcomes can require owner inspection. Client timeouts do not undo accepted writes: inspect state/activity before retrying. OAuth grants have expiry/rotation constraints described in the [MCP contract](packages/forkhorse-mcp/README.md#oauth-and-owner-consent).
+- Quick-tier checks, gadget/blueprint, read-only terminal logs and an interactive shell remain future work. Federation, the Mac lane and the native app are roadmap.
+
+## License and credits
+
+This repository is licensed under [Apache-2.0](LICENSE). [NOTICE](NOTICE) records its origins and attribution: deployment tooling from [cloudflare-os-starter](https://github.com/cloudflare/cloudflare-os-starter), with history preserved, and an unmodified pinned [Cloudflare OS](https://github.com/cloudflare/cloudflare-os) submodule. The project uses Cloudflare Workers, Durable Objects, Artifacts and the MCP ecosystem; it is independent and not endorsed by Cloudflare or the Git trademark holder.
 
 ---
+
+## Cloudflare OS starter deployment reference
+
+The original starter instructions below are preserved. Apply deployment values to the ignored local overlay described above; the template remains public-safe. These instructions cover the OS base and its example custom gatekeeper, while core prerequisites and open gates are covered above.
 
 <p align="center">
   <img src="docs/assets/cloudflareOS.svg" alt="Cloudflare OS" width="480">

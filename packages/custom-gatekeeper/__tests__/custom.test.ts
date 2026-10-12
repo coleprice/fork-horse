@@ -18,6 +18,12 @@ describe("custom-gatekeeper", () => {
     });
   });
 
+  it("labels the gatekeeper with the deployment's configured display name", () => {
+    expect(describeCustomVendor("Fork Horse").displayName).toBe("Fork Horse");
+    expect(describeCustomAccount("Fork Horse").displayName).toBe("Fork Horse");
+    expect(describeCustomVendor("   ").displayName).toBe("Custom Gatekeeper");
+  });
+
   it("authorizes the observation before returning deployment information", async () => {
     let observation: unknown;
     let disposed = false;

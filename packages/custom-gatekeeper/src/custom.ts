@@ -32,9 +32,14 @@ const CUSTOM_ICON = {
 type ObservationQueue = Pick<ApprovalQueue, "authorizeObservation"> &
   Partial<{ [Symbol.dispose](): void }>;
 
-export function describeCustomVendor(): VendorDescription {
+/** The admin and connector label: the deployment's configured display name (`customGatekeeper.name`), else the default. */
+export function gatekeeperDisplayName(name?: string): string {
+  return name?.trim() || "Custom Gatekeeper";
+}
+
+export function describeCustomVendor(name?: string): VendorDescription {
   return {
-    displayName: "Custom Gatekeeper",
+    displayName: gatekeeperDisplayName(name),
     url: "https://github.com/cloudflare/cloudflare-os-starter",
     logo: CUSTOM_ICON,
     color: "#e8f2ff",
@@ -46,9 +51,9 @@ export function describeCustomVendor(): VendorDescription {
   };
 }
 
-export function describeCustomAccount(): AccountDescription {
+export function describeCustomAccount(name?: string): AccountDescription {
   return {
-    displayName: "Custom Gatekeeper",
+    displayName: gatekeeperDisplayName(name),
     avatar: CUSTOM_ICON,
     singleton: { tsType: "CustomSession" },
   };
@@ -122,7 +127,7 @@ export class CustomGatekeeper extends DurableObject<Cloudflare.Env> implements G
 @validateRpc()
 export class CustomAccount extends WorkerEntrypoint<Cloudflare.Env> implements GatekeeperUser {
   async describe(): Promise<AccountDescription> {
-    return describeCustomAccount();
+    return describeCustomAccount(this.env.CUSTOM_NAME);
   }
 
   async getSingletonGatekeeperClass(): Promise<DurableObjectClass<Gatekeeper<CustomSession>>> {
@@ -174,7 +179,7 @@ export class CustomVerifier extends WorkerEntrypoint<Cloudflare.Env> implements 
 @validateRpc()
 export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
   async describe(): Promise<VendorDescription> {
-    return describeCustomVendor();
+    return describeCustomVendor(this.env.CUSTOM_NAME);
   }
 
   @skipRpcValidation()

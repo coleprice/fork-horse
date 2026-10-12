@@ -32,6 +32,10 @@
     // the Context Gatekeeper
     "scheduler": { "name": "<SCHEDULER_WORKER_NAME>" },
 
+    // Upstream MCP connector, deployed by default. Users connect endpoints through the OS;
+    // availability is controlled in admin -> Gatekeepers. No external storage or secrets required.
+    "mcp": { "name": "<MCP_WORKER_NAME>" },
+
     "customGatekeeper": { "name": "<CUSTOM_GATEKEEPER_WORKER_NAME>" },
     "errorReporter": { "name": "<ERROR_REPORTER_WORKER_NAME>" }
   },

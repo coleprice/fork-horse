@@ -26,6 +26,7 @@ const packageDirs = {
   workshop: "cloudflare-os/packages/workshop-backend",
   context: "cloudflare-os/packages/gatekeeper-context",
   scheduler: "cloudflare-os/packages/gatekeeper-scheduler",
+  mcp: "cloudflare-os/packages/gatekeeper-mcp",
   customGatekeeper: "packages/custom-gatekeeper",
   errorReporter: "packages/error-reporter",
   core: "packages/forkhorse-core",
@@ -43,6 +44,7 @@ const requiredPaths = [
   "workers.workshop.name",
   "workers.context.name",
   "workers.scheduler.name",
+  "workers.mcp.name",
   "workers.customGatekeeper.name",
   "access.issuer",
   "access.audience",
@@ -225,7 +227,7 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
     .map(([, worker]) => worker.name);
   if (new Set(workerNames).size !== workerNames.length) {
     throw new Error(
-      "Router, Workshop, Context, Scheduler, and custom Gatekeeper names must be unique.");
+      "Router, Workshop, Context, Scheduler, MCP, and custom Gatekeeper names must be unique.");
   }
   if (!workerNames.every((name) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))) {
     throw new Error("Worker names must use lowercase letters, numbers, and hyphens.");
@@ -419,7 +421,7 @@ function setCommon(
   delete config.routes;
   if (route.customDomain) Object.assign(config, routeConfig(route));
   // The router is the Access-protected origin, and a preview URL is an unauthenticated path around
-  // it. Off on every Worker: the five behind the router have no business being publicly reachable
+  // it. Off on every Worker: the Workers behind the router have no business being publicly reachable
   // either.
   config.preview_urls = false;
   config.observability = {
@@ -444,6 +446,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   const workshop = structuredClone(bases.workshop);
   const context = structuredClone(bases.context);
   const scheduler = structuredClone(bases.scheduler);
+  const mcp = structuredClone(bases.mcp);
   const customGatekeeper = structuredClone(bases.customGatekeeper);
   const errorReporter = config.errorReporting.enabled
     ? structuredClone(bases.errorReporter)
@@ -464,6 +467,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
     // vendor-RPC bindings. The binding name is what picks the /gatekeeper/<name> path.
     { binding: "GATEKEEPER_CONTEXT", service: config.workers.context.name },
     { binding: "GATEKEEPER_SCHEDULER", service: config.workers.scheduler.name },
+    { binding: "GATEKEEPER_MCP", service: config.workers.mcp.name },
     { binding: "GATEKEEPER_CUSTOM", service: config.workers.customGatekeeper.name },
   ];
 
@@ -526,6 +530,11 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
       entrypoint: "GatekeeperVendor",
     },
     {
+      binding: "GATEKEEPER_MCP",
+      service: config.workers.mcp.name,
+      entrypoint: "GatekeeperVendor",
+    },
+    {
       binding: "GATEKEEPER_CUSTOM",
       service: config.workers.customGatekeeper.name,
       entrypoint: "GatekeeperVendor",
@@ -563,6 +572,11 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   // here without adding a configuration surface for it.
   setCommon(scheduler, config, config.workers.scheduler.name);
 
+  // Preserve upstream's SQLite DO migrations and secure endpoint checks. OAuth callbacks return
+  // through the router's MCP HTTP binding, not the upstream localhost development fallback.
+  setCommon(mcp, config, config.workers.mcp.name);
+  mcp.vars = { ...mcp.vars, BASE_URL: `${origin}/gatekeeper/mcp` };
+
   setCommon(customGatekeeper, config, config.workers.customGatekeeper.name);
   customGatekeeper.vars = {
     CUSTOM_NAME: config.customGatekeeper.name,
@@ -586,7 +600,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   return {
     ...(forkhorseGatekeeper && { forkhorseGatekeeper }),
     ...(core && { core }),
-    router, workshop, context, scheduler, customGatekeeper,
+    router, workshop, context, scheduler, mcp, customGatekeeper,
     ...(errorReporter && { errorReporter }),
   };
 }
@@ -633,6 +647,9 @@ export function buildCommands(config: DeploymentConfig): BuildCommand[] {
     // The Scheduler's `build` nests the same cached `vp run build:app`, so it needs the same pair.
     { args: submoduleBuild("@gadgets/gatekeeper-scheduler", "build:app") },
     { args: submoduleBuild("@gadgets/gatekeeper-scheduler") },
+    // Match upstream's deploy prerequisite; the package's build task also type-checks the Worker.
+    { args: submoduleBuild("@gadgets/mcp-gatekeeper", "build:configurator") },
+    { args: submoduleBuild("@gadgets/mcp-gatekeeper") },
     ...(config.core?.enabled ? [
       { args: ownBuild("forkhorse-mcp") },
       { args: ownBuild("forkhorse-dashboard") },
@@ -646,6 +663,17 @@ export function buildCommands(config: DeploymentConfig): BuildCommand[] {
     { args: submoduleBuild("@gadgets/workshop-frontend"), env: { VITE_CF_ACCESS_MODE: "true" } },
     { args: submoduleBuild("@gadgets/router") },
     { args: submoduleBuild("@gadgets/workshop-backend") },
+  ];
+}
+
+/** Dependencies deploy before the Workshop and the router that binds them. */
+export function deploymentOrder(config: DeploymentConfig): (keyof typeof packageDirs)[] {
+  return [
+    ...(config.core?.enabled ? ["core" as const] : []),
+    ...(config.errorReporting.enabled ? ["errorReporter" as const] : []),
+    "context", "scheduler", "mcp", "customGatekeeper",
+    ...(config.forkhorseGatekeeper?.enabled ? ["forkhorseGatekeeper" as const] : []),
+    "workshop", "router",
   ];
 }
 
@@ -761,6 +789,7 @@ async function main(): Promise<void> {
     workshop: await readJsonc(join(root, packageDirs.workshop, "wrangler.jsonc")),
     context: await readJsonc(join(root, packageDirs.context, "wrangler.jsonc")),
     scheduler: await readJsonc(join(root, packageDirs.scheduler, "wrangler.jsonc")),
+    mcp: await readJsonc(join(root, packageDirs.mcp, "wrangler.jsonc")),
     customGatekeeper: await readJsonc(join(root, packageDirs.customGatekeeper, "wrangler.jsonc")),
     errorReporter: await readJsonc(join(root, packageDirs.errorReporter, "wrangler.jsonc")),
   });
@@ -776,17 +805,7 @@ async function main(): Promise<void> {
     if (check) run(["test"]);
     build(config);
     const deployArgs = check ? ["--dry-run"] : [];
-    if (config.core?.enabled) deployWorker(packageDirs.core, deployArgs);
-    if (config.errorReporting.enabled) {
-      deployWorker(packageDirs.errorReporter, deployArgs);
-    }
-    deployWorker(packageDirs.context, deployArgs);
-    deployWorker(packageDirs.scheduler, deployArgs);
-    deployWorker(packageDirs.customGatekeeper, deployArgs);
-    if (config.forkhorseGatekeeper?.enabled) deployWorker(packageDirs.forkhorseGatekeeper, deployArgs);
-    deployWorker(packageDirs.workshop, deployArgs);
-    // Last: it binds every one of the above.
-    deployWorker(packageDirs.router, deployArgs);
+    for (const name of deploymentOrder(config)) deployWorker(packageDirs[name], deployArgs);
   } finally {
     await Promise.all(Object.values(generatedPaths).map((path) => rm(path, { force: true })));
   }

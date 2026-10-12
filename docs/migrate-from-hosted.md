@@ -49,7 +49,9 @@ Find your hosted instance name — call it `N` — in the wizard, or read it off
 The Gatekeeper suffixes are the hosted flow's choice, not the starter's, so confirm all three
 against the dashboard worker list rather than assuming the pattern. The starter also deploys two
 Workers the hosted flow does not: the example custom Gatekeeper and the Error Reporter. Give those
-new names; nothing depends on them yet.
+new names; nothing depends on them yet. It also deploys the upstream MCP connector by default: if
+one already exists, preserve its Worker identity and MCP accounts; otherwise choose a new unique
+`workers.mcp.name`.
 
 ```jsonc
 "workers": {
@@ -58,6 +60,7 @@ new names; nothing depends on them yet.
   "workshop": { "name": "N-backend" },
   "context": { "name": "N-gk-context" },
   "scheduler": { "name": "N-gk-scheduler" },
+  "mcp": { "name": "N-gk-mcp" },
   "customGatekeeper": { "name": "N-gk-custom" },
   "errorReporter": { "name": "N-errors" }
 }
@@ -189,7 +192,7 @@ application to cover it — before deploying, and along with `context.sharingDom
   work around: the hosted wizard refuses to redeploy over its own workers once you have taken them
   over, which is the whole reason to eject.
 - **Gatekeepers you installed through the wizard.** The starter deploys the two ambient ones,
-  Context and Scheduler, plus whatever is in `packages/`. Any *other* Gatekeeper the wizard
+  Context and Scheduler, plus the upstream MCP connector and whatever is in `packages/`. Any *other* Gatekeeper the wizard
   installed keeps running as its own Worker, but the generated configs no longer carry its
   `GATEKEEPER_*` service binding, so it disappears from the app. Port it into `packages/` and add
   the binding in `scripts/deploy.ts` — to the Workshop for its vendor RPC, and to the router if it

@@ -41,7 +41,7 @@ Secrets are never valid values in this file. Install them interactively with Wra
 
 ### Workers and routing
 
-The deployment is six Workers. Keep their names unique: service bindings use these names, so update and deploy them together.
+The OS deployment is seven Workers with error reporting enabled, plus the optional public core. Keep their names unique: service bindings use these names, so update and deploy them together.
 
 | Worker | Role |
 | --- | --- |
@@ -49,12 +49,15 @@ The deployment is six Workers. Keep their names unique: service bindings use the
 | `workshop` | The Cloudflare OS backend, holding all user data in Durable Objects. |
 | `context` | The Context Gatekeeper. |
 | `scheduler` | The Scheduler Gatekeeper, which gives agents scheduled and recurring work. |
+| `mcp` | The upstream MCP connector for user-supplied server endpoints. Deployed by default. |
 | `customGatekeeper` | This repository's example integration. |
 | `errorReporter` | The private explicit-issue destination. |
 
 Context and Scheduler are *ambient*: upstream's release marks both `PREINSTALL`, so the hosted flow installs them on every instance and this starter deploys them for the same reason. Neither takes configuration beyond its name — the Scheduler takes none at all.
 
-Only the router takes a route; the other five are reachable only over service bindings, and the deploy turns off `workers.dev` and [Preview URLs](https://developers.cloudflare.com/workers/configuration/previews/) on all six. That keeps the router the single Access-protected way in.
+The MCP Worker inherits upstream's `McpAccount` and `McpGatekeeperImpl` SQLite Durable Object migrations and secure endpoint checks; it needs no external KV/R2 resource or static OAuth secret. Its `BASE_URL` is derived as `<public origin>/gatekeeper/mcp`. The Workshop binds `GATEKEEPER_MCP` with the `GatekeeperVendor` RPC entrypoint; the router binds it without an entrypoint for HTTP callbacks. It deploys before the Workshop and router. Existing owner configuration must add a unique `workers.mcp.name` before checking or deploying. Deployment makes the connector available in admin → Gatekeepers; the administrator controls whether users can connect it.
+
+Only the OS router takes an OS route; its six backends are reachable only over service bindings. The deploy turns off their `workers.dev` routes and [Preview URLs](https://developers.cloudflare.com/workers/configuration/previews/), and turns off Preview URLs on the router too. The optional core has its own protected route; see [core integration](core-integration.md).
 
 For production, set a [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) on it:
 
