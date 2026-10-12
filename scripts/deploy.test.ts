@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { parse, type ParseError } from "jsonc-parser";
-import { aiGatewayPlan, buildCommands, generateConfigs, validateConfig } from "./deploy.ts";
+import { aiGatewayPlan, buildCommands, deploymentOrder, generateConfigs, validateConfig } from "./deploy.ts";
 import type {
   BaseConfigs,
   DeploymentConfig,
@@ -18,13 +18,14 @@ const validConfig: DeploymentConfig = {
     workshop: { name: "acme-cloudflare-os-backend" },
     context: { name: "acme-cloudflare-os-context" },
     scheduler: { name: "acme-cloudflare-os-scheduler" },
+    mcp: { name: "acme-cloudflare-os-mcp" },
     customGatekeeper: { name: "acme-cloudflare-os-custom" },
     errorReporter: { name: "acme-cloudflare-os-errors" },
   },
   access: {
     issuer: "https://acme.cloudflareaccess.com",
     audience: "access-audience",
-    admins: ["admin@example.com"],
+    admins: ["admin@idiot.tax"],
   },
   aiGateway: {
     enabled: true,
@@ -73,6 +74,7 @@ async function baseConfigs(): Promise<BaseConfigs> {
     workshop: await baseConfig("../cloudflare-os/packages/workshop-backend/wrangler.jsonc"),
     context: await baseConfig("../cloudflare-os/packages/gatekeeper-context/wrangler.jsonc"),
     scheduler: await baseConfig("../cloudflare-os/packages/gatekeeper-scheduler/wrangler.jsonc"),
+    mcp: await baseConfig("../cloudflare-os/packages/gatekeeper-mcp/wrangler.jsonc"),
     customGatekeeper: await baseConfig("../packages/custom-gatekeeper/wrangler.jsonc"),
     errorReporter: await baseConfig("../packages/error-reporter/wrangler.jsonc"),
   };
@@ -191,7 +193,7 @@ test("generates Access-mode Workshop, Context, and custom Gatekeeper configs", a
   const vars = generated.workshop.vars!;
 
   assert.equal(generated.workshop.name, "acme-cloudflare-os-backend");
-  assert.deepEqual(vars.ADMINS, ["admin@example.com"]);
+  assert.deepEqual(vars.ADMINS, ["admin@idiot.tax"]);
   assert.equal(vars.CF_ACCESS_ISS, validConfig.access.issuer);
   assert.equal(vars.CF_ACCESS_AUD, validConfig.access.audience);
   assert.equal(vars.PUBLIC_BASE_URL, "https://os.example.com");
@@ -218,6 +220,11 @@ test("generates Access-mode Workshop, Context, and custom Gatekeeper configs", a
     {
       binding: "GATEKEEPER_SCHEDULER",
       service: "acme-cloudflare-os-scheduler",
+      entrypoint: "GatekeeperVendor",
+    },
+    {
+      binding: "GATEKEEPER_MCP",
+      service: "acme-cloudflare-os-mcp",
       entrypoint: "GatekeeperVendor",
     },
     {
@@ -261,12 +268,13 @@ test("gives the router the public route, the frontend, and every service binding
   assert.equal(generated.router.name, "acme-cloudflare-os");
   assert.equal(generated.router.workers_dev, false);
   assert.deepEqual(generated.router.routes, [{ pattern: "os.example.com", custom_domain: true }]);
-  // No entrypoint on any of the three: the router forwards whole HTTP requests rather than making
+  // No entrypoint on the Gatekeepers: the router forwards whole HTTP requests rather than making
   // vendor RPC calls, and the binding name is what selects the /gatekeeper/<name> path.
   assert.deepEqual(generated.router.services, [
     { binding: "WORKSHOP_BACKEND", service: "acme-cloudflare-os-backend" },
     { binding: "GATEKEEPER_CONTEXT", service: "acme-cloudflare-os-context" },
     { binding: "GATEKEEPER_SCHEDULER", service: "acme-cloudflare-os-scheduler" },
+    { binding: "GATEKEEPER_MCP", service: "acme-cloudflare-os-mcp" },
     { binding: "GATEKEEPER_CUSTOM", service: "acme-cloudflare-os-custom" },
   ]);
   // Inherited untouched: the base config already carries the ASSETS binding, the SPA fallback, and
@@ -316,6 +324,55 @@ test("deploys the ambient Scheduler Gatekeeper the hosted flow preinstalls", asy
     .map(({ args }) => args)
     .filter((args) => args.includes("@gadgets/gatekeeper-scheduler"));
   assert.deepEqual(builds.map((args) => args.at(-1)), ["build:app", "build"]);
+});
+
+test("deploys upstream MCP by default with its resources, secure endpoints and callback route", async () => {
+  const bases = await baseConfigs();
+  const before = structuredClone(bases);
+  const generated = generateConfigs(validConfig, bases);
+  assert.equal(generated.mcp.name, validConfig.workers.mcp.name);
+  assert.deepEqual(generated.mcp.migrations, bases.mcp.migrations);
+  assert.deepEqual(generated.mcp.migrations, [
+    { tag: "v0", new_sqlite_classes: ["McpAccount", "McpGatekeeperImpl"] },
+  ]);
+  assert.deepEqual(generated.mcp.durable_objects, bases.mcp.durable_objects);
+  assert.deepEqual(generated.mcp.compatibility_flags, bases.mcp.compatibility_flags);
+  assert.ok(generated.mcp.compatibility_flags!.includes("global_fetch_strictly_public"));
+  assert.deepEqual(generated.mcp.vars, {
+    MCP_ALLOW_INSECURE: "false", BASE_URL: "https://os.example.com/gatekeeper/mcp",
+  });
+  assert.equal(generated.mcp.kv_namespaces, undefined);
+  assert.equal(generated.mcp.r2_buckets, undefined);
+  assert.equal(generated.mcp.secrets, undefined);
+  assert.deepEqual(bases, before);
+
+  const explicit = generateConfigs(variant((c) => {
+    c.workers.router.route = { workersDev: true };
+    c.publicBaseUrl = "https://acme-cloudflare-os.fixture.workers.dev";
+  }), bases);
+  assert.equal(explicit.mcp.vars!.BASE_URL,
+    "https://acme-cloudflare-os.fixture.workers.dev/gatekeeper/mcp");
+  const builds = buildCommands(validConfig)
+    .filter(({ args }) => args.includes("@gadgets/mcp-gatekeeper"));
+  assert.deepEqual(builds.map(({ args }) => args.at(-1)), ["build:configurator", "build"]);
+  assert.ok(builds.every(({ args }) => args.at(-2) === "--no-cache"));
+  assert.deepEqual(deploymentOrder(validConfig),
+    ["errorReporter", "context", "scheduler", "mcp", "customGatekeeper", "workshop", "router"]);
+  assert.deepEqual(deploymentOrder(withCore()),
+    ["core", "errorReporter", "context", "scheduler", "mcp", "customGatekeeper", "workshop", "router"]);
+  assert.deepEqual(deploymentOrder(variant((c) => { c.errorReporting.enabled = false; })),
+    ["context", "scheduler", "mcp", "customGatekeeper", "workshop", "router"]);
+});
+
+test("requires a unique, valid MCP Worker identity", () => {
+  assert.throws(() => validateConfig(variant((c) => { delete c.workers.mcp; })),
+    /Missing required deployment value: workers.mcp.name/);
+  assert.throws(() => validateConfig(variant((c) => { c.workers.mcp.name = c.workers.router.name; })),
+    /unique/i);
+  assert.throws(() => validateConfig(variant((c) => { c.workers.mcp.name = "<MCP_WORKER_NAME>"; })),
+    /placeholder/i);
+  assert.throws(() => validateConfig(variant((c) => { c.workers.mcp.name = "Invalid/Worker"; })),
+    /Worker names/i);
 });
 
 test("keeps every Worker behind the router off the public internet", async () => {
