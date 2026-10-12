@@ -1,8 +1,15 @@
-# FH-008 local handback
+# FH-008 final review handback
 
-Status: **local S7/S9 verified; WIP publication, no merge or deployment**. The
+Status: **ready for independent review with the limitations below; not accepted,
+merged or deployed**. Local S7/S9 are verified. The
 private enrolled-agent vendor replaces the starter sample. Full popup UX remains a
 manual check; native negative-RPC diagnostics remain disclosed below.
+
+No further in-scope offline implementation work is identified. This final handback
+supersedes the WIP designation on the earlier checkpoints. The final publication
+changes this handback only; the implementation and verified test inputs remain at
+`fa2693c4397a547992ba2f5a4b274a1d7ba98d28`. Already-passing checks were not rerun for
+this documentation-only status correction. Acceptance remains the reviewer's decision.
 
 ## Provenance and scope
 
@@ -20,6 +27,14 @@ manual check; native negative-RPC diagnostics remain disclosed below.
   disposable full-OS archive were hash-compared to that pin: zero differences.
 - Owned changes are confined to this package, its lockfile importer, deployment
   scripts and the template. Other changes arrive only through accepted main.
+- Against accepted base `ba05c76d7743278ede25880c197933a059279474`, the allowed
+  changed paths are `packages/forkhorse-gatekeeper/**`, this package's importer in
+  `pnpm-lock.yaml`, `deployment.jsonc`, `scripts/deploy.ts`,
+  `scripts/deploy.test.ts`, `scripts/deployment-config.ts`,
+  `scripts/gatekeeper-deployment.ts`, `scripts/gatekeeper-deployment.test.ts` and
+  `scripts/core-deployment.ts`. The last file only excludes the retired sample from
+  Worker-name collision checks. The exact file inventory is available with
+  `git diff --name-only ba05c76d7743278ede25880c197933a059279474...HEAD`.
 - No owner config, real credentials, external inference, Cloudflare operations,
   board edits, deployment or canonical Git writes were performed.
 
@@ -138,4 +153,4 @@ model fixture. Deployment consumes only that production artifact.
   selects the first management-UI account per vendor. This package does not change
   those upstream behaviors. Dashboard selector coupling remains guarded by tests.
 - Live Core/Artifacts, owner installation, deployment, popup UX and production
-  acceptance remain separate. No review/merge authority is inferred from checks.
+  acceptance remain separate. No acceptance/merge authority is inferred from checks.
