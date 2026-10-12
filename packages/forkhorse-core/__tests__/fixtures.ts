@@ -41,6 +41,12 @@ export class FixtureArtifacts implements ArtifactsBinding {
   calls: { method: string; repo: string; scope?: string; ttl?: number; sourceUrl?: string }[] = [];
   private repos = new Set<string>();
   heads = new Map<string, string>();
+  tokens = new Map<string, Map<string, ArtifactsTokenInfo>>();
+  tokenCounter = 0;
+  tokenPageSize = 30;
+  beforeTokenCreate?: () => Promise<void>;
+  failRevoke = false;
+  staleTokenListing = false;
   failTree = false;
   failCreate = false;
 
@@ -50,6 +56,21 @@ export class FixtureArtifacts implements ArtifactsBinding {
     if (this.repos.has(name)) throw new Error("fixture already exists");
     this.repos.add(name);
     this.heads.set(name, BEFORE);
+    this.tokens.set(
+      name,
+      new Map([
+        [
+          `initial-${name}`,
+          {
+            id: `initial-${name}`,
+            scope: "write",
+            state: "active",
+            createdAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 86400000).toISOString(),
+          },
+        ],
+      ]),
+    );
     return {
       id: name,
       name,
@@ -93,18 +114,37 @@ export class FixtureArtifacts implements ArtifactsBinding {
         this.calls.push({ method: "fork", repo: name });
         return this.create(forkName);
       },
-      revokeToken: async () => {
+      listTokens: async () => {
+        this.calls.push({ method: "listTokens", repo: name });
+        const tokens = [...this.tokens.get(name)!.values()].filter(
+          (token) => token.state === "active",
+        );
+        return {
+          tokens: tokens.slice(0, this.tokenPageSize).map((token) => ({ ...token })),
+          total: tokens.length,
+        };
+      },
+      revokeToken: async (id) => {
         this.calls.push({ method: "revokeToken", repo: name });
+        if (this.failRevoke) throw new Error("fixture-provider-secret-that-must-not-leak");
+        const token = this.tokens.get(name)!.get(id);
+        if (!token) return false;
+        if (!this.staleTokenListing) token.state = "revoked";
         return true;
       },
       createToken: async (scope = "write", ttl = 3600) => {
         this.calls.push({ method: "createToken", repo: name, scope, ttl });
-        return {
-          id: `token-${name}`,
-          plaintext: `scoped-${name}`,
-          scope,
-          expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
-        };
+        await this.beforeTokenCreate?.();
+        const plaintext =
+          this.tokens.get(name)!.size === 1
+            ? `scoped-${name}`
+            : `scoped-${name}-${this.tokenCounter + 1}`;
+        const id = `token-${name}-${++this.tokenCounter}`;
+        const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+        this.tokens
+          .get(name)!
+          .set(id, { id, scope, expiresAt, state: "active", createdAt: new Date().toISOString() });
+        return { id, plaintext, scope, expiresAt };
       },
       readCommit: async (hash) => {
         this.calls.push({ method: "readCommit", repo: name });

@@ -300,3 +300,37 @@ See [core integration](../../docs/core-integration.md) for the optional owner-lo
 configuration, assets build, Queue consumer, event subscription prerequisites and
 separate live gates. `__tests__/integration.test.ts` uses offline signed JWTs, local
 KV/DOs, built dashboard assets and a mocked JWKS fetch. These are not live acceptance results.
+
+## Caller identity and existing-fork credentials (FH-013)
+
+All routes authenticate through the existing project credential/verified browser-owner
+boundary. Query/body agent names never establish identity. Responses use `Cache-Control:
+no-store`; plaintext Git tokens appear only in the successful issuance response.
+
+| Route | Authority | Result |
+| --- | --- | --- |
+| `GET /projects/:id/me` | Agent or owner | `{role, agent?, forks:[{repoName, remote, head, createdAt}]}`. Agents see only their registered forks; owners see all registered forks. Canonical and inconsistent/unregistered records are excluded. Heads come from the repository's default-branch log. |
+| `POST /projects/:id/forks/:repo/token` | Owning agent only | Body `{scope:"read"\|"write", ttlSeconds?}`; TTL is an integer 60–3600, default 900. Returns status 201 with `{repoName, remote, token, scope, expiresAt}`. Owner credentials cannot mint through this route. |
+| `DELETE /projects/:id/forks/:repo/tokens` | Owning agent or owner | Revokes active provider tokens, including join-issued tokens, then returns `{repoName, revoked}`. A completed repeat returns zero. |
+
+Canonical token operations return 403, unknown forks 404, and foreign ownership 403.
+An agent credential still cannot approve or promote reviews. A supplied Git token is
+not a core API credential.
+
+The Supervisor serializes authentication, ownership validation and issuance/revocation.
+Each successful POST writes a durable `tokenAudit:` record with `action:"issued"`,
+`repoName`, caller role/agent, `scope`, `expiresAt` and `recordedAt` before returning the
+token. Audit records contain neither plaintext nor token IDs. They are operator-side
+storage records, not a new public audit endpoint. An audit failure attempts immediate
+revocation and never returns the unaudited credential.
+
+Revocation uses the provider's token inventory, not just IDs issued by this endpoint.
+The current binding offers `listTokens()` with no cursor. Core drains active pages and
+re-lists to verify completion, bounded to 100 rounds. A stale page, an inaccessible
+truncated listing or a provider error fails closed: no claim that all tokens were
+revoked. A durable pending marker blocks new POST issuance until DELETE succeeds.
+Revocation audits contain metadata/counts only. Out-of-band provider changes cannot
+be serialized by this Supervisor; live provider behavior remains a separate acceptance
+step. No live Artifacts calls were used by the workerd fixture suite.
+
+Binding reference: [Artifacts Workers binding](https://developers.cloudflare.com/artifacts/api/workers-binding/).
