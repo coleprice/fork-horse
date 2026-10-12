@@ -66,6 +66,13 @@
     }
   },
 
+  // Optional private GATEKEEPER_FORKHORSE binding. Keep disabled pending account-flow acceptance.
+  // Wiring alone grants no accounts, resources or Git access. Owner values stay in the local file.
+  "forkhorseGatekeeper": {
+    "enabled": false,
+    "workerName": "<FORKHORSE_GATEKEEPER_WORKER_NAME>"
+  },
+
   // Model catalog served through Cloudflare AI Gateway. Enabled by default: the Workshop reaches
   // the gateway over its WORKERS_AI binding, which is pre-authenticated inside your own account,
   // so no API token is needed.

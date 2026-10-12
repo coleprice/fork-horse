@@ -8,6 +8,7 @@
 // runtime dependencies are not this script's problem.
 
 import type { CoreDeployment } from "./core-deployment.ts";
+import type { ForkhorseGatekeeperDeployment } from "./gatekeeper-deployment.ts";
 import type {
   BindingDecl,
   ObservabilityConfig,
@@ -117,6 +118,7 @@ export interface DeploymentConfig {
     errorReporter?: { name: string };
   };
   core?: CoreDeployment;
+  forkhorseGatekeeper?: ForkhorseGatekeeperDeployment;
   access: AccessConfig;
   aiGateway: AiGatewayConfigInput;
   context: ContextConfig;
@@ -195,6 +197,7 @@ export type ProdWranglerConfig =
 
 /** The generated configs, keyed as `deployment.jsonc` keys them. */
 export interface GeneratedConfigs {
+  forkhorseGatekeeper?: ProdWranglerConfig;
   core?: ProdWranglerConfig;
   router: ProdWranglerConfig;
   workshop: ProdWranglerConfig;
@@ -207,6 +210,7 @@ export interface GeneratedConfigs {
 
 /** The upstream base configs the generated ones are derived from. */
 export interface BaseConfigs {
+  forkhorseGatekeeper?: ProdWranglerConfig;
   core?: ProdWranglerConfig;
   router: ProdWranglerConfig;
   workshop: ProdWranglerConfig;

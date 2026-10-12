@@ -2,6 +2,14 @@ import { RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { createSidebarFrame, type SidebarUiImpl, type SidebarSource } from "../src/worker/sidebar.ts";
 import type { ProjectState } from "../../forkhorse-dashboard/src/contracts.ts";
 import { ConnectionDraftUiImpl } from "../src/worker/configurator.ts";
+import type { GatekeeperConnectCallback } from "@gadgets/workshop-shared/gatekeeper";
+
+export class FixtureConnectCallback extends WorkerEntrypoint implements GatekeeperConnectCallback {
+  async complete(): Promise<never> { throw new Error("Fixture callback must not be invoked."); }
+  async reconnectComplete(): Promise<never> { throw new Error("Fixture callback must not be invoked."); }
+  async credentialsExpired(): Promise<never> { throw new Error("Fixture callback must not be invoked."); }
+  async credentialsRestored(): Promise<never> { throw new Error("Fixture callback must not be invoked."); }
+}
 
 // Isolated, labeled fixture producer. No HTTP, account credentials or external service bindings.
 export class FixtureSession extends RpcTarget implements SidebarSource {
@@ -72,4 +80,4 @@ export class FixtureHarness extends WorkerEntrypoint {
     } catch { return { opened: false, reads }; }
   }
 }
-export default { fetch() { return new Response("Local Worker fixture only", { status: 404 }); } };
+export { default, GatekeeperVendor } from "../src/worker/index.ts";

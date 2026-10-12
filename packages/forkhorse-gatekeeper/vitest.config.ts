@@ -9,7 +9,12 @@ export default defineConfig({
     miniflare: {
       compatibilityDate: "2026-08-04",
       compatibilityFlags: ["allow_irrevocable_stub_storage", "nodejs_compat"],
-      serviceBindings: { FIXTURE: { name: kCurrentWorker, entrypoint: "FixtureHarness" } },
+      serviceBindings: {
+        FIXTURE: { name: kCurrentWorker, entrypoint: "FixtureHarness" },
+        VENDOR: { name: kCurrentWorker, entrypoint: "GatekeeperVendor" },
+        VENDOR_HTTP: kCurrentWorker,
+        CONNECT_CALLBACK: { name: kCurrentWorker, entrypoint: "FixtureConnectCallback" },
+      },
     },
   })],
   test: {

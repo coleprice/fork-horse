@@ -1,0 +1,9 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "forkhorse-gatekeeper",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["allow_irrevocable_stub_storage", "nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false
+}

@@ -1,6 +1,6 @@
 # Gatekeeper sidebar preparation
 
-**Partial FH-008 implementation; local fixtures only.** This package prepares the
+**Partial FH-008 implementation; local UI fixtures and disabled deployment wiring.** This package prepares the
 read-only sidebar using the accepted dashboard's `mountDashboard`, stylesheet,
 and `DashboardTransport` embedding seam. No dashboard source is copied or edited.
 Product branding comes from root `brand.json`.
@@ -60,8 +60,18 @@ project. Capture-phase interception closes
 the gap before the DOM observer runs. DOM tests guard those selectors. A future
 dashboard-owned read-only option can replace this adapter when separately scoped.
 
-Deployment binding wiring remains deferred until FH-012 merges and coordination clears it. No core, dashboard, deploy script, upstream source or gitlink edits
-are included. S7 and S9 require the completed gatekeeper in pinned local `run-local`;
+FH-012 is merged. The optional `forkhorseGatekeeper` template block now wires a
+private Worker through `GATEKEEPER_FORKHORSE`: the router uses its default HTTP
+handler and the Workshop uses its `GatekeeperVendor` RPC entrypoint. The Worker is
+built and deployed before the Workshop/router and has no public route, preview URL,
+core service binding, storage or secrets. The template remains disabled by default.
+
+The wiring-only vendor derives its description from `brand.json`, advertises no
+authentication or auto-provisioning, returns no resources/types, and refuses every
+connection attempt. Its HTTP handler returns uncached 503 responses without cookies
+or redirects. It does not complete or retain connection callbacks. Account creation
+and the real sidebar source remain held for FH-013; enabling wiring cannot grant
+an account. No core, dashboard, upstream source or gitlink is edited by FH-008. S7 and S9 require the completed gatekeeper in pinned local `run-local`;
 the checks below do not satisfy those acceptance scenarios. Live installation is
 a separate reviewed step.
 
@@ -108,7 +118,7 @@ permits scripts without permitting form submission.
 `pnpm test` includes both `test:node` and `test:workerd`. The workerd configuration
 uses the pinned runtime sentinel (`navigator.userAgent === "Cloudflare-Workers"`)
 and the validation transform with `tsconfig.worker.json`. Nine Node tests cover
-browser behavior, data budgets and draft handling; nine application workerd tests cover native
+browser behavior, data budgets and draft handling; eleven application workerd tests cover native
 RPC callbacks, source authorization/revocation/disposal, polling, metadata, and
 credential-free configurator results.
 

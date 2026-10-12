@@ -7,6 +7,7 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { pnpmCommand } from "../cloudflare-os/scripts/pnpm-command.ts";
 import { resolveBinEntry } from "../cloudflare-os/scripts/bin-entry.ts";
 import { coreConfig, validateCore } from "./core-deployment.ts";
+import { validateForkhorseGatekeeper } from "./gatekeeper-deployment.ts";
 import { AI_GATEWAY_PROVIDERS } from "./deployment-config.ts";
 import type {
   BaseConfigs,
@@ -28,6 +29,7 @@ const packageDirs = {
   customGatekeeper: "packages/custom-gatekeeper",
   errorReporter: "packages/error-reporter",
   core: "packages/forkhorse-core",
+  forkhorseGatekeeper: "packages/forkhorse-gatekeeper",
 } as const;
 const generatedPaths = Object.fromEntries(
   Object.entries(packageDirs).map(([name, dir]) => [name, join(root, dir, generatedName)]),
@@ -192,6 +194,9 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
     };
   }
   if (!config.core?.enabled) activeConfig = { ...activeConfig, core: undefined };
+  if (!config.forkhorseGatekeeper?.enabled) {
+    activeConfig = { ...activeConfig, forkhorseGatekeeper: undefined };
+  }
   const placeholder = JSON.stringify(activeConfig).match(/<[^>]+>/)?.[0];
   if (placeholder) throw new Error(`Replace deployment placeholder ${placeholder}.`);
 
@@ -309,6 +314,7 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
     throw new Error("Observability trace sampling must be between 0 and 1.");
   }
   validateCore(config);
+  validateForkhorseGatekeeper(config);
   return config;
 }
 
@@ -443,6 +449,12 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
     ? structuredClone(bases.errorReporter)
     : undefined;
   const core = coreConfig(config, bases);
+  const forkhorseGatekeeper = config.forkhorseGatekeeper?.enabled
+    ? structuredClone(bases.forkhorseGatekeeper)
+    : undefined;
+  if (config.forkhorseGatekeeper?.enabled && !forkhorseGatekeeper) {
+    throw new Error("Missing vendor base Wrangler config.");
+  }
   const origin = publicOrigin(config);
 
   setCommon(router, config, config.workers.router.name, config.workers.router.route);
@@ -563,7 +575,16 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
 
   if (core) setCommon(core, config, config.core!.workerName, { customDomain: config.core!.hostname });
 
+  if (forkhorseGatekeeper) {
+    const service = config.forkhorseGatekeeper!.workerName;
+    setCommon(forkhorseGatekeeper, config, service);
+    // HTTP forwarding and vendor RPC use separate entrypoints, matching pinned OS discovery.
+    router.services!.push({ binding: "GATEKEEPER_FORKHORSE", service });
+    workshop.services!.push({ binding: "GATEKEEPER_FORKHORSE", service, entrypoint: "GatekeeperVendor" });
+  }
+
   return {
+    ...(forkhorseGatekeeper && { forkhorseGatekeeper }),
     ...(core && { core }),
     router, workshop, context, scheduler, customGatekeeper,
     ...(errorReporter && { errorReporter }),
@@ -618,6 +639,7 @@ export function buildCommands(config: DeploymentConfig): BuildCommand[] {
       { args: ownBuild("forkhorse-core") },
     ] : []),
     { args: ownBuild("custom-gatekeeper") },
+    ...(config.forkhorseGatekeeper?.enabled ? [{ args: ownBuild("forkhorse-gatekeeper") }] : []),
     ...(config.errorReporting.enabled ? [{ args: ownBuild("error-reporter") }] : []),
     // Access mode is a build-time constant in the frontend bundle (`src/useAuth.ts`), so it is set
     // here rather than inherited: a bundle built under a different value is wrong, not just stale.
@@ -731,6 +753,9 @@ async function main(): Promise<void> {
   const localConfig = join(root, "deployment.local.jsonc");
   const config = await readDeployment(existsSync(localConfig) ? localConfig : join(root, "deployment.jsonc"));
   const generated = generateConfigs(config, {
+    ...(config.forkhorseGatekeeper?.enabled ? {
+      forkhorseGatekeeper: await readJsonc(join(root, packageDirs.forkhorseGatekeeper, "wrangler.jsonc")),
+    } : {}),
     core: await readJsonc(join(root, packageDirs.core, "wrangler.jsonc")),
     router: await readJsonc(join(root, packageDirs.router, "wrangler.jsonc")),
     workshop: await readJsonc(join(root, packageDirs.workshop, "wrangler.jsonc")),
@@ -758,6 +783,7 @@ async function main(): Promise<void> {
     deployWorker(packageDirs.context, deployArgs);
     deployWorker(packageDirs.scheduler, deployArgs);
     deployWorker(packageDirs.customGatekeeper, deployArgs);
+    if (config.forkhorseGatekeeper?.enabled) deployWorker(packageDirs.forkhorseGatekeeper, deployArgs);
     deployWorker(packageDirs.workshop, deployArgs);
     // Last: it binds every one of the above.
     deployWorker(packageDirs.router, deployArgs);
