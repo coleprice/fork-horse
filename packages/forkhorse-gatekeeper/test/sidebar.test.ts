@@ -283,3 +283,24 @@ test("failed long poll retries at bounded backoff, keeps last snapshot and renew
   await turn();
   assert.equal(times.length, calls);
 });
+
+test("a hung relay shows the paused state without overlapping uncancellable calls", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const batch = {version: 0, state: fixture()};
+  let polls = 0, finish!: () => void;
+  const ui = new class extends RpcTarget {
+    async snapshot() { return batch; }
+    async subscribe(): Promise<never> { throw new Error("Use fallback"); }
+    async waitForChanges(): Promise<never> { polls++; await new Promise<void>((resolve) => { finish = resolve; }); throw new Error("Relay closed"); }
+  }();
+  const client = await connectSidebar(ui, () => {});
+  t.after(() => client.dispose());
+  let paused = false;
+  client.transport.live!.subscribe((value) => { paused = value; });
+  t.mock.timers.tick(0); await until(() => polls === 1);
+  t.mock.timers.tick(30_000); await until(() => paused);
+  void client.transport.live!.reconnect();
+  t.mock.timers.tick(90_000); await turn();
+  assert.equal(polls, 1);
+  client.dispose(); finish(); await turn();
+});

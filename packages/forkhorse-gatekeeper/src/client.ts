@@ -23,6 +23,7 @@ export async function connectSidebar(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running: Promise<void> | undefined;
   let failures = 0;
+  const deadlines = new Set<ReturnType<typeof setTimeout>>();
   const listeners = new Set<() => void>();
   const statusListeners = new Set<(paused: boolean) => void>();
 
@@ -58,13 +59,23 @@ export async function connectSidebar(
         void single(operation);
       }, delay);
   }
+  async function observe<T>(operation: PromiseLike<T>): Promise<T> {
+    // A broken upstream relay can leave a call pending indefinitely. Show the cached view's
+    // warning after 30s, but never race an uncancellable remote call with new retries.
+    const deadline = closed ? undefined : setTimeout(() => status(true), 30_000);
+    if (deadline) deadlines.add(deadline);
+    try { return await operation; } finally {
+      clearTimeout(deadline);
+      if (deadline) deadlines.delete(deadline);
+    }
+  }
   async function release() {
     if (receiver) receiver.active = false;
     receiver = undefined;
     const previous = subscription;
     subscription = undefined;
     try {
-      await previous?.close();
+      if (previous) await observe(previous.close());
     } catch {
       /* A failed remote is already disconnected. */
     }
@@ -97,7 +108,7 @@ export async function connectSidebar(
     while (true) {
       if (closed) break;
       // One outstanding poll (server timeout 25s), never a burst of health checks.
-      accept(await ui.waitForChanges(batch.version));
+      accept(await observe(ui.waitForChanges(batch.version)));
     }
   }
   class Receiver extends RpcTarget implements UpdateReceiver {
@@ -111,7 +122,7 @@ export async function connectSidebar(
   async function subscribe() {
     try {
       receiver = new Receiver();
-      subscription = await ui.subscribe(receiver);
+      subscription = await observe(ui.subscribe(receiver));
       if (closed) {
         await release();
         return;
@@ -127,14 +138,14 @@ export async function connectSidebar(
     await release();
     if (closed) return;
     // Theme is host-local; renew even if the UI capability remains unavailable.
-    await resubscribeTheme();
-    const next = await ui.snapshot();
+    await observe(resubscribeTheme());
+    const next = await observe(ui.snapshot());
     if (closed) return;
     accept(next, true);
     await subscribe();
   }
   await single(async () => {
-    await resubscribeTheme();
+    await observe(resubscribeTheme());
     await subscribe();
   });
   function requireProject(id: string) {
@@ -181,6 +192,8 @@ export async function connectSidebar(
     dispose() {
       closed = true;
       clearTimeout(timer);
+      for (const deadline of deadlines) clearTimeout(deadline);
+      deadlines.clear();
       listeners.clear();
       statusListeners.clear();
       void release();

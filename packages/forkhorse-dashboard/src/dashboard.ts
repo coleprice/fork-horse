@@ -115,7 +115,7 @@ export function mountDashboard(
       ]
         .toSorted((a, b) => a.sequence - b.sequence)
         .slice(-100);
-      view.updatedAt = new Date().toLocaleTimeString();
+      view.updatedAt = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
     } catch (error) {
       if (current !== generation || disposed) return;
       view.error = error instanceof Error ? error.message : "Unable to load this project.";
