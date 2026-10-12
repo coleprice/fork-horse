@@ -33,8 +33,9 @@ const { port1, port2 } = new MessageChannel();
 window.parent.postMessage({ type: "handshake" }, "*", [port2]);
 const receiver = new ThemeReceiver();
 const host = newMessagePortRpcSession<Host>(port1, receiver);
-async function resubscribeTheme() {
-  receiver.setTheme(await host.subscribeTheme(receiver));
+async function resubscribeTheme(isCurrent: () => boolean) {
+  const theme = await host.subscribeTheme(receiver);
+  if (isCurrent()) receiver.setTheme(theme);
 }
 let dispose = () => {};
 let closed = false;

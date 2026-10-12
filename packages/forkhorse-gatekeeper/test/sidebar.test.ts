@@ -472,3 +472,71 @@ test("disposing releases the owned subscription stub even when remote close hang
   client.dispose();
   assert.equal(released, 1);
 });
+
+test("late theme reply from an abandoned generation cannot repaint the recovered theme", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let themes = 0,
+    acquired = 0,
+    finishOldTheme!: (theme: string) => void;
+  let applied = "",
+    hostTheme = "light";
+  const old = new (class extends RpcTarget {
+    async snapshot() {
+      return { version: 0, state: fixture() };
+    }
+    async subscribe(): Promise<never> {
+      throw new Error("Use fallback");
+    }
+    async waitForChanges(): Promise<never> {
+      throw new Error("Old relay failed");
+    }
+  })();
+  const fresh = new (class extends RpcTarget {
+    async snapshot() {
+      return { version: 0, state: fixture() };
+    }
+    async subscribe() {
+      return new (class extends RpcTarget {
+        async close() {}
+      })();
+    }
+    async waitForChanges() {
+      return new Promise<never>(() => {});
+    }
+  })();
+  const client = await connectSidebar(
+    old,
+    () => {},
+    async (isCurrent) => {
+      themes++;
+      const theme =
+        themes === 2
+          ? await new Promise<string>((resolve) => {
+              finishOldTheme = resolve;
+            })
+          : hostTheme;
+      if (isCurrent()) applied = theme;
+    },
+    async () => {
+      acquired++;
+      return fresh;
+    },
+  );
+  t.after(() => client.dispose());
+  t.mock.timers.tick(0);
+  await turn();
+  await turn();
+  t.mock.timers.tick(1000);
+  await until(() => themes === 2);
+  t.mock.timers.tick(30_000);
+  await turn();
+  hostTheme = "dark";
+  await client.transport.live!.reconnect();
+  assert.equal(acquired, 2);
+  assert.equal(themes, 3);
+  assert.equal(applied, "dark");
+  finishOldTheme("light");
+  await turn();
+  await turn();
+  assert.equal(applied, "dark");
+});

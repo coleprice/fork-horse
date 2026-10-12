@@ -16,7 +16,7 @@ function disposeStub(value: object | undefined) {
 export async function connectSidebar(
   initialUi: SidebarUi,
   onError: (message: string) => void,
-  resubscribeTheme: () => Promise<void> = async () => {},
+  resubscribeTheme: (isCurrent: () => boolean) => Promise<void> = async () => {},
   acquireUi?: () => Promise<SidebarUi>,
 ) {
   let batch = await initialUi.snapshot();
@@ -179,7 +179,10 @@ export async function connectSidebar(
     if (acquireUi) owner.ui = await observe(owner, acquireUi());
     else owner.ui = initialUi;
     // Host-local and current: apply theme even if the replacement UI snapshot then fails.
-    await observe(owner, resubscribeTheme());
+    await observe(
+      owner,
+      resubscribeTheme(() => current(owner)),
+    );
     accept(owner, await observe(owner, owner.ui.snapshot()), true);
     if (current(owner)) await subscribe(owner);
   }
@@ -220,7 +223,10 @@ export async function connectSidebar(
   }
   await single(session, async () => {
     const owner = session;
-    await observe(owner, resubscribeTheme());
+    await observe(
+      owner,
+      resubscribeTheme(() => current(owner)),
+    );
     if (current(owner)) await subscribe(owner);
   });
   function requireProject(id: string) {
