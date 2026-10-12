@@ -671,7 +671,7 @@ function withCore(): DeploymentConfig {
     core: {
       enabled: true, workerName: "fixture-core", hostname: "core.idiot.tax", mcpPath: "/mcp",
       project: "fixture", artifactsNamespace: "fixture", oauthKvNamespaceId: null,
-      pushQueue: "fixture-push", deadLetterQueue: "fixture-push-dlq",
+      pushQueue: "fixture-push", pushQueueId: "0".repeat(32), deadLetterQueue: "fixture-push-dlq",
       access: { issuer: "https://fixture.cloudflareaccess.com", audience: "fixture-audience", owners: ["owner@idiot.tax"] },
     },
   };
@@ -692,7 +692,10 @@ test("core integration generates one public Worker with protected assets, OAuth 
   assert.equal(core.assets?.not_found_handling, "none");
   assert.equal(core.assets?.directory, "../forkhorse-dashboard/dist");
   assert.deepEqual(core.kv_namespaces, [{ binding: "OAUTH_KV" }]);
-  assert.deepEqual(core.secrets, { required: ["OWNER_API_TOKEN_HASH"] });
+  assert.deepEqual(core.secrets, { required: ["OWNER_API_TOKEN_HASH", "CF_EVENTS_API_TOKEN"] });
+  assert.equal(core.vars?.CF_ACCOUNT_ID, config.accountId);
+  assert.equal(core.vars?.PUSH_QUEUE_ID, config.core!.pushQueueId);
+  assert.equal(core.vars?.CF_EVENTS_API_TOKEN, undefined);
   assert.deepEqual(core.artifacts, [{ binding: "ARTIFACTS", namespace: "fixture" }]);
   assert.deepEqual(core.queues?.consumers, [{ queue: "fixture-push", dead_letter_queue: "fixture-push-dlq", max_retries: 5, max_batch_size: 10 }]);
   assert.equal(core.vars?.CORE_PUBLIC_ORIGIN, "https://core.idiot.tax");
@@ -724,6 +727,7 @@ test("core disabled stays inert; enabled rejects route, auth, resource and ident
     (v) => { v.mcpPath = "/app"; },
     (v) => { v.mcpPath = "/oauth/token"; },
     (v) => { v.deadLetterQueue = v.pushQueue; },
+    (v) => { v.pushQueueId = "invalid"; },
     (v) => { v.oauthKvNamespaceId = "not-a-resource-id"; },
     (v) => { v.access.owners = []; },
     (v) => { v.access.issuer = "https://keys.idiot.tax"; },

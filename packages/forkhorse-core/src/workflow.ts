@@ -1,3 +1,4 @@
+import { publicEvents } from "./subscriptions";
 import { body, digest, HttpError, isRecord, json, slug } from "./http";
 import { claimPath, filePath, overlaps, requireCovered } from "./paths";
 import { staleBase } from "./git";
@@ -370,9 +371,9 @@ export class Workflow {
         reason: "Canonical head differs from the merge ledger.",
       });
     return json({
-      project,
+      project: { ...project, ...await publicEvents(this.storage, project.repoName) },
       agents: (await list<Agent>(this.storage, "agent:")).map(({ name }) => ({ name })),
-      forks: forks.map((fork) => ({ ...fork, head: heads.get(fork.repoName)! })),
+      forks: await Promise.all(forks.map(async (fork) => ({ ...fork, ...await publicEvents(this.storage, fork.repoName), head: heads.get(fork.repoName)! }))),
       packets: await list<Packet>(this.storage, "packet:"),
       claims: await list<Claim>(this.storage, "claim:"),
       blockers: await list<Blocker>(this.storage, "blocker:"),

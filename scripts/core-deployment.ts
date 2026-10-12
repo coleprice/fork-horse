@@ -10,6 +10,8 @@ export interface CoreDeployment {
   artifactsNamespace: string;
   oauthKvNamespaceId: string | null;
   pushQueue: string;
+  pushQueueId: string;
+  secretsFile?: string | null;
   deadLetterQueue: string;
   access: { issuer: string; audience: string; owners: string[] };
 }
@@ -36,6 +38,11 @@ export function validateCore(config: DeploymentConfig): void {
     )
   )
     throw new Error("core.workerName must be unique.");
+  if (typeof core.pushQueueId !== "string" || !/^[a-f0-9]{32}$/i.test(core.pushQueueId))
+    throw new Error("core.pushQueueId must be the resolved 32-hex ID of core.pushQueue.");
+  if (core.secretsFile != null && (typeof core.secretsFile !== "string" ||
+    !core.secretsFile.trim() || core.secretsFile !== core.secretsFile.trim()))
+    throw new Error("core.secretsFile must be null or an ignored owner file path.");
   if (core.pushQueue === core.deadLetterQueue)
     throw new Error("core Queue and dead-letter Queue must differ.");
   if (
@@ -109,6 +116,8 @@ export function coreConfig(
     routes: [{ pattern: core.hostname, custom_domain: true }],
     vars: {
       ARTIFACTS_NAMESPACE: core.artifactsNamespace,
+      CF_ACCOUNT_ID: config.accountId,
+      PUSH_QUEUE_ID: core.pushQueueId,
       CORE_PUBLIC_ORIGIN: `https://${core.hostname}`,
       MCP_PATH: core.mcpPath,
       MCP_PROJECT: core.project,
@@ -120,7 +129,7 @@ export function coreConfig(
     kv_namespaces: [
       { binding: "OAUTH_KV", ...(core.oauthKvNamespaceId ? { id: core.oauthKvNamespaceId } : {}) },
     ],
-    secrets: { required: ["OWNER_API_TOKEN_HASH"] },
+    secrets: { required: ["OWNER_API_TOKEN_HASH", "CF_EVENTS_API_TOKEN"] },
     assets: {
       directory: "../forkhorse-dashboard/dist",
       binding: "ASSETS",

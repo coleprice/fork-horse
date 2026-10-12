@@ -1,3 +1,4 @@
+import { publicEvents } from "./subscriptions";
 import { body, HttpError, json } from "./http";
 import { ZERO_SHA } from "./trees";
 import type { Env, Project } from "./types";
@@ -67,6 +68,7 @@ export class CallerCredentials {
           (await repo.log({ ref: `refs/heads/${project.defaultBranch}`, limit: 1 }))[0]?.hash ??
           ZERO_SHA;
         forks.push({
+          ...await publicEvents(this.storage, fork.repoName),
           repoName: fork.repoName,
           remote: fork.remote,
           head,
@@ -74,6 +76,7 @@ export class CallerCredentials {
         });
       }
       return json({
+        project: { repoName: project.repoName, ...await publicEvents(this.storage, project.repoName) },
         role: actor.owner ? "owner" : "agent",
         ...(!actor.owner && { agent: actor.agent }),
         forks,
@@ -114,6 +117,7 @@ export class CallerCredentials {
       }
       return json(
         {
+          ...await publicEvents(this.storage, fork.repoName),
           repoName: fork.repoName,
           remote: fork.remote,
           token: token.plaintext,

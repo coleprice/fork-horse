@@ -86,7 +86,7 @@ describe("caller identity and fork credentials under workerd with offline Artifa
       forks: [{ repoName: f.a, head: BEFORE }],
     });
     expect(me.forks).toHaveLength(1);
-    expect(Object.keys(me.forks[0]!).toSorted()).toEqual(["createdAt", "head", "remote", "repoName"]);
+    expect(Object.keys(me.forks[0]!).toSorted()).toEqual(["createdAt", "events", "head", "remote", "repoName"]);
     const owner = await (
       await api(f.id, "/me?agent=alpha", OWNER)
     ).json<{ role: string; agent?: string; forks: { repoName: string }[] }>();

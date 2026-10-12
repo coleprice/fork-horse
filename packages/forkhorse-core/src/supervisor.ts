@@ -1,3 +1,4 @@
+import { EventSubscriptions, publicEvents, registerEvents } from "./subscriptions";
 import { CallerCredentials } from "./caller-credentials";
 import { DurableObject } from "cloudflare:workers";
 import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, slug } from "./http";
@@ -111,6 +112,10 @@ export class Supervisor extends DurableObject<Env> {
         throw error;
       }
     });
+  }
+
+  async alarm(): Promise<void> {
+    await this.exclusive(() => new EventSubscriptions(this.ctx.storage, this.env).alarm());
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -234,10 +239,12 @@ export class Supervisor extends DurableObject<Env> {
       ZERO_SHA;
     await this.ctx.storage.transaction(async (txn) => {
       await txn.put(records);
+      await registerEvents(txn, project.namespace, project.repoName);
       await txn.put("canonicalHead", canonicalHead);
       await txn.delete("creationPending");
     });
-    return json({ project, agents: credentials }, 201);
+    await new EventSubscriptions(this.ctx.storage, this.env).attempt(project.repoName);
+    return json({ project: { ...project, ...await publicEvents(this.ctx.storage, project.repoName) }, agents: credentials }, 201);
   }
 
   private async join(project: Project, agent: string, ttl: number): Promise<Response> {
@@ -252,7 +259,9 @@ export class Supervisor extends DurableObject<Env> {
     await repo.revokeToken(fork.token);
     const token = await repo.createToken("write", ttl);
     try {
-      await this.ctx.storage.put({
+      await this.ctx.storage.transaction(async (txn) => {
+        await registerEvents(txn, project.namespace, fork.name);
+        await txn.put({
         [`repo:${fork.name}`]: agent,
         [`fork:${fork.name}`]: {
           repoName: fork.name,
@@ -261,13 +270,16 @@ export class Supervisor extends DurableObject<Env> {
           createdAt: new Date().toISOString(),
         },
         [`latestFork:${agent}`]: fork.name,
+        });
       });
     } catch (error) {
       await repo.revokeToken(token.id);
       throw error;
     }
+    await new EventSubscriptions(this.ctx.storage, this.env).attempt(fork.name);
     return json(
       {
+        ...await publicEvents(this.ctx.storage, fork.name),
         project: project.id,
         agent,
         repoName: fork.name,

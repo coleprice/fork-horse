@@ -1,3 +1,4 @@
+import { withCoreSecrets } from "./core-secrets.ts";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -717,11 +718,19 @@ function run(args: string[], cwd = root, env: NodeJS.ProcessEnv = process.env): 
  * `.bin` shim can be found. That saves the ~0.33s `pnpm exec` costs per call and sidesteps the
  * Windows `.cmd` shim entirely; when it cannot be resolved, the pnpm path is still there.
  */
-function deployWorker(dir: string, extraArgs: string[]): void {
+function deployWorker(dir: string, extraArgs: string[], confidential = false): void {
   const cwd = join(root, dir);
   const args = ["deploy", "--config", generatedName, ...extraArgs];
   const entry = resolveBinEntry(cwd, "wrangler");
-  if (entry) {
+  if (confidential) {
+    // Wrangler diagnostics can echo file contents. Capture and discard this one subprocess's
+    // output and disable its disk log; never propagate raw stderr or an exception message.
+    const env = { ...process.env, WRANGLER_LOG_PATH: process.platform === "win32" ? "NUL" : "/dev/null" };
+    const [command, argv] = entry ? [process.execPath, [entry, ...args]] : pnpmCommand(["exec", "wrangler", ...args], env);
+    const result = spawnSync(command, argv, { cwd, env, stdio: "ignore" });
+    if (result.error || result.status !== 0) throw new Error("Core secret deployment failed.");
+    console.log("Core Worker deployed with required secrets; confidential subprocess output suppressed.");
+  } else if (entry) {
     runCommand(process.execPath, [entry, ...args], cwd, process.env, `wrangler ${args.join(" ")}`);
   } else {
     run(["exec", "wrangler", ...args], cwd);
@@ -791,7 +800,12 @@ async function main(): Promise<void> {
     if (check) run(["test"]);
     build(config);
     const deployArgs = check ? ["--dry-run"] : [];
-    for (const name of deploymentOrder(config)) deployWorker(packageDirs[name], deployArgs);
+    for (const name of deploymentOrder(config)) {
+      if (!check && name === "core" && config.core?.secretsFile) {
+        await withCoreSecrets(root, config.core.secretsFile, (secretArgs) =>
+          deployWorker(packageDirs[name], [...deployArgs, ...secretArgs], true));
+      } else deployWorker(packageDirs[name], deployArgs);
+    }
   } finally {
     await Promise.all(Object.values(generatedPaths).map((path) => rm(path, { force: true })));
   }

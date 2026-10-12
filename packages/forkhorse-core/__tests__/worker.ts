@@ -9,6 +9,9 @@ export class TestSupervisor extends Supervisor {
   protected override gitOperations() {
     return this.gitFixture;
   }
+  configureEvents(values: Pick<Env, "CF_ACCOUNT_ID" | "CF_EVENTS_API_TOKEN" | "PUSH_QUEUE_ID">) {
+    Object.assign(this.env, values);
+  }
   readonly fixture: FixtureArtifacts;
   constructor(ctx: DurableObjectState, env: Env) {
     const fixture = new FixtureArtifacts();

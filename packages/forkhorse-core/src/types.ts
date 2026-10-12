@@ -13,6 +13,9 @@ export interface Env {
   ARTIFACTS: ArtifactsBinding;
   ARTIFACTS_NAMESPACE: string;
   OWNER_API_TOKEN_HASH: string;
+  CF_ACCOUNT_ID?: string;
+  CF_EVENTS_API_TOKEN?: string;
+  PUSH_QUEUE_ID?: string;
   // Optional only for API-only offline fixtures. Public integration fails closed if incomplete.
   CORE_PUBLIC_ORIGIN?: string;
   MCP_PATH?: string;

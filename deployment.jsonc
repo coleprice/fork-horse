@@ -61,6 +61,12 @@
     "artifactsNamespace": "<ARTIFACTS_NAMESPACE>",
     "oauthKvNamespaceId": null,
     "pushQueue": "<PUSH_QUEUE_NAME>",
+    // Owner resolves this Queue name to its ID before provisioning the event-only token.
+    "pushQueueId": "<PUSH_QUEUE_ID>",
+    // Optional first-deploy JSON containing OWNER_API_TOKEN_HASH and CF_EVENTS_API_TOKEN.
+    // Set an ignored owner file path locally, e.g. packages/forkhorse-core/.wrangler/deploy-secrets.json.
+    // null uses secrets already installed on the Worker. --check never reads this file.
+    "secretsFile": null,
     "deadLetterQueue": "<DEAD_LETTER_QUEUE_NAME>",
     "access": {
       "issuer": "https://<TEAM_NAME>.cloudflareaccess.com",
