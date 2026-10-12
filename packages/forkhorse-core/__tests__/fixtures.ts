@@ -50,6 +50,8 @@ export class FixtureArtifacts implements ArtifactsBinding {
   staleTokenListing = false;
   failTree = false;
   failCreate = false;
+  // Optional complete push diff for activity-cap/runtime acceptance fixtures.
+  changedPaths?: string[];
 
   async create(name: string): Promise<ArtifactsCreateRepoResult> {
     this.calls.push({ method: "create", repo: name });
@@ -167,6 +169,8 @@ export class FixtureArtifacts implements ArtifactsBinding {
       readTree: async (hash) => {
         this.calls.push({ method: "readTree", repo: name });
         if (this.failTree) return null;
+        if (this.changedPaths && hash === OLD_TREE) return [];
+        if (this.changedPaths && hash === NEW_TREE) return this.changedPaths.map((path) => file(path));
         return trees.get(hash) ?? null;
       },
     };

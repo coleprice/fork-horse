@@ -6,6 +6,8 @@ import { claimPath, filePath, overlaps, requireCovered } from "./paths";
 import { staleBase } from "./git";
 import type { GitOperations } from "./git";
 import { ZERO_SHA } from "./trees";
+import { capActivity } from "./activity";
+import type { StoredActivity } from "./activity";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import type {
   Blocker,
@@ -397,9 +399,9 @@ export class Workflow {
       ),
       activity: [
         ...(
-          await this.storage.list<Activity>({ prefix: "activity:", reverse: true, limit: 100 })
+          await this.storage.list<StoredActivity>({ prefix: "activity:", reverse: true, limit: 100 })
         ).values(),
-      ].toReversed(),
+      ].toReversed().map(capActivity),
       reconcilerAlerts: alerts,
       promotionPending: (await this.storage.get<LedgerEntry>("promotionPending")) ?? null,
     } satisfies StateSnapshot);
