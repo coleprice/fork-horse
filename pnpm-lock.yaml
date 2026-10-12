@@ -188,6 +188,15 @@ importers:
         specifier: 'catalog:'
         version: 4.149.0(@cloudflare/workers-types@5.20261011.1)(@types/node@26.1.0)
 
+  packages/forkhorse-cli:
+    devDependencies:
+      '@types/node':
+        specifier: 26.1.0
+        version: 26.1.0
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   packages/forkhorse-core:
     dependencies:
       forkhorse-mcp:
