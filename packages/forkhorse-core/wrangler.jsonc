@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "project-core",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-11",
+  "durable_objects": {
+    "bindings": [{ "name": "SUPERVISOR", "class_name": "Supervisor" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Supervisor"] }],
+  "artifacts": [{ "binding": "ARTIFACTS", "namespace": "default" }],
+  "vars": { "ARTIFACTS_NAMESPACE": "default" }
+  // The owner supplies OWNER_API_TOKEN_HASH as a Worker secret and connects the
+  // account's Artifacts push event subscription to a Queue consumed by this Worker.
+  // Never add remote: true for the offline fixture suite.
+}
