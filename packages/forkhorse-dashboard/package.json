@@ -1,0 +1,21 @@
+{
+  "name": "forkhorse-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/dashboard.ts",
+    "./transport": "./src/transport.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "build:fixture": "vite build --mode fixture",
+    "dev:fixture": "vite --mode fixture --host 127.0.0.1",
+    "test": "node --test test/*.test.ts",
+    "test:run": "node --test test/*.test.ts",
+    "types:check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}
