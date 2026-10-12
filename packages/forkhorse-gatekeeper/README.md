@@ -69,6 +69,10 @@ pnpm lint
 ```
 
 The build produces three self-contained HTML documents and `dist/worker.js`.
+`test:workerd` builds those three HTML assets before starting Vitest, so `test`,
+`test:run` and root `pnpm test` work on a fresh checkout without a prior build.
+The shared `build:assets` step also runs during production builds; `dist/` stays
+untracked.
 Bundle checks exclude the offline entrypoint and its synthetic credentials/data
 from production. Worker types use native RPC validation. The production config has
 no public Workers URL; the generated deployment supplies its private base URL and
