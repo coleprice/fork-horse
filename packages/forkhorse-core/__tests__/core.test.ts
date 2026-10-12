@@ -230,7 +230,7 @@ describe("core Worker and real supervisor Durable Objects with offline Artifacts
     expect(entries[2]?.agent).toBe("alpha");
   });
 
-  it("ignores deletion, unrelated event types and unregistered lookalike repos", async () => {
+  it("records canonical deletion and ignores unrelated types and unregistered lookalike repos", async () => {
     const { project } = await create();
     const result = await consume([
       event(project.id, { after: ZERO_SHA }),
@@ -239,10 +239,11 @@ describe("core Worker and real supervisor Durable Objects with offline Artifacts
     ]);
     expect(result.retryMessages).toEqual([]);
     expect(result.explicitAcks).toHaveLength(3);
-    expect(await activity(project.id)).toEqual([]);
-    expect((await inspect(project.id)).calls.some((call) => call.method === "readCommit")).toBe(
-      false,
-    );
+    expect(await activity(project.id)).toHaveLength(1);
+    const state = await (
+      await api(`/projects/${project.id}/state`)
+    ).json<{ reconcilerAlerts: unknown[] }>();
+    expect(state.reconcilerAlerts).toHaveLength(1);
   });
 
   it("treats new refs as an empty before tree and diffs force pushes without ancestry assumptions", async () => {

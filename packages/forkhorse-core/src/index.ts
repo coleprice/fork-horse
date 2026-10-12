@@ -1,6 +1,5 @@
 import { body, errorResponse, HttpError, json, slug } from "./http";
 import { parsePush, projectForRepo } from "./events";
-import { ZERO_SHA } from "./trees";
 import type { Env } from "./types";
 export { Supervisor } from "./supervisor";
 
@@ -20,13 +19,26 @@ export default {
           body: JSON.stringify(data),
         });
       } else {
-        const match = /^\/projects\/([^/]+)\/(join|activity)$/.exec(url.pathname);
+        const match = /^\/projects\/([^/]+)(\/.*)$/.exec(url.pathname);
         if (!match || !slug(match[1])) return json({ error: "Not found." }, 404);
-        if (
-          (match[2] === "join" && request.method !== "POST") ||
-          (match[2] === "activity" && request.method !== "GET")
-        )
-          return json({ error: "Method not allowed." }, 405);
+        const suffix = match[2]!;
+        const methods =
+          suffix === "/join" ||
+          suffix === "/agents" ||
+          suffix === "/reviews" ||
+          /^\/agents\/[^/]+\/rotate$/.test(suffix) ||
+          /^\/forks\/[^/]+\/commit$/.test(suffix) ||
+          /^\/reviews\/[^/]+\/(approve|promote)$/.test(suffix)
+            ? ["POST"]
+            : /^\/packets\/[^/]+\/claim$/.test(suffix)
+              ? ["POST", "DELETE"]
+              : suffix === "/packets"
+                ? ["GET", "POST"]
+                : ["/activity", "/blockers", "/state"].includes(suffix)
+                  ? ["GET"]
+                  : [];
+        if (!methods.length) return json({ error: "Not found." }, 404);
+        if (!methods.includes(request.method)) return json({ error: "Method not allowed." }, 405);
         project = match[1];
       }
       return await env.SUPERVISOR.get(env.SUPERVISOR.idFromName(project)).fetch(request);
@@ -39,11 +51,7 @@ export default {
     for (const message of batch.messages) {
       try {
         const event = parsePush(message.body);
-        if (
-          event &&
-          event.source.namespace === env.ARTIFACTS_NAMESPACE &&
-          event.payload.after !== ZERO_SHA
-        ) {
+        if (event && event.source.namespace === env.ARTIFACTS_NAMESPACE) {
           const project = projectForRepo(event.source.repoName);
           if (
             project &&

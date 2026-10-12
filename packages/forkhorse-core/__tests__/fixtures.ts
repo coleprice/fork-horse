@@ -40,6 +40,7 @@ const trees = new Map<string, ArtifactsTreeEntry[]>([
 export class FixtureArtifacts implements ArtifactsBinding {
   calls: { method: string; repo: string; scope?: string; ttl?: number; sourceUrl?: string }[] = [];
   private repos = new Set<string>();
+  heads = new Map<string, string>();
   failTree = false;
   failCreate = false;
 
@@ -48,6 +49,7 @@ export class FixtureArtifacts implements ArtifactsBinding {
     if (this.failCreate) throw new Error("fixture-provider-secret-that-must-not-leak");
     if (this.repos.has(name)) throw new Error("fixture already exists");
     this.repos.add(name);
+    this.heads.set(name, BEFORE);
     return {
       id: name,
       name,
@@ -67,6 +69,23 @@ export class FixtureArtifacts implements ArtifactsBinding {
     this.calls.push({ method: "get", repo: name });
     if (!this.repos.has(name)) throw new Error("fixture not found");
     return {
+      log: async () => {
+        const hash = this.heads.get(name);
+        return hash && hash !== "0".repeat(40)
+          ? [
+              {
+                hash,
+                treeHash: OLD_TREE,
+                message: "Fixture",
+                author: { name: "Agent", email: "agent@idiot.tax" },
+                committer: { name: "Agent", email: "agent@idiot.tax" },
+                parents: [],
+                authoredAt: 1,
+                committedAt: 1,
+              },
+            ]
+          : [];
+      },
       [Symbol.dispose]: () => {
         this.calls.push({ method: "dispose", repo: name });
       },

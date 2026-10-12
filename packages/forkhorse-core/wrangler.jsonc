@@ -3,6 +3,7 @@
   "name": "project-core",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-11",
+  "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
     "bindings": [{ "name": "SUPERVISOR", "class_name": "Supervisor" }]
   },

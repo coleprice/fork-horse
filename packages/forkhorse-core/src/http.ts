@@ -27,7 +27,7 @@ export function slug(value: unknown, max = 48): value is string {
   );
 }
 
-export async function body(request: Request): Promise<Record<string, unknown>> {
+export async function body(request: Request, maxBytes = 16384): Promise<Record<string, unknown>> {
   // Bound buffering even when Content-Length is absent or dishonest.
   const reader = request.body?.getReader();
   if (!reader) throw new HttpError(400, "A JSON object is required.");
@@ -37,9 +37,9 @@ export async function body(request: Request): Promise<Record<string, unknown>> {
     const { value, done } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > 16384) {
+    if (size > maxBytes) {
       await reader.cancel();
-      throw new HttpError(413, "Request body exceeds 16 KiB.");
+      throw new HttpError(413, `Request body exceeds ${maxBytes} bytes.`);
     }
     chunks.push(value);
   }

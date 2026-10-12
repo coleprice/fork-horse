@@ -2,6 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, slug } from "./http";
 import { changedPaths, ZERO_SHA } from "./trees";
 import type { Activity, Env, Project, PushEvent } from "./types";
+import { WorkerGit } from "./git";
+import type { GitOperations } from "./git";
+import { Workflow, recordWorkflowPush } from "./workflow";
 
 interface Agent {
   name: string;
@@ -42,6 +45,10 @@ function publicImportUrl(value: unknown): string | undefined {
 
 /** One durable coordinator per project; all operations share the same serialization gate. */
 export class Supervisor extends DurableObject<Env> {
+  protected gitOperations(): GitOperations {
+    return new WorkerGit(this.env.ARTIFACTS);
+  }
+
   private tail: Promise<void> = Promise.resolve();
 
   private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -120,7 +127,12 @@ export class Supervisor extends DurableObject<Env> {
           const activity = [...entries.values()];
           return json({ activity, nextAfter: activity.at(-1)?.sequence ?? after });
         }
-        return json({ error: "Not found." }, 404);
+        const response = await new Workflow(this.ctx.storage, this.env, this.gitOperations()).route(
+          request,
+          project,
+          actor,
+        );
+        return response ?? json({ error: "Not found." }, 404);
       } catch (error) {
         return errorResponse(error);
       }
@@ -175,8 +187,12 @@ export class Supervisor extends DurableObject<Env> {
       records[`agent:${name}`] = { name, tokenHash: await digest(apiToken) };
       credentials.push({ agent: name, apiToken });
     }
+    const canonicalHead =
+      (await canonical.log({ ref: `refs/heads/${project.defaultBranch}`, limit: 1 }))[0]?.hash ??
+      ZERO_SHA;
     await this.ctx.storage.transaction(async (txn) => {
       await txn.put(records);
+      await txn.put("canonicalHead", canonicalHead);
       await txn.delete("creationPending");
     });
     return json({ project, agents: credentials }, 201);
@@ -192,8 +208,22 @@ export class Supervisor extends DurableObject<Env> {
     const fork = await canonical.fork(name);
     using repo = await this.env.ARTIFACTS.get(fork.name);
     await repo.revokeToken(fork.token);
-    await this.ctx.storage.put(`repo:${fork.name}`, agent);
     const token = await repo.createToken("write", ttl);
+    try {
+      await this.ctx.storage.put({
+        [`repo:${fork.name}`]: agent,
+        [`fork:${fork.name}`]: {
+          repoName: fork.name,
+          agent,
+          remote: fork.remote,
+          createdAt: new Date().toISOString(),
+        },
+        [`latestFork:${agent}`]: fork.name,
+      });
+    } catch (error) {
+      await repo.revokeToken(token.id);
+      throw error;
+    }
     return json(
       {
         project: project.id,
@@ -214,12 +244,7 @@ export class Supervisor extends DurableObject<Env> {
     try {
       await this.exclusive(async () => {
         const project = await this.ctx.storage.get<Project>("project");
-        if (
-          !project ||
-          event.source.namespace !== project.namespace ||
-          event.payload.after === ZERO_SHA
-        )
-          return;
+        if (!project || event.source.namespace !== project.namespace) return;
         const agent = await this.ctx.storage.get<string | null>(`repo:${event.source.repoName}`);
         if (agent === undefined) return; // Naming alone is never repository membership.
         const key =
@@ -230,6 +255,8 @@ export class Supervisor extends DurableObject<Env> {
               event.source.repoName,
               event.payload.ref,
               event.payload.after,
+              // Canonical ABA moves must not collapse into a previously seen head.
+              ...(agent === null ? [event.payload.before, event.metadata.eventTimestamp] : []),
             ]),
           ));
         if (await this.ctx.storage.get(key)) return;
@@ -247,6 +274,7 @@ export class Supervisor extends DurableObject<Env> {
             eventTimestamp: event.metadata.eventTimestamp,
             recordedAt: new Date().toISOString(),
           };
+          await recordWorkflowPush(txn, project, event, entry);
           await txn.put({
             [key]: true,
             sequence,

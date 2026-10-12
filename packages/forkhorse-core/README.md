@@ -63,8 +63,8 @@ canonical write token for a caller.
 A repeated ID returns `409`. A durable creation-intent marker fences an uncertain
 provider outcome: if create/import or token revocation fails, retries return `409`
 and require owner inspection. The Worker never adopts an existing unverified repo.
-Owner recovery/credential rotation and additional enrollment are not implemented
-in this packet; save the one-time credentials before distributing them.
+Additional enrollment and credential rotation are owner-only routes described below.
+Save one-time credentials before distributing them.
 
 ### Join with an agent fork
 
@@ -83,7 +83,7 @@ serializes requests and reserves the number durably before calling Artifacts.
 Failures can leave gaps or orphaned forks; retries never reuse a fork name. The
 fork's initial provider token is revoked, then a new fork-scoped write token is
 minted with the requested TTL. Only enrolled agents may join; an agent credential
-cannot select another agent. This package has no canonical push or promote route.
+cannot select another agent. The canonical write credential is confined to the owner-only promote path.
 
 ### Read activity
 
@@ -114,7 +114,7 @@ The log and idempotency records persist without a retention cutoff in this versi
 
 Errors have `{ "error": "..." }`: `400` invalid input, `401` missing/malformed
 bearer token, `403` unauthorized token/agent, `404` unknown route/project, `405`
-unsupported method, `409` duplicate/uncertain creation, `413` body over 16 KiB, and
+unsupported method, `409` conflicts/stale approvals/uncertain operations, `413` oversized bodies, and
 `502` sanitized provider failure. Authorization happens before repo operations.
 
 ## Queue and changed paths
@@ -127,13 +127,15 @@ tests. Set a dead-letter queue and retry limit so permanent failures are inspect
 
 The consumer uses `source.namespace`, `source.repoName`, `payload.ref`,
 `payload.before`, `payload.after`, and `metadata.eventTimestamp` from the documented
-envelope. Other events, namespace mismatches, ref deletions (`after` all zeros),
-and unknown repositories are acknowledged without a log entry. A matching naming
+envelope. Other events, namespace mismatches and unknown repositories are acknowledged without
+a log entry. Ref deletions compare the previous tree with an empty tree; canonical
+deletions also raise reconciler alerts. A matching naming
 prefix alone does not establish membership: the supervisor checks its stored
 canonical/fork registry.
 
-The idempotency key is exactly `(namespace, repoName, ref, after)`, hashed for a
-bounded storage key. The complete activity entry and key are committed atomically.
+Fork activity uses `(namespace, repoName, ref, after)` for idempotency. Canonical
+events additionally include `before` and the event timestamp so later moves back
+to previously seen SHAs remain visible. Keys are hashed for bounded storage. The complete activity entry and key are committed atomically.
 Duplicate and concurrent deliveries produce one record. `readCommit`/`readTree`
 compare the before and after snapshots recursively; new refs compare against an
 empty tree. Changes include additions, removals, mode changes, symlinks and submodule
@@ -168,8 +170,9 @@ The standalone package declares its own toolchain so its fixtures can also run
 independently when starter tooling is unavailable. Production types derive the
 Artifacts surface from `@cloudflare/workers-types`. Tests instantiate real Durable
 Objects with explicit fixture binding implementations and assert the workerd
-runtime. They do not contact Cloudflare. No raw Git HTTP requests are made here;
-future raw Git transport must send a git-style `User-Agent`.
+runtime. They do not contact Cloudflare. Production commit/promote uses raw Git HTTP with a git-style `User-Agent`. The
+offline protocol fixtures exercise actual isomorphic-git objects, packs and push
+commands against a fixture HTTP peer; they never contact a live remote.
 
 References read before implementation:
 [Workers binding](https://developers.cloudflare.com/artifacts/api/workers-binding/),
@@ -178,3 +181,109 @@ References read before implementation:
 and [Vitest configuration](https://developers.cloudflare.com/workers/testing/vitest-integration/configuration/).
 The newer binding supports reads directly, so this package does not need the Git
 clone shown in the older example.
+
+
+## Packets, claims, review and promote
+
+Public record types, including `StateSnapshot`, are exported from
+`src/workflow-types.ts`. Every route below uses the same project-scoped bearer
+validation, JSON responses and no-store header as the original routes. Owner
+credentials cannot impersonate an agent on claim, commit or review requests.
+
+| Method and suffix under `/projects/:id` | Role | Body / response |
+| --- | --- | --- |
+| `POST /agents` | Owner | `{agent}` → `{agent, apiToken}` (201, returned once) |
+| `POST /agents/:agent/rotate` | Owner | `{}` → `{agent, apiToken}`; previous API credential immediately stops working |
+| `POST /packets` | Owner | `{id,title,goal,paths,acceptance}` → `{packet}` (201) |
+| `GET /packets` | Owner/agent | `{packets}` |
+| `POST /packets/:pid/claim` | Agent | `{repoName?}` → `{claim}` (201 new, 200 existing) |
+| `DELETE /packets/:pid/claim` | Claiming agent | `{released:true}`; invalidates outstanding reviews for that packet |
+| `POST /forks/:repo/commit` | Agent | `{packet,files:[{path,content}],message}` → `{repoName,packet,sha}` (201) |
+| `GET /blockers` | Owner/agent | `{blockers}` |
+| `POST /reviews` | Agent | `{repoName,sha,packet}` → `{review}` (201) |
+| `POST /reviews/:rid/approve` | Owner | `{}` → `{review}` |
+| `POST /reviews/:rid/promote` | Owner | `{}` → `{sha}` |
+| `GET /state` | Owner/agent | `StateSnapshot` |
+
+Agent enrollment remains limited to 50 per project. Rotation changes API access;
+it does not revoke previously issued join Git tokens, which retain their original
+short expiry. The state snapshot returns agent names, never credential hashes.
+
+Claims are created under the same supervisor serialization gate as joins and
+promotes. Explicit `repoName` must be a registered caller-owned fork. When omitted,
+the default is the caller's most recently **successfully registered** fork. Failed
+joins and reserved counter gaps do not update that pointer. The claim is one
+atomic `{packet,agent,repoName,paths,createdAt}` record. Retries retain it, and later
+joins never redirect it. Release and claim again to select a different fork.
+`state.claims` contains only live claims, with no implicit expiry.
+
+Paths are literal repository-relative file or directory names. A directory may
+optionally end in `/**`; plain directory paths also cover descendants. Other glob
+syntax, traversal, empty components, backslashes, control bytes and `.git`
+components are rejected. `src` and `src-old` are siblings, not overlapping paths.
+A claim overlapping another agent's live claim returns 409. On recorded pushes,
+changes overlapping another agent's live claims create immutable blocker records
+in the activity transaction; duplicate delivery creates no duplicate blocker.
+Blockers are observations, not an additional approval gate or a claim release.
+
+Commit validates the live packet/agent/repo binding independently of its client:
+canonical/foreign repos return 403; missing or mismatched bindings return 409.
+Files must lie inside the claimed paths. The **entire encoded JSON request** is
+limited to 1 MiB, with 1–200 distinct text files and a nonempty message of at most
+4,000 characters. Other JSON request bodies remain limited to 16 KiB. Commit
+modifies Git objects without checking out files or executing repository code;
+it preserves other files and executable modes, and rejects writing through
+symlinks, submodules or file parents. There is no deletion input in this contract.
+Commit authors use the enrolled agent slug and a synthetic `@idiot.tax` address;
+this metadata is not a verified human identity.
+
+A review must name the current fork default-branch head and a live matching claim.
+It captures the canonical base at submission. `receiptDigest` starts null; FH-007
+will populate it through a trusted integration, not an agent-editable HTTP field.
+Approval binds `{sha,receiptDigest}` exactly, including null. A changed digest
+requires another owner approval. Null currently means **no check receipt**, and
+is not represented as passing checks. Moving the fork head or releasing its claim
+invalidates an outstanding review. Both approve and promote read the fork head
+fresh rather than relying only on queued push events. State also computes stale
+status from fresh heads and receipt mismatch.
+
+Promote prepares the exact reviewed commit, verifies fast-forward ancestry, then
+re-reads both heads. The canonical head must equal the review's captured base.
+Only then does the supervisor mint a 60-second canonical write token, use it for
+one push, and revoke it in `finally`. It is never returned, stored or logged.
+The isomorphic-git pre-push hook checks the advertised old SHA and target SHA;
+receive-pack carries that old SHA for the server-side compare-and-swap. Push never
+uses force. Competing promotes are serialized: the loser receives 409 with
+`{"error":"stale base, rebase"}`. Repeated promotion of an already promoted review
+also returns 409.
+
+Each successful push atomically appends a ledger entry and marks the review
+promoted. A durable `promotionPending` intent is saved before external I/O; a
+transport/storage failure with uncertain outcome fences further promotions for
+owner inspection. It is exposed separately in state and is **not** a successful
+ledger entry. Recovery of uncertain outcomes is currently an owner operation;
+there is no public reset endpoint. Short token expiry bounds interruption risk
+when a Worker is terminated before cleanup. Provider exception text is sanitized.
+
+The reconciler matches canonical events against the full `(repo,ref,before,after)`
+ledger transition, not just a previously promoted SHA. Each ledger transition
+can account for only one distinct event; later replays raise alerts. An unmatched move, including
+a nondefault ref or deletion, raises a persisted alert. State also compares a
+fresh default-branch head with the last known canonical/ledger head, detecting
+moves before queue delivery. Historical alerts and blockers are retained.
+Activity in state is the most recent 100 records in receive order; the existing
+activity endpoint provides pagination. Other state arrays are currently unpaged.
+
+### Offline evidence and integration limits
+
+Tests cover immutable/explicit/default claim binding, conflicts and blockers,
+authentication/rotation, invalid commit inputs, stale commit and receipt approvals,
+two promote race scenarios, external CAS races, token cleanup, uncertain-outcome
+fencing, canonical reconciliation, and real Git objects/packs over fixture HTTP.
+The production transport refuses redirects and bounds each Git HTTP request and
+response to 8 MiB with a 30-second fetch timeout. The ephemeral filesystem also caps stored bytes at 32 MiB. These bounds do not
+fully bound transient decompression allocations. Oversized operations fail closed with 413 and need
+the FH-007 sandbox Git runner. `GitOperations`/`PreparedPush` define the integration
+seam; no sandbox or live runner is installed by this packet. FH-007 receipt and
+large-repository integration, FH-012 MCP/dashboard/auth composition, deployment,
+and live acceptance remain separate work.
