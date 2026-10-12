@@ -101,7 +101,7 @@ try {
     console.log(`LOCAL FIXTURE READY port=${port} head=${head()}`);
     await new Promise<void>(done => { process.once("SIGTERM", done); process.once("SIGINT", done); });
   } else {
-  const executable = resolve("../../node_modules/.bin/vitest");
+  const executable = resolve("node_modules/.bin/vitest");
   const child = spawn(executable, ["run", "--config", "vitest.local.config.ts"], {
     cwd: process.cwd(), stdio: "inherit", env: { ...process.env, FH_LOCAL_FIXTURE_PORT: String(port), FH_LOCAL_GENERATED_DIR: generated },
   });
