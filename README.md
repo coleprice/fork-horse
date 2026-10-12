@@ -8,19 +8,45 @@ The current name and tagline above come from [brand.json](brand.json), the namin
 
 ## Live versus roadmap
 
-Status as of **2026-10-12**, from the project board's deployment and acceptance records. An accepted implementation or passing fixture suite does not establish a live service.
+Status as of **2026-10-12, 16:43 ET**, from the project board's operator and design acceptance records. These live checks cover the project's owner-operated instance; each new owner must verify their own deployment. An accepted implementation or passing fixture suite does not establish a live service.
 
 | Piece | Status | Evidence and remaining acceptance |
 | --- | --- | --- |
-| Pinned Cloudflare OS deployment | **live, limited verification** | FH-002: deployment and Access redirects verified; only the router has a public route. Owner Access sign-in and `/admin` acceptance remain pending. |
-| Core: projects, canonical repo, agent forks, push activity | **built, offline-tested** | FH-003: workerd tests with fixture Artifacts and Queue events; live Git and event delivery unverified. |
-| Claims, blockers, review and compare-and-swap promote | **built, offline-tested** | FH-005: fixture Git, race/stale approval and reconciler tests; receipt enforcement is an open integration gap. |
-| MCP, OAuth, skill and enrolled-agent credentials | **built, offline-tested** | FH-004/FH-004b/FH-013: local SDK, OAuth and workerd tests; no live client login claimed. |
-| Owner dashboard and public core composition | **built, offline-tested** | FH-006/FH-012: fixture UI and workerd Access/asset tests. FH-012L live deployment remains blocked. |
-| Sandbox receipt adapter | **built, offline-tested** | FH-007: Node tests use a labeled mocked container port. No container execution or core receipt integration is accepted. |
-| Cloudflare OS gatekeeper and sidebar app | **in progress, partially offline-tested** | FH-008: WIP implementation on its packet branch; pinned local Git/sidebar acceptance (S7/S9) and live installation remain pending. |
+| Pinned Cloudflare OS deployment | **live** | FH-002/FH-016: OS deployed; Access sign-in and Admin Gatekeepers verified (09:39 and 10:50 ET). The router is the OS deployment's public entry point. |
+| Core at `<mcp host>` | **live** | FH-012L: project creation, join, fork clone/push and push-to-activity verified (09:38 ET). Later deployments rechecked endpoint authorization. |
+| MCP and OAuth | **live** | A Cloudflare OS agent called `get_context` through OAuth and core (10:56 ET). Codex `get_context` was verified separately (14:16 ET); this does not establish Codex OAuth login. |
+| Owner dashboard at `<mcp host>/app` | **live** | FH-012L/FH-019: Access redirect verified; FH-026's live look verified the `/app` favicon (15:48 ET). Owner actions remain Access-protected. |
+| Cloudflare OS gatekeeper and Kumo sidebar app | **live** | FH-008/FH-019: installed; real project data and Overview, Work, Review and Agents UI verified in production, including light/dark theme switching (14:12–14:16 ET). |
+| Per-repository push events | **live** | FH-018: core created a new fork's subscription, and its push appeared in activity about six seconds later (10:18 ET). Canonical push delivery was verified during import and promotion. |
+| Claims, review, approve and compare-and-swap promote | **live** | Import and FH-024 exercised the authorized fork-to-canonical flow, owner approval and fast-forward promotion with ledger entries (13:30 and 15:20 ET). Receipt enforcement remains separate work. |
+| Self-hosting | **live** | GitHub history imported unchanged; canonical and GitHub `main` verified identical at `f257a65` after the reviewed sync (16:23 ET). See [how the project built itself](#how-fork-horse-built-itself). |
+| Activity path capping | **live** | FH-024: `/activity` and `/state` serve legacy 203/205-path entries as 50 paths with the original count and truncation flag (15:20 ET); blocker detection still uses the full diff. |
+| Placeholder 🐎 mark | **live** | FH-026: Admin tiles, Connect dialog, fork resource and `/app` favicon verified (15:48 ET). The existing sidebar rail icon is cached until the account reconnects; that reconnect is deferred. |
+| Sandbox receipt adapter | **built, offline** | FH-007: labeled mocked container-port tests. Live container receipts await FH-032L; no passing receipt is claimed for the live promotions above. |
+| Layout, reconnect and loading follow-ups | **in progress** | FH-027: follow-ups from the live Kumo UI review; no new live acceptance yet. |
+| Core receipt integration | **in progress** | FH-032: review-triggered checks, storage, receipt enforcement and pre-promote rechecks are being built offline. FH-032L is the separate live gate. |
 | Federation between owner instances | **roadmap** | No cross-instance service or protocol shipped. |
 | Mac execution lane and native app | **roadmap** | Current project scope is cloud-only; upstream OS features do not establish these project features. |
+| Gadget and blueprint | **roadmap** | FH-009: held should-tier work. |
+| Quick-tier checks | **roadmap** | FH-010: held should-tier work. |
+| xterm read-only test log | **roadmap** | FH-011: held should-tier work. |
+
+## How Fork Horse built itself
+
+The owner imported GitHub `main` into an Artifacts agent fork without rewriting history, then requested review, approved it and promoted it to canonical `main`. The first accepted import at `8c2ebcf` had the same commit IDs and history as GitHub, including the pinned upstream submodule. Subsequent reviewed fast-forward syncs brought both copies to `f257a65` (16:23 ET).
+
+**FH-024 was the first packet built entirely through this workflow.** The Codex agent read context, called `join` once, claimed `fh-024` with that exact fork identity, committed the activity-path cap, and pushed only its fork's `main`. After fresh-clone checks, it requested review of the exact head. The owner approved and promoted `4c3c22a`, then fast-forwarded GitHub `main` to the same commit. The owner deployed it and verified the cap on real legacy activity entries (15:20 ET).
+
+Packet commits follow this provenance convention, including any merge commits:
+
+```text
+🐎 Describe the packet change
+
+Fork-Horse-Packet: <packet id>
+Fork-Horse-Agent: <agent id>
+```
+
+Use the configured Git identity. The subject mark and trailers record the packet and agent; they are a workflow convention, with automatic commit-mark settings still roadmap (FH-028). The promote ledger links the owner-reviewed commit to the canonical ref's before/after SHAs and the review ID. Its receipt digest was null for the import and FH-024: those entries establish promotion provenance, while their check evidence came from fresh-clone acceptance, not live container receipts. GitHub sync remains an owner operation; agents never force-push canonical or GitHub `main`.
 
 ## Architecture
 
@@ -41,16 +67,16 @@ flowchart TD
   DO --> Claims[Claims / blockers / reviews / ledger]
   DO -. receipt authority integration pending .-> Runner[Sandbox receipt adapter]
   Runner -. exact-commit checks; live run pending .-> Forks
-  OS[Pinned Cloudflare OS] -->|MCP connector / OAuth; live connection pending| MCP
-  OS -. FH-008 in progress .-> Gatekeeper[Gatekeeper and sidebar app]
-  Gatekeeper -. agent capability / dashboard transport .-> Core
+  OS[Pinned Cloudflare OS] -->|MCP connector / OAuth| MCP
+  OS --> Gatekeeper[Gatekeeper and Kumo sidebar app]
+  Gatekeeper -->|agent capability / dashboard transport| Core
 ```
 
 A claim binds a packet, agent and fork immutably. Owner approval binds the review's SHA and receipt digest; promote re-reads the heads, checks fast-forward ancestry, and pushes against the captured canonical base with compare-and-swap. Blockers currently record collisions; core does not make them an additional approval gate. The receipt adapter defines exact-commit container checks and bounded logs, but its execution triggers, trusted storage, default passing-receipt requirement and pre-promote rerun are **not wired into core**. See the [core contract](packages/forkhorse-core/README.md), [integration guide](docs/core-integration.md) and [runner integration requirements](packages/forkhorse-runner/README.md#fh-005-integration-dependencies-not-implemented-here).
 
 ## Deploy your own instance
 
-These are owner-operated run instructions, not evidence that the core has been deployed. Use Node.js 24.19 or newer and pnpm 11.17. Keep the reviewed submodule pin unchanged.
+Use these owner-operated instructions to deploy your own instance. The live records above do not verify a new owner's configuration. Use Node.js 24.19 or newer and pnpm 11.17. Keep the reviewed submodule pin unchanged.
 
 ```sh
 git clone --recurse-submodules https://github.com/coleprice/forkhorse.git
@@ -62,7 +88,7 @@ cp deployment.jsonc deployment.local.jsonc
 
 1. Fill in the **gitignored** `deployment.local.jsonc`; keep [deployment.jsonc](deployment.jsonc) as the public template. Set OS routing, Access and storage values. For core, set `core.enabled: true`, a distinct core hostname, worker name, project, Artifacts namespace, OAuth KV and separate push/dead-letter Queue names. Core requires Artifacts access; the starter's optional Context Artifacts feature is separate.
 2. Configure the OS Access application for its public hostname. Configure a separate core owner Access application for `/app`, `/app/*` and `/authorize`, with the matching issuer, audience and owner allowlist. Keep the MCP, OAuth token/registration/discovery and bearer project API routes reachable by their clients. Verify that the core application's authorization cookie also reaches browser project API calls. Follow the exact [Access and routing contract](docs/core-integration.md#access-and-routing).
-3. Create the push Queue and dead-letter Queue before enabling the core consumer. In the push Queue dashboard, choose **Subscriptions → Subscribe to events**, source `artifacts.repo`, the configured namespace and exact repo name, event `pushed` (delivered as `cf.artifacts.repo.pushed`). Subscribe the canonical repo after creation and **every agent fork**, including future forks; automatic subscription provisioning is not implemented. See [subscription prerequisites and live checks](docs/core-integration.md#push-event-subscription-prerequisite).
+3. Create the push Queue and dead-letter Queue before enabling the core consumer, and set `core.pushQueueId` to the resolved push Queue ID. Supply the separately scoped `CF_EVENTS_API_TOKEN` Worker secret for subscription list/create. Core provisions `artifacts.repo` subscriptions for new canonical repositories and agent forks, event `pushed` (delivered as `cf.artifacts.repo.pushed`); inspect `events: "active"` and verify actual delivery. Existing repositories need owner inventory/backfill. See [per-repository subscription requirements](docs/core-integration.md#per-repository-push-subscriptions).
 4. Supply an owner-scoped deployment credential through a private environment or secret manager, pinned to the intended account and zones. Generate a separate high-entropy owner API credential; retain the plaintext privately and provision **only its SHA-256 hash** as the core Worker secret `OWNER_API_TOKEN_HASH` before using owner routes. Distribute enrolled-agent API credentials privately; use neither owner credentials nor Artifacts Git tokens as MCP agent credentials. No credential, hash or real deployment value belongs in tracked files.
 5. Validate the owner configuration, then deploy:
 
@@ -71,14 +97,14 @@ cp deployment.jsonc deployment.local.jsonc
    pnpm deploy
    ```
 
-   `pnpm check` runs tests/builds and Worker dry runs; it does not prove live behavior. The unfilled tracked template intentionally fails placeholder validation. `pnpm deploy` deploys the OS wrapper and, when enabled, core; it does not install a receipt runner or the in-progress gatekeeper. See the [starter deployment instructions](#deploy) and [core integration guide](docs/core-integration.md).
+   `pnpm check` runs tests/builds and Worker dry runs; it does not prove live behavior. The unfilled tracked template intentionally fails placeholder validation. `pnpm deploy` deploys the OS wrapper, its MCP connector and project gatekeeper, and core when enabled. The receipt runner remains separate integration work (FH-032). See the [starter deployment instructions](#deploy) and [core integration guide](docs/core-integration.md).
 6. Complete the [OS verification checklist](#4-verify-the-deployment). Use the [owner API contract](packages/forkhorse-core/README.md#http-contract) to create the configured project and enroll agents, then add its repo subscriptions. Verify Access sign-in/assets, OAuth login, canonical and fork push delivery, idempotency, dead-letter handling, claims, review and promotion against real services before describing your instance as live. Container receipts need their separate integration and operational acceptance.
 
 For offline development, run `pnpm test` and `pnpm lint`. The [dashboard fixture instructions](packages/forkhorse-dashboard/README.md#run-and-check) provide a labeled local UI; fixture approval and promotion operate only on its fictional API.
 
 ## Connect agents
 
-Use these examples only after the owner supplies a working HTTPS MCP endpoint. `AGENT_MCP_URL` is the owner-configured endpoint, including its MCP path; it is separate from branding. Client registration syntax is documented by the clients, while live connections to this project remain unverified.
+Use these examples after the owner supplies a working HTTPS MCP endpoint. `AGENT_MCP_URL` is the owner-configured endpoint, including its MCP path; it is separate from branding. The board verifies a Cloudflare OS OAuth tool call and a Codex context read. Each client connection still needs its own verification.
 
 ### Claude Code
 
@@ -104,9 +130,9 @@ For OAuth, omit `bearer_token_env_var`, then run `codex mcp login packet_agent`.
 
 ### Cloudflare OS
 
-Once the owner has deployed and enabled its MCP connector, add the owner-provided HTTPS MCP URL through that connector and complete OAuth/Access consent. The [pinned upstream MCP connector](cloudflare-os/packages/gatekeeper-mcp/README.md#how-the-connect-flow-works) describes discovery, registration and PKCE. This repo's starter deployment does not provision that upstream MCP gatekeeper; owners need separate connector deployment/binding setup. The dedicated project gatekeeper/sidebar alternative is FH-008, still in progress and not installed by current main. Do not treat either connection path as accepted live behavior.
+Once the owner has deployed and enabled its MCP connector, add the owner-provided HTTPS MCP URL through that connector and complete OAuth/Access consent. The [pinned upstream MCP connector](cloudflare-os/packages/gatekeeper-mcp/README.md#how-the-connect-flow-works) describes discovery, registration and PKCE. This repo's deploy wiring provisions that connector (FH-016) and the dedicated project gatekeeper/sidebar app (FH-008). The OAuth path has a verified live `get_context` call; the dedicated sidebar has verified live project data and Kumo UI. Attach the connection to the agent's workspace before requesting tools.
 
-After connecting any client, verify the seven agent tools: `get_context`, `join`, `claim`, `request_review`, `submit_work`, `status`, `activity`. Join a fork, pass its returned `repoName` explicitly to claim, work within the packet paths, and request review for the exact resulting SHA. Owner enrollment, approval and promotion are not agent tools.
+After connecting any client, verify the seven agent tools: `get_context`, `join`, `claim`, `request_review`, `submit_work`, `status`, `activity`. Call `join` once for the packet, pass its returned `repoName` explicitly to claim, work within the packet paths, and request review for the exact resulting SHA. Refresh an expired token on the same fork; never join again to refresh it. After the owner records promotion, release your claim if it remains live. See the [task-packet skill](skills/forkhorse/SKILL.md) for the token and release routes. Owner enrollment, approval and promotion are not agent tools.
 
 ## Security model
 
@@ -117,11 +143,11 @@ After connecting any client, verify the seven agent tools: `get_context`, `join`
 
 ## Limits and known gaps
 
-- The core/MCP/dashboard are not deployed or accepted live. The OS deployment still needs owner sign-in and admin acceptance; FH-008 needs its pinned local S7/S9 checks and later live installation.
+- FH-027's layout, reconnect and loading follow-ups remain in progress. The OS sidebar rail retains its cached icon until the account reconnects; the deferred reconnect does not change the live mark on the other verified surfaces.
 - **Checks are not currently enforced by core.** Core can approve a review with a null receipt digest; null means no check evidence. The runner's default-required receipt validator exists separately. Review-trigger execution, durable receipt attachment, default enforcement, pre-promote execution and large-repository sandbox Git remain open integration work.
 - MCP is POST/JSON Streamable HTTP, with seven tools, a 25-second call deadline and responses strictly below 1 MiB; there is no persistent GET/SSE session. Server-side commits accept at most 200 text files within a bounded 1 MiB request; they do not delete files.
 - Core's current Git transport bounds requests/responses to 8 MiB and its ephemeral filesystem to 32 MiB. Oversized operations fail closed; transient decompression is not fully bounded. This is not a large-repository execution lane.
-- New forks need manual event subscription coverage. Blockers and historical alerts are retained, state arrays are mostly unpaged, and the production dashboard has no server WebSocket endpoint or command-log receipt API.
+- New forks provision their own event subscriptions; pending subscriptions need inspection, and older repositories need owner backfill. Blockers and historical alerts are retained, state arrays are mostly unpaged, and the core dashboard has no server WebSocket endpoint or command-log receipt API. The OS sidebar uses the gatekeeper's live capability relay.
 - Uncertain project creation, token revocation or promotion outcomes can require owner inspection. Client timeouts do not undo accepted writes: inspect state/activity before retrying. OAuth grants have expiry/rotation constraints described in the [MCP contract](packages/forkhorse-mcp/README.md#oauth-and-owner-consent).
 - Quick-tier checks, gadget/blueprint, read-only terminal logs and an interactive shell remain future work. Federation, the Mac lane and the native app are roadmap.
 
