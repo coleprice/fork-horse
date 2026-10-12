@@ -14,6 +14,7 @@ import type { Activity, Env, Project, PushEvent } from "./types";
 import type {
   Blocker,
   Claim,
+  ClaimReleaseAudit,
   CommitFile,
   Fork,
   LedgerEntry,
@@ -83,6 +84,28 @@ export class Workflow {
     if (!claim || claim.agent !== agent || claim.repoName !== repoName)
       throw new HttpError(409, "A live matching packet, agent and fork binding is required.");
     return { claim, fork };
+  }
+
+  private async releaseClaim(
+    txn: DurableObjectTransaction,
+    claim: Claim,
+    releasedBy: ClaimReleaseAudit["releasedBy"],
+    review?: string,
+  ): Promise<void> {
+    await txn.delete(`claim:${claim.packet}`);
+    for (const pending of (await txn.list<Review>({ prefix: "review:" })).values()) {
+      if (pending.packet === claim.packet && !pending.promoted)
+        await txn.put(`review:${pending.id}`, { ...pending, stale: true });
+    }
+    await txn.put(`claimRelease:${review ?? crypto.randomUUID()}`, {
+      packet: claim.packet,
+      agent: claim.agent,
+      repoName: claim.repoName,
+      claimedAt: claim.createdAt,
+      releasedBy,
+      ...(review ? { review } : {}),
+      recordedAt: now(),
+    } satisfies ClaimReleaseAudit);
   }
 
   async route(request: Request, project: Project, actor: Actor): Promise<Response | null> {
@@ -157,25 +180,28 @@ export class Workflow {
     }
     const claiming = /^\/packets\/([^/]+)\/claim$/.exec(path);
     if (claiming && (method === "POST" || method === "DELETE")) {
-      const agent = this.agent(actor);
+      const agent = method === "DELETE" && actor.owner ? undefined : this.agent(actor);
       const packetId = claiming[1]!;
       const packet = await this.storage.get<Packet>(`packet:${packetId}`);
       if (!packet) throw new HttpError(404, "Packet not found.");
       const current = await this.storage.get<Claim>(`claim:${packetId}`);
       if (method === "DELETE") {
-        if (current && current.agent !== agent)
+        if (current && !actor.owner && current.agent !== agent)
           throw new HttpError(403, "Claim belongs to another agent.");
         if (await this.storage.get("promotionPending"))
           throw new HttpError(409, "Promotion needs owner inspection.");
         await this.storage.transaction(async (txn) => {
-          await txn.delete(`claim:${packetId}`);
-          for (const review of (await txn.list<Review>({ prefix: "review:" })).values()) {
-            if (review.packet === packetId && !review.promoted)
-              await txn.put(`review:${review.id}`, { ...review, stale: true });
+          const live = await txn.get<Claim>(`claim:${packetId}`);
+          if (live) {
+            if (!actor.owner && live.agent !== agent)
+              throw new HttpError(403, "Claim belongs to another agent.");
+            await this.releaseClaim(txn, live, actor.owner ? "owner" : "agent");
           }
         });
         return json({ released: true });
       }
+      // POST still requires an agent; owner authority is limited to DELETE here.
+      const claimingAgent = this.agent(actor);
       const data = request.body ? await body(request) : {};
       if (current) {
         if (
@@ -183,11 +209,11 @@ export class Workflow {
           (data.repoName !== undefined && data.repoName !== current.repoName)
         )
           throw new HttpError(409, "Claim is already bound; release it before changing forks.");
-        await this.fork(project, current.repoName, agent);
+        await this.fork(project, current.repoName, claimingAgent);
         return json({ claim: current });
       }
       const repoName = data.repoName ?? (await this.storage.get<string>(`latestFork:${agent}`));
-      const fork = await this.fork(project, repoName, agent);
+      const fork = await this.fork(project, repoName, claimingAgent);
       const claims = await list<Claim>(this.storage, "claim:");
       if (
         claims.some(
@@ -199,7 +225,7 @@ export class Workflow {
         throw new HttpError(409, "Paths overlap another agent's live claim.");
       const claim: Claim = {
         packet: packetId,
-        agent,
+        agent: claimingAgent,
         repoName: fork.repoName,
         paths: packet.paths,
         createdAt: now(),
@@ -285,7 +311,7 @@ export class Workflow {
       if (await this.storage.get("promotionPending"))
         throw new HttpError(409, "Promotion needs owner inspection.");
       if (review.promoted) throw staleBase();
-      const { fork } = await this.binding(project, review.packet, review.repoName, review.agent);
+      const { claim, fork } = await this.binding(project, review.packet, review.repoName, review.agent);
       if (reviewing[2] === "promote") this.diagnostic.stage = "heads";
       if (
         review.stale ||
@@ -389,6 +415,12 @@ export class Workflow {
             // Keep any advisory result attached while the canonical push was in flight.
             [`review:${review.id}`]: { ...latest!, promoted: true },
           });
+          const live = await txn.get<Claim>(`claim:${review.packet}`);
+          // Never erase a replacement binding, even if it names the same packet.
+          if (live && live.agent === claim.agent && live.repoName === claim.repoName &&
+              live.createdAt === claim.createdAt) {
+            await this.releaseClaim(txn, live, "promote", review.id);
+          }
           await txn.delete("promotionPending");
         });
       } catch (error) {

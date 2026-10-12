@@ -204,7 +204,7 @@ clone shown in the older example.
 Public record types, including `StateSnapshot`, are exported from
 `src/workflow-types.ts`. Every route below uses the same project-scoped bearer
 validation, JSON responses and no-store header as the original routes. Owner
-credentials cannot impersonate an agent on claim, commit or review requests.
+credentials cannot impersonate an agent on claim creation, commit or review requests.
 
 | Method and suffix under `/projects/:id` | Role | Body / response |
 | --- | --- | --- |
@@ -213,7 +213,7 @@ credentials cannot impersonate an agent on claim, commit or review requests.
 | `POST /packets` | Owner | `{id,title,goal,paths,acceptance}` → `{packet}` (201) |
 | `GET /packets` | Owner/agent | `{packets}` |
 | `POST /packets/:pid/claim` | Agent | `{repoName?}` → `{claim}` (201 new, 200 existing) |
-| `DELETE /packets/:pid/claim` | Claiming agent | `{released:true}`; invalidates outstanding reviews for that packet |
+| `DELETE /packets/:pid/claim` | Owner or claiming agent | `{released:true}`; invalidates outstanding reviews for that packet |
 | `POST /forks/:repo/commit` | Agent | `{packet,files:[{path,content}],message}` → `{repoName,packet,sha}` (201) |
 | `GET /blockers` | Owner/agent | `{blockers}` |
 | `POST /reviews` | Agent | `{repoName,sha,packet}` → `{review}` (201) |
@@ -231,7 +231,17 @@ the default is the caller's most recently **successfully registered** fork. Fail
 joins and reserved counter gaps do not update that pointer. The claim is one
 atomic `{packet,agent,repoName,paths,createdAt}` record. Retries retain it, and later
 joins never redirect it. Release and claim again to select a different fork.
-`state.claims` contains only live claims, with no implicit expiry.
+`state.claims` contains only live claims, with no implicit expiry. The owner can
+release any agent's claim; agents can still release only their own. DELETE is
+idempotent for an existing packet without a claim, and both roles are fenced while
+`promotionPending` needs inspection. Each actual release atomically invalidates
+outstanding reviews and writes a credential-free `claimRelease:<id>` audit record
+with `packet`, `agent`, `repoName`, `claimedAt`, `releasedBy` (`owner`, `agent` or
+`promote`) and `recordedAt`. Promotion also records the review ID. These are durable
+storage records, following token audit conventions, not a public audit endpoint.
+An already-running advisory receipt may attach after promotion using that exact
+promote-release audit as its historical binding. Commit, generation and stale
+checks still apply, and manual release does not grant this exception.
 
 Paths are literal repository-relative file or directory names. A directory may
 optionally end in `/**`; plain directory paths also cover descendants. Other glob
@@ -279,8 +289,12 @@ uses force. Competing promotes are serialized: the loser receives 409 with
 `{"error":"stale base, rebase"}`. Repeated promotion of an already promoted review
 also returns 409.
 
-Each successful push atomically appends a ledger entry and marks the review
-promoted. A durable `promotionPending` intent is saved before external I/O; a
+Each successful push atomically appends a ledger entry, marks the review
+promoted, releases its matching claim and records `releasedBy: "promote"`. Other
+outstanding reviews for that packet become stale. The release checks the original
+agent, fork and claim creation time so it cannot erase a replacement binding.
+Failed, stale or uncertain pushes do not release claims; an audit/storage failure
+rolls back the complete ledger/review/release transaction. A durable `promotionPending` intent is saved before external I/O; a
 transport/storage failure with uncertain outcome fences further promotions for
 owner inspection. It is exposed separately in state and is **not** a successful
 ledger entry. Recovery of uncertain outcomes is currently an owner operation;

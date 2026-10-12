@@ -5,6 +5,7 @@ import worker from "../src/index";
 import type {
   Blocker,
   Claim,
+  ClaimReleaseAudit,
   Fork,
   LedgerEntry,
   ReconcilerAlert,
@@ -49,6 +50,11 @@ interface State {
 }
 async function state(id: string) {
   return (await api(id, "/state")).json<State>();
+}
+async function releases(id: string): Promise<ClaimReleaseAudit[]> {
+  return runInDurableObject(stub(id), async (_instance, objectState) =>
+    [...(await objectState.storage.list<ClaimReleaseAudit>({ prefix: "claimRelease:" })).values()],
+  );
 }
 async function fixture(branch = "main") {
   const id = `flow-${crypto.randomUUID().slice(0, 8)}`;
@@ -126,6 +132,146 @@ function push(
 }
 
 describe("workflow in real Durable Objects, with explicitly offline Git/Artifacts fixtures", () => {
+  it.each(["owner", "agent"] as const)("audits %s release, invalidates reviews and keeps repeated release idempotent", async (role) => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const original = (await state(f.id)).claims[0]!;
+    const r = await review(f.id, f.alpha, f.a);
+    expect((await claim(f.id, OWNER)).status).toBe(403);
+    expect((await api(f.id, "/packets/one/claim", "invalid", undefined, "DELETE")).status).toBe(403);
+    expect((await api(f.id, "/packets/one/claim", f.beta, undefined, "DELETE")).status).toBe(403);
+    expect(await releases(f.id)).toEqual([]);
+    const token = role === "owner" ? OWNER : f.alpha;
+    expect((await api(f.id, "/packets/one/claim", token, undefined, "DELETE")).status).toBe(200);
+    const snapshot = await state(f.id);
+    expect(snapshot.claims).toEqual([]);
+    expect(snapshot.reviews.find(item => item.id === r.id)?.stale).toBe(true);
+    expect(await releases(f.id)).toEqual([{
+      packet: "one", agent: "alpha", repoName: f.a, claimedAt: original.createdAt,
+      releasedBy: role, recordedAt: expect.any(String),
+    }]);
+    expect((await api(f.id, "/packets/one/claim", token, undefined, "DELETE")).status).toBe(200);
+    expect(await releases(f.id)).toHaveLength(1);
+    expect((await api(f.id, "/packets/missing/claim", token, undefined, "DELETE")).status).toBe(404);
+    expect((await claim(f.id, f.beta)).status).toBe(201);
+    expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(409);
+    expect((await state(f.id)).claims).toMatchObject([{ agent: "beta", repoName: f.b }]);
+  });
+
+  it("accepts release through the trusted owner binding and preserves other packets", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await packet(f.id, "two", ["docs"]);
+    await claim(f.id, f.alpha);
+    await claim(f.id, f.beta, "two");
+    const response = await stub(f.id).ownerRequest({
+      url: `https://api.idiot.tax/projects/${f.id}/packets/one/claim`, method: "DELETE",
+    });
+    expect(response.status).toBe(200);
+    expect((await state(f.id)).claims).toMatchObject([{ packet: "two", agent: "beta" }]);
+    expect(await releases(f.id)).toMatchObject([{ releasedBy: "owner", agent: "alpha" }]);
+  });
+
+  it("releases only the promoted claim, audits its review and invalidates sibling reviews atomically", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await packet(f.id, "two", ["docs"]);
+    await claim(f.id, f.alpha);
+    await claim(f.id, f.beta, "two");
+    const original = (await state(f.id)).claims.find(c => c.packet === "one")!;
+    const sibling = await review(f.id, f.alpha, f.a);
+    const r = await review(f.id, f.alpha, f.a);
+    expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(200);
+    const snapshot = await state(f.id);
+    expect(snapshot.claims).toMatchObject([{ packet: "two", agent: "beta" }]);
+    expect(snapshot.reviews.find(item => item.id === r.id)).toMatchObject({ promoted: true, stale: false });
+    expect(snapshot.reviews.find(item => item.id === sibling.id)).toMatchObject({ promoted: false, stale: true });
+    expect(snapshot.ledger).toMatchObject([{ review: r.id, after: AFTER }]);
+    expect(snapshot.promotionPending).toBeNull();
+    expect(await releases(f.id)).toEqual([{
+      packet: "one", agent: "alpha", repoName: f.a, claimedAt: original.createdAt,
+      releasedBy: "promote", review: r.id, recordedAt: expect.any(String),
+    }]);
+    expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(409);
+    expect(await releases(f.id)).toHaveLength(1);
+  });
+
+  it.each(["owner", "promote"] as const)("rolls back the whole %s transaction when release audit persistence fails", async (operation) => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a);
+    await mutate(f.id, (_instance, objectState) => {
+      const transaction = objectState.storage.transaction.bind(objectState.storage);
+      vi.spyOn(objectState.storage, "transaction").mockImplementation(callback => transaction(async txn => {
+        const put = txn.put.bind(txn);
+        vi.spyOn(txn, "put").mockImplementation(async (...args: unknown[]) => {
+          await (put as (...args: unknown[]) => Promise<void>)(...args);
+          if (typeof args[0] === "string" && args[0].startsWith("claimRelease:"))
+            throw new Error("offline audit persistence failure");
+        });
+        return callback(txn);
+      }));
+    });
+    try {
+      const response = operation === "promote"
+        ? await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})
+        : await api(f.id, "/packets/one/claim", OWNER, undefined, "DELETE");
+      expect(response.status).toBe(502);
+      const snapshot = await state(f.id);
+      expect(snapshot.claims).toMatchObject([{ packet: "one", agent: "alpha" }]);
+      expect(snapshot.ledger).toEqual([]);
+      expect(snapshot.reviews.find(item => item.id === r.id)).toMatchObject({ promoted: false, stale: false });
+      expect(snapshot.promotionPending !== null).toBe(operation === "promote");
+      expect(await releases(f.id)).toEqual([]);
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it.each(["other-agent", "same-agent-new-claim"] as const)("preserves a replacement claim at ledger finalization: %s", async (replacement) => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a);
+    const next = { ...(await state(f.id)).claims[0]!,
+      agent: replacement === "other-agent" ? "beta" : "alpha",
+      repoName: replacement === "other-agent" ? f.b : f.a,
+      createdAt: "2099-01-01T00:00:00.000Z",
+    };
+    await mutate(f.id, (instance, objectState) => {
+      const prepare = instance.gitFixture.preparePromote.bind(instance.gitFixture);
+      vi.spyOn(instance.gitFixture, "preparePromote").mockImplementation(async (...args) => {
+        const prepared = await prepare(...args);
+        return { ...prepared, push: async (...pushArgs) => {
+          await prepared.push(...pushArgs);
+          // Defensive storage race injection; public routes remain serialized.
+          await objectState.storage.put("claim:one", next);
+        } };
+      });
+    });
+    try {
+      expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(200);
+      expect((await state(f.id)).claims).toEqual([next]);
+      expect(await releases(f.id)).toEqual([]);
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it("serializes owner close with promotion and never duplicates the release audit", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a);
+    const responses = await Promise.all([
+      api(f.id, `/reviews/${r.id}/promote`, OWNER, {}),
+      api(f.id, "/packets/one/claim", OWNER, undefined, "DELETE"),
+    ]);
+    expect(responses[1]!.status).toBe(200);
+    expect([200, 409]).toContain(responses[0]!.status);
+    expect((await state(f.id)).claims).toEqual([]);
+    expect(await releases(f.id)).toHaveLength(1);
+    expect((await releases(f.id))[0]!.releasedBy).toBe(responses[0]!.status === 200 ? "promote" : "owner");
+  });
+
   it.each(["heads", "prepare", "pending", "token", "push", "ledger"] as const)(
     "correlates a sanitized promote failure at %s, preserving cleanup and fencing", async (stage) => {
       const f = await fixture();
@@ -174,6 +320,8 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
           name: "GitError", code: "FixtureFailure", status: 503,
         })]]);
         expect((await state(f.id)).promotionPending !== null).toBe(["token", "push", "ledger"].includes(stage));
+        expect((await state(f.id)).claims).toMatchObject([{ packet: "one", agent: "alpha" }]);
+        expect(await releases(f.id)).toEqual([]);
       } finally {
         vi.restoreAllMocks();
       }
@@ -394,6 +542,10 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     expect(snapshot.ledger).toHaveLength(1);
     expect(snapshot.reviews.filter((r) => r.promoted)).toHaveLength(1);
     expect(snapshot.promotionPending).toBeNull();
+    const winner = snapshot.reviews.find(r => r.promoted)!;
+    expect(snapshot.claims).toHaveLength(1);
+    expect(snapshot.claims[0]!.packet).not.toBe(winner.packet);
+    expect(await releases(f.id)).toMatchObject([{ releasedBy: "promote", review: winner.id }]);
     await mutate(f.id, (instance) => {
       expect(instance.gitFixture.pushes).toHaveLength(1);
     });
@@ -436,6 +588,8 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "stale base, rebase" });
     expect((await state(f.id)).ledger).toHaveLength(0);
+    expect((await state(f.id)).claims).toHaveLength(1);
+    expect(await releases(f.id)).toEqual([]);
   });
 
   it("fences uncertain promotion outcomes and revokes tokens without exposing provider errors", async () => {
@@ -450,6 +604,10 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     expect(response.status).toBe(502);
     expect(await response.text()).not.toContain("fixture-secret");
     expect((await state(f.id)).promotionPending).not.toBeNull();
+    for (const token of [OWNER, f.alpha])
+      expect((await api(f.id, "/packets/one/claim", token, undefined, "DELETE")).status).toBe(409);
+    expect((await state(f.id)).claims).toHaveLength(1);
+    expect(await releases(f.id)).toEqual([]);
     expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(409);
     await mutate(f.id, (instance) => {
       expect(

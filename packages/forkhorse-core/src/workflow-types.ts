@@ -19,6 +19,16 @@ export interface Claim {
   paths: string[];
   createdAt: string;
 }
+/** Durable release history. Claim identity and provenance only; no credentials. */
+export interface ClaimReleaseAudit {
+  packet: string;
+  agent: string;
+  repoName: string;
+  claimedAt: string;
+  releasedBy: "agent" | "owner" | "promote";
+  review?: string;
+  recordedAt: string;
+}
 export interface ReceiptSummary {
   status: "running" | "passed" | "failed" | "infrastructure-error" | "timed-out";
   trigger: "review-created" | "before-promote";
