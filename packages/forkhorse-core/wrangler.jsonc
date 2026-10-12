@@ -10,7 +10,8 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Supervisor"] }],
   "artifacts": [{ "binding": "ARTIFACTS", "namespace": "default" }],
   "vars": { "ARTIFACTS_NAMESPACE": "default" }
-  // The owner supplies OWNER_API_TOKEN_HASH as a Worker secret and connects the
-  // account's Artifacts push event subscription to a Queue consumed by this Worker.
+  // The deployment generator requires OWNER_API_TOKEN_HASH and CF_EVENTS_API_TOKEN
+  // secrets plus CF_ACCOUNT_ID and the owner-resolved PUSH_QUEUE_ID vars.
+  // Core provisions a pushed subscription for each canonical repo and new fork.
   // Never add remote: true for the offline fixture suite.
 }

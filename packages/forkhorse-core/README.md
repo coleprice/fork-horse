@@ -334,3 +334,20 @@ be serialized by this Supervisor; live provider behavior remains a separate acce
 step. No live Artifacts calls were used by the workerd fixture suite.
 
 Binding reference: [Artifacts Workers binding](https://developers.cloudflare.com/artifacts/api/workers-binding/).
+
+## Repository event coverage
+
+Core provisions `artifacts.repo` / `pushed` subscriptions for the canonical repository
+and every new fork using `CF_EVENTS_API_TOKEN`, `CF_ACCOUNT_ID` and the owner-resolved
+`PUSH_QUEUE_ID`. The event token is separate from all Git credentials. Subscription
+status is returned as `events: "active" | "pending"` on the create response's project,
+the join response, `/state` project/forks and `/me` project/caller-filtered forks.
+Active entries include `subscriptionId`; they do not claim live push delivery.
+
+The registry and pending alarm are committed before API calls. Failed provisioning
+still returns successful create/join, retries with durable 30-second-to-one-hour
+backoff, and checks paginated subscription listings before any POST to recover
+uncertain outcomes without creating another subscription. Missing credentials stay
+pending. Legacy repositories need owner inventory/backfill; active records are not
+periodically reconciled against external deletions. See [core integration](../../docs/core-integration.md)
+for exact Wrangler schema, limits, first-deploy secrets files and the separate live gate.
