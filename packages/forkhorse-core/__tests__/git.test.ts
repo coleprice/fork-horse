@@ -1,7 +1,7 @@
 import * as git from "isomorphic-git";
 import type { HttpClient } from "isomorphic-git/http/web";
 import { MemoryFs } from "../src/memory-fs";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { WorkerGit, gitHttp } from "../src/git";
 import { FixtureArtifacts } from "./fixtures";
 import type { Fork } from "../src/workflow-types";
@@ -207,34 +207,31 @@ describe("production isomorphic-git adapter over an offline smart-HTTP peer", ()
     expect(artifacts.calls.filter((call) => call.method === "revokeToken")).toHaveLength(3);
   });
 
-  it("sends a git User-Agent, refuses redirects, and bounds streamed responses", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("fixture"));
-    try {
-      const response = await gitHttp.request({
-        url: "https://git.idiot.tax/repo.git/info/refs",
-        method: "GET",
-      });
-      for await (const _chunk of response.body!) {
-        /* drain bounded response */
+  it("uses native workerd fetch and sends a git User-Agent on a successful response", async () => {
+    const response = await gitHttp.request({ url: "https://git.idiot.tax/ok", method: "GET" });
+    expect(response.statusCode).toBe(200);
+    let received = "";
+    for await (const chunk of response.body!) received += new TextDecoder().decode(chunk);
+    expect(received).toBe("git/2.0 (isomorphic-git)");
+  });
+
+  it("refuses an actual outbound 302 without following or leaking provider details", async () => {
+    await expect(gitHttp.request({ url: "https://git.idiot.tax/redirect" })).rejects.toMatchObject({
+      status: 502,
+      message: "Repository redirects are forbidden.",
+    });
+  });
+
+  it("bounds cumulative streamed responses from native workerd fetch at 8 MiB", async () => {
+    const bounded = await gitHttp.request({ url: "https://git.idiot.tax/limit" });
+    let size = 0;
+    for await (const chunk of bounded.body!) size += chunk.byteLength;
+    expect(size).toBe(8 * 1024 * 1024);
+    const large = await gitHttp.request({ url: "https://git.idiot.tax/oversized" });
+    await expect((async () => {
+      for await (const _chunk of large.body!) {
+        /* drain until the cumulative transport limit refuses the response */
       }
-      expect(fetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          redirect: "error",
-          headers: expect.objectContaining({ "User-Agent": expect.stringMatching(/^git\//) }),
-        }),
-      );
-      fetch.mockResolvedValue(new Response(new Uint8Array(8 * 1024 * 1024 + 1)));
-      const large = await gitHttp.request({ url: "https://git.idiot.tax/repo.git/info/refs" });
-      await expect(
-        (async () => {
-          for await (const _chunk of large.body!) {
-            /* enforce limit */
-          }
-        })(),
-      ).rejects.toMatchObject({ status: 413 });
-    } finally {
-      fetch.mockRestore();
-    }
+    })()).rejects.toMatchObject({ status: 413 });
   });
 });

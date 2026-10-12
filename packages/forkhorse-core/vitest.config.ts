@@ -6,6 +6,14 @@ export default defineConfig({
     cloudflareTest({
       main: "./__tests__/worker.ts",
       miniflare: {
+        // Native workerd fetch reaches this offline peer after RequestInit validation.
+        outboundService: "git-http-fixture",
+        workers: [{
+          name: "git-http-fixture",
+          modules: true,
+          scriptPath: new URL("./__tests__/git-http-fixture.js", import.meta.url).pathname,
+          compatibilityDate: "2026-10-11",
+        }],
         compatibilityDate: "2026-10-11",
         compatibilityFlags: ["nodejs_compat"],
         durableObjects: { SUPERVISOR: { className: "TestSupervisor", useSQLite: true } },
