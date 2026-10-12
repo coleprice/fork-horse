@@ -568,6 +568,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   variant="alert"
                   size="sm"
                   className="live-paused"
+                  icon={<Warning size={16} />}
                   role="status"
                   description={`Live updates paused. Showing data from ${view.updatedAt ?? "the last snapshot"}.`}
                   action={

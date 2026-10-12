@@ -66,15 +66,19 @@ export default defineConfig(({ mode }) => ({
             "utf8",
           ),
         );
-        styles.push(
-          `:root{${vars({ ...tokens.shared, ...tokens.light })}}[data-mode="dark"]{${vars(tokens.dark)}}`,
-        );
         for (const [name, entry] of Object.entries(bundle)) {
           if (entry.type === "chunk") scripts.push(entry.code);
           else if (name.endsWith(".css")) styles.push(String(entry.source));
           else throw new Error(`Unexpected external sidebar asset: ${name}`);
           delete bundle[name];
         }
+        // Host variables follow Kumo CSS, matching the palette applied after mount.
+        styles.push(
+          `:root{${vars({ ...tokens.shared, ...tokens.light })}}[data-mode="dark"]{${vars(tokens.dark)}}`,
+        );
+        styles.push(
+          `.loading-panel{display:none}@media(min-width:1280px){.loading-panel{display:block;flex:0 0 var(--layout-activity-panel)}}.loading-caption{margin:0}`,
+        );
         this.emitFile({
           type: "asset",
           fileName:
@@ -83,7 +87,7 @@ export default defineConfig(({ mode }) => ({
               : mode === "configurator"
                 ? "configurator.html"
                 : "sidebar.html",
-          source: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(brand.name)}</title><link rel="icon" type="image/svg+xml" href="${markIconUrl(brand.mark)}"><script>document.documentElement.dataset.mode=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.style.colorScheme=document.documentElement.dataset.mode;</script><style>${styles.join("\n").replace(/<\/style/gi, "<\\/style")}</style></head><body><div id="sidebar">${mode === "picker" || mode === "configurator" ? "" : `<div class="main-container"><div class="content"><p role="status" class="caption muted">Loading ${escape(brand.slug)}…</p></div></div>`}</div><script>${scripts.join("\n").replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
+          source: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(brand.name)}</title><link rel="icon" type="image/svg+xml" href="${markIconUrl(brand.mark)}"><script>document.documentElement.dataset.mode=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.style.colorScheme=document.documentElement.dataset.mode;</script><style>${styles.join("\n").replace(/<\/style/gi, "<\\/style")}</style></head><body><div id="sidebar">${mode === "picker" || mode === "configurator" ? "" : `<div class="app-shell"><main class="main-pane"><div class="main-container"><header class="page-header"><p role="status" class="caption muted loading-caption">Loading ${escape(brand.slug)}…</p></header></div></main><div class="loading-panel" aria-hidden="true"></div></div>`}</div><script>${scripts.join("\n").replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
         });
       },
     },

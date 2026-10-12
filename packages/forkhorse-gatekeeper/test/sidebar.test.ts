@@ -229,7 +229,7 @@ test("failed long poll retries at bounded backoff, keeps last snapshot and renew
   let down = false,
     themes = 0;
   const times: number[] = [];
-  const ui = new class extends RpcTarget {
+  const ui = new (class extends RpcTarget {
     async snapshot() {
       times.push(Date.now());
       if (down) throw new Error("Offline fixture restart");
@@ -243,7 +243,7 @@ test("failed long poll retries at bounded backoff, keeps last snapshot and renew
       if (down) throw new Error("Offline fixture disconnect");
       return link.service.waitForChanges(after);
     }
-  }();
+  })();
   const status: string[] = [];
   const client = await connectSidebar(
     ui,
@@ -284,38 +284,190 @@ test("failed long poll retries at bounded backoff, keeps last snapshot and renew
   assert.equal(times.length, calls);
 });
 
-test("a hung relay shows the paused state without overlapping uncancellable calls", async (t) => {
+for (const automatic of [false, true])
+  test(`hung poll recovers with a fresh capability via ${automatic ? "automatic backoff" : "Reconnect"}`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    let rejectOld!: (error: Error) => void;
+    let oldPolls = 0,
+      acquired = 0,
+      snapshots = 0,
+      subscriptions = 0,
+      disposed = 0;
+    let currentTheme = "light",
+      appliedTheme = "";
+    const next = fixture();
+    next.packets[0]!.title = "Fresh recovered data";
+    const old = new (class extends RpcTarget {
+      async snapshot() {
+        return { version: 0, state: fixture() };
+      }
+      async subscribe(): Promise<never> {
+        throw new Error("Use fallback");
+      }
+      async waitForChanges(): Promise<never> {
+        oldPolls++;
+        return new Promise((_resolve, reject) => {
+          rejectOld = reject;
+        });
+      }
+      [Symbol.dispose]() {
+        disposed++;
+      }
+    })();
+    const fresh = new (class extends RpcTarget {
+      async snapshot() {
+        snapshots++;
+        return { version: 0, state: next };
+      }
+      async subscribe() {
+        subscriptions++;
+        return new (class extends RpcTarget {
+          async close() {}
+        })();
+      }
+      async waitForChanges() {
+        return new Promise<never>(() => {});
+      }
+    })();
+    const errors: string[] = [];
+    const client = await connectSidebar(
+      old,
+      (message) => errors.push(message),
+      async () => {
+        appliedTheme = currentTheme;
+      },
+      async () => {
+        acquired++;
+        return fresh;
+      },
+    );
+    t.after(() => client.dispose());
+    let paused = false;
+    client.transport.live!.subscribe((value) => {
+      paused = value;
+    });
+    t.mock.timers.tick(0);
+    await until(() => oldPolls === 1);
+    t.mock.timers.tick(30_000);
+    await until(() => paused);
+    currentTheme = "dark";
+    if (automatic) {
+      t.mock.timers.tick(59_999);
+      await turn();
+      assert.equal(acquired, 0);
+      t.mock.timers.tick(1);
+      await until(() => subscriptions === 1);
+    } else
+      await Promise.all([client.transport.live!.reconnect(), client.transport.live!.reconnect()]);
+    assert.equal(acquired, 1);
+    assert.equal(snapshots, 1);
+    assert.equal(subscriptions, 1);
+    assert.equal(oldPolls, 1);
+    assert.equal(disposed, 1);
+    assert.equal(paused, false);
+    assert.equal(appliedTheme, "dark");
+    assert.equal(
+      (await client.transport.getState("demo")).packets[0]!.title,
+      "Fresh recovered data",
+    );
+    const count = errors.length;
+    rejectOld(new Error("Late retired relay rejection"));
+    await turn();
+    await turn();
+    assert.equal(errors.length, count);
+    assert.equal(paused, false);
+    assert.equal(acquired, 1);
+  });
+
+test("a second stalled generation cannot abandon another call until the first settles", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  const batch = {version: 0, state: fixture()};
-  let polls = 0, finish!: () => void;
-  const ui = new class extends RpcTarget {
-    async snapshot() { return batch; }
-    async subscribe(): Promise<never> { throw new Error("Use fallback"); }
-    async waitForChanges(): Promise<never> { polls++; await new Promise<void>((resolve) => { finish = resolve; }); throw new Error("Relay closed"); }
-  }();
-  const client = await connectSidebar(ui, () => {});
+  let finishOld!: () => void,
+    oldPolls = 0,
+    freshSnapshots = 0,
+    acquired = 0;
+  const old = new (class extends RpcTarget {
+    async snapshot() {
+      return { version: 0, state: fixture() };
+    }
+    async subscribe(): Promise<never> {
+      throw new Error("Use fallback");
+    }
+    async waitForChanges() {
+      oldPolls++;
+      await new Promise<void>((resolve) => {
+        finishOld = resolve;
+      });
+      return { version: 999, state: fixture() };
+    }
+  })();
+  const fresh = new (class extends RpcTarget {
+    async snapshot(): Promise<never> {
+      freshSnapshots++;
+      return new Promise(() => {});
+    }
+    async subscribe(): Promise<never> {
+      throw new Error("Not reached");
+    }
+    async waitForChanges(): Promise<never> {
+      throw new Error("Not reached");
+    }
+  })();
+  const client = await connectSidebar(
+    old,
+    () => {},
+    async () => {},
+    async () => {
+      acquired++;
+      return fresh;
+    },
+  );
   t.after(() => client.dispose());
-  let paused = false;
-  client.transport.live!.subscribe((value) => { paused = value; });
-  t.mock.timers.tick(0); await until(() => polls === 1);
-  t.mock.timers.tick(30_000); await until(() => paused);
+  t.mock.timers.tick(0);
+  await until(() => oldPolls === 1);
+  t.mock.timers.tick(30_000);
+  await turn();
   void client.transport.live!.reconnect();
-  t.mock.timers.tick(90_000); await turn();
-  assert.equal(polls, 1);
-  client.dispose(); finish(); await turn();
+  await until(() => freshSnapshots === 1);
+  t.mock.timers.tick(30_000);
+  await turn();
+  await client.transport.live!.reconnect();
+  t.mock.timers.tick(60_000);
+  await turn();
+  assert.equal(acquired, 1);
+  assert.equal(oldPolls, 1);
+  assert.equal(freshSnapshots, 1);
+  finishOld();
+  await turn();
+  await turn();
+  assert.equal(
+    (await client.transport.getState("demo")).packets[0]!.title,
+    fixture().packets[0]!.title,
+  );
+  void client.transport.live!.reconnect();
+  await until(() => acquired === 2);
 });
 
 test("disposing releases the owned subscription stub even when remote close hangs", async () => {
   let released = 0;
-  const subscription = new class extends RpcTarget {
-    async close(): Promise<void> { await new Promise<void>(() => {}); }
-    [Symbol.dispose]() { released++; }
-  }();
-  const ui = new class extends RpcTarget {
-    async snapshot() { return {version: 0, state: fixture()}; }
-    async subscribe() { return subscription; }
-    async waitForChanges() { return {version: 0, state: fixture()}; }
-  }();
+  const subscription = new (class extends RpcTarget {
+    async close(): Promise<void> {
+      await new Promise<void>(() => {});
+    }
+    [Symbol.dispose]() {
+      released++;
+    }
+  })();
+  const ui = new (class extends RpcTarget {
+    async snapshot() {
+      return { version: 0, state: fixture() };
+    }
+    async subscribe() {
+      return subscription;
+    }
+    async waitForChanges() {
+      return { version: 0, state: fixture() };
+    }
+  })();
   const client = await connectSidebar(ui, () => {});
   client.dispose();
   assert.equal(released, 1);

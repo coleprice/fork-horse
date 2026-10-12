@@ -42,7 +42,12 @@ let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let failures = 0;
 async function start() {
   try {
-    const client = await connectSidebar(await host.ui, () => {}, resubscribeTheme);
+    const client = await connectSidebar(
+      await host.ui,
+      () => {},
+      resubscribeTheme,
+      async () => await host.ui,
+    );
     if (closed) {
       client.dispose();
       return;

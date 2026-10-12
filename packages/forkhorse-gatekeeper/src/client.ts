@@ -5,27 +5,44 @@ import type { SidebarBatch, SidebarUi, Subscription, UpdateReceiver } from "./ui
 
 export const OWNER_UNAVAILABLE = "Approve and Promote are unavailable for this agent connection.";
 
-/** One owned subscription or long poll, with a single bounded retry timer. */
+function disposeStub(value: object | undefined) {
+  if (value && Symbol.dispose in value) {
+    const dispose = value[Symbol.dispose];
+    if (typeof dispose === "function") dispose.call(value);
+  }
+}
+
+/** One active session and at most one abandoned remote call awaiting settlement. */
 export async function connectSidebar(
-  ui: SidebarUi,
+  initialUi: SidebarUi,
   onError: (message: string) => void,
   resubscribeTheme: () => Promise<void> = async () => {},
+  acquireUi?: () => Promise<SidebarUi>,
 ) {
-  let batch = await ui.snapshot();
+  let batch = await initialUi.snapshot();
   assertState(batch.state);
   if (!Number.isSafeInteger(batch.version) || batch.version < 0)
     throw new Error("Invalid sidebar version.");
   const project = batch.state.project.id;
   let closed = false;
   let paused = false;
-  let subscription: Subscription | undefined;
-  let receiver: Receiver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let running: Promise<void> | undefined;
   let failures = 0;
   const deadlines = new Set<ReturnType<typeof setTimeout>>();
   const listeners = new Set<() => void>();
   const statusListeners = new Set<(paused: boolean) => void>();
+  type Session = {
+    generation: number;
+    ui?: SidebarUi;
+    receiver?: Receiver;
+    subscription?: Subscription;
+    pending?: Promise<unknown>;
+    stalled: boolean;
+  };
+  let session: Session = { generation: 0, ui: initialUi, stalled: false };
+  let running: { session: Session; promise: Promise<void> } | undefined;
+  let abandoned: Promise<unknown> | undefined;
+  const current = (value: Session) => !closed && value === session;
 
   function status(value: boolean) {
     if (closed || paused === value) return;
@@ -33,8 +50,8 @@ export async function connectSidebar(
     onError(value ? "Live updates paused." : "");
     for (const listener of statusListeners) listener(value);
   }
-  function accept(next: SidebarBatch, snapshot = false): void {
-    if (closed) return;
+  function accept(owner: Session, next: SidebarBatch, snapshot = false): void {
+    if (!current(owner)) return;
     assertState(next.state);
     if (
       next.state.project.id !== project ||
@@ -42,7 +59,6 @@ export async function connectSidebar(
       next.version < 0
     )
       throw new Error("Invalid sidebar update.");
-    // A fresh snapshot may reset the session-local version after a Worker restart.
     if (!snapshot && next.version < batch.version) throw new Error("Sidebar version moved back.");
     if (snapshot || next.version > batch.version) {
       batch = next;
@@ -56,96 +72,156 @@ export async function connectSidebar(
     if (!closed)
       timer = setTimeout(() => {
         timer = undefined;
-        void single(operation);
+        void operation();
       }, delay);
   }
-  async function observe<T>(operation: PromiseLike<T>): Promise<T> {
-    // A broken upstream relay can leave a call pending indefinitely. Show the cached view's
-    // warning after 30s, but never race an uncancellable remote call with new retries.
-    const deadline = closed ? undefined : setTimeout(() => status(true), 30_000);
-    if (deadline) deadlines.add(deadline);
-    try { return await operation; } finally {
+  async function observe<T>(owner: Session, operation: PromiseLike<T>): Promise<T> {
+    const pending = Promise.resolve(operation);
+    owner.pending = pending;
+    const deadline = setTimeout(() => {
+      if (!current(owner)) return;
+      owner.stalled = true;
+      status(true);
+      // Give normal relay restoration time, then try a fresh capability without a call storm.
+      schedule(reconnect, 60_000);
+    }, 30_000);
+    deadlines.add(deadline);
+    try {
+      const result = await pending;
+      if (!current(owner)) {
+        if (result && typeof result === "object") disposeStub(result);
+        throw new Error("Sidebar session retired.");
+      }
+      return result;
+    } finally {
       clearTimeout(deadline);
-      if (deadline) deadlines.delete(deadline);
+      deadlines.delete(deadline);
+      if (owner.pending === pending) {
+        owner.pending = undefined;
+        owner.stalled = false;
+      }
     }
   }
-  async function release() {
-    if (receiver) receiver.active = false;
-    receiver = undefined;
-    const previous = subscription;
-    subscription = undefined;
+  async function release(owner: Session, remote = true) {
+    if (owner.receiver) owner.receiver.active = false;
+    owner.receiver = undefined;
+    const previous = owner.subscription;
+    owner.subscription = undefined;
     let closing: Promise<void> | undefined;
-    try { closing = previous?.close(); } catch { /* Broken remote. */ }
-    // Release our local stub immediately, even when the remote close never settles.
-    if (previous && Symbol.dispose in previous) {
-      const dispose = previous[Symbol.dispose];
-      if (typeof dispose === "function") dispose.call(previous);
+    try {
+      if (remote) closing = previous?.close();
+    } catch {
+      /* Broken remote. */
     }
-    try { if (closing) await observe(closing); } catch { /* Already disconnected. */ }
+    disposeStub(previous);
+    try {
+      if (closing) await observe(owner, closing);
+    } catch {
+      /* Disconnected or retired. */
+    }
   }
-  async function single(operation: () => Promise<void>): Promise<void> {
-    if (closed) return;
-    if (running) return running;
-    // Defer execution so synchronous callbacks cannot start an overlapping operation.
-    running = Promise.resolve()
+  function single(owner: Session, operation: () => Promise<void>): Promise<void> {
+    if (!current(owner)) return Promise.resolve();
+    if (running) return running.promise;
+    const entry = { session: owner, promise: Promise.resolve() };
+    running = entry;
+    entry.promise = Promise.resolve()
       .then(operation)
       .catch(() => {
+        if (!current(owner)) return; // Late failures cannot overwrite a recovered generation.
         status(true);
-        schedule(recover, Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5)));
+        schedule(reconnect, Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5)));
       })
       .finally(() => {
-        running = undefined;
+        if (running === entry) running = undefined;
       });
-    return running;
+    return entry.promise;
   }
-  function watch() {
-    // Quiet projects are normal. A long poll distinguishes quiet from a broken callback.
-    schedule(poll, 30_000);
+  function watch(owner: Session) {
+    if (current(owner)) schedule(() => single(owner, () => poll(owner)), 30_000);
   }
-  async function poll() {
-    await release();
-    while (true) {
-      if (closed) break;
-      // One outstanding poll (server timeout 25s), never a burst of health checks.
-      accept(await observe(ui.waitForChanges(batch.version)));
-    }
+  async function poll(owner: Session) {
+    await release(owner);
+    while (current(owner))
+      accept(owner, await observe(owner, owner.ui!.waitForChanges(batch.version)));
   }
   class Receiver extends RpcTarget implements UpdateReceiver {
     active = true;
+    readonly owner: Session;
+    constructor(owner: Session) {
+      super();
+      this.owner = owner;
+    }
     async receive(next: SidebarBatch) {
-      if (!this.active || closed) return;
-      accept(next);
-      watch();
+      if (!this.active || !current(this.owner)) return;
+      accept(this.owner, next);
+      watch(this.owner);
     }
   }
-  async function subscribe() {
+  async function subscribe(owner: Session) {
     try {
-      receiver = new Receiver();
-      subscription = await observe(ui.subscribe(receiver));
-      if (closed) {
-        await release();
+      owner.receiver = new Receiver(owner);
+      const subscription = await observe(owner, owner.ui!.subscribe(owner.receiver));
+      if (!current(owner)) {
+        disposeStub(subscription);
         return;
       }
+      owner.subscription = subscription;
       status(false);
-      watch();
+      watch(owner);
     } catch {
-      // Hosts without push support still receive updates through the bounded fallback.
-      schedule(poll, 0);
+      if (current(owner)) schedule(() => single(owner, () => poll(owner)), 0);
     }
   }
-  async function recover() {
-    await release();
-    if (closed) return;
-    // Theme is host-local; renew even if the UI capability remains unavailable.
-    await observe(resubscribeTheme());
-    const next = await observe(ui.snapshot());
-    if (closed) return;
-    accept(next, true);
-    await subscribe();
+  async function recover(owner: Session) {
+    await release(owner);
+    if (!current(owner)) return;
+    if (acquireUi) owner.ui = await observe(owner, acquireUi());
+    else owner.ui = initialUi;
+    // Host-local and current: apply theme even if the replacement UI snapshot then fails.
+    await observe(owner, resubscribeTheme());
+    accept(owner, await observe(owner, owner.ui.snapshot()), true);
+    if (current(owner)) await subscribe(owner);
   }
-  await single(async () => {
-    await observe(resubscribeTheme());
-    await subscribe();
+  async function reconnect(): Promise<void> {
+    if (closed) return;
+    clearTimeout(timer);
+    if (running) {
+      const old = running.session;
+      if (!old.stalled) return running.promise;
+      // A second hung attempt must wait while the first abandoned call is still outstanding.
+      if (abandoned || !acquireUi) {
+        schedule(reconnect, 60_000);
+        return;
+      }
+      const pending = old.pending!;
+      abandoned = pending;
+      void pending.then(
+        () => {
+          if (abandoned === pending) abandoned = undefined;
+        },
+        () => {
+          if (abandoned === pending) abandoned = undefined;
+        },
+      );
+      session = { generation: old.generation + 1, stalled: false };
+      running = undefined;
+      // Local disposal must not add a remote close call behind the already hung operation.
+      void release(old, false);
+      disposeStub(old.ui);
+    } else {
+      const old = session;
+      session = { generation: old.generation + 1, stalled: false };
+      void release(old, false);
+      if (acquireUi) disposeStub(old.ui);
+    }
+    const owner = session;
+    return single(owner, () => recover(owner));
+  }
+  await single(session, async () => {
+    const owner = session;
+    await observe(owner, resubscribeTheme());
+    if (current(owner)) await subscribe(owner);
   });
   function requireProject(id: string) {
     if (id !== project) throw new Error("This sidebar connection is bound to another project.");
@@ -157,12 +233,7 @@ export async function connectSidebar(
         listener(paused);
         return () => statusListeners.delete(listener);
       },
-      async reconnect() {
-        clearTimeout(timer);
-        // An active long poll owns the remote call until it settles; do not race it.
-        if (running) return running;
-        await single(recover);
-      },
+      reconnect,
     },
     async getState(id) {
       requireProject(id);
@@ -195,7 +266,8 @@ export async function connectSidebar(
       deadlines.clear();
       listeners.clear();
       statusListeners.clear();
-      void release();
+      void release(session, false);
+      if (acquireUi) disposeStub(session.ui);
     },
   };
 }
