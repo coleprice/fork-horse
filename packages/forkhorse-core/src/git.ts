@@ -31,9 +31,13 @@ export const gitHttp: HttpClient = {
       method,
       headers: { ...headers, "User-Agent": "git/2.0 (isomorphic-git)" },
       ...(method === "POST" ? { body: requestBody } : {}),
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(30000),
     });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      throw new HttpError(502, "Repository redirects are forbidden.");
+    }
     return {
       url,
       method,
