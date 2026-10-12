@@ -304,3 +304,19 @@ test("a hung relay shows the paused state without overlapping uncancellable call
   assert.equal(polls, 1);
   client.dispose(); finish(); await turn();
 });
+
+test("disposing releases the owned subscription stub even when remote close hangs", async () => {
+  let released = 0;
+  const subscription = new class extends RpcTarget {
+    async close(): Promise<void> { await new Promise<void>(() => {}); }
+    [Symbol.dispose]() { released++; }
+  }();
+  const ui = new class extends RpcTarget {
+    async snapshot() { return {version: 0, state: fixture()}; }
+    async subscribe() { return subscription; }
+    async waitForChanges() { return {version: 0, state: fixture()}; }
+  }();
+  const client = await connectSidebar(ui, () => {});
+  client.dispose();
+  assert.equal(released, 1);
+});

@@ -74,15 +74,14 @@ export async function connectSidebar(
     receiver = undefined;
     const previous = subscription;
     subscription = undefined;
-    try {
-      if (previous) await observe(previous.close());
-    } catch {
-      /* A failed remote is already disconnected. */
-    }
+    let closing: Promise<void> | undefined;
+    try { closing = previous?.close(); } catch { /* Broken remote. */ }
+    // Release our local stub immediately, even when the remote close never settles.
     if (previous && Symbol.dispose in previous) {
       const dispose = previous[Symbol.dispose];
       if (typeof dispose === "function") dispose.call(previous);
     }
+    try { if (closing) await observe(closing); } catch { /* Already disconnected. */ }
   }
   async function single(operation: () => Promise<void>): Promise<void> {
     if (closed) return;
