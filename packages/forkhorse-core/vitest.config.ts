@@ -16,7 +16,7 @@ export default defineConfig({
         }],
         compatibilityDate: "2026-10-11",
         compatibilityFlags: ["nodejs_compat"],
-        durableObjects: { SUPERVISOR: { className: "TestSupervisor", useSQLite: true } },
+        durableObjects: { SUPERVISOR: { className: "TestSupervisor", useSQLite: true }, RECEIPT_RUNNER: { className: "ReceiptRunner", useSQLite: true } },
         assets: {
           directory: "../forkhorse-dashboard/dist", binding: "ASSETS", run_worker_first: true,
           assetConfig: { html_handling: "none", not_found_handling: "none" },

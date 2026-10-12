@@ -1,14 +1,12 @@
-import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
+import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { forwardGitRead } from "./git";
 import { runReviewChecks } from "./runner";
-import type { ForkRepository, ReviewAuthority, RunRequest, StoredReceipt } from "./types";
+import type { ContainerPort, ForkRepository, Receipt, ReviewAuthority, RunRequest, StoredReceipt } from "./types";
 
 export { requirePassingReceipt } from "./runner";
 export type * from "./types";
 
 export interface RunnerEnv {
-  /** Trusted service seam supplied by FH-005; not implemented or bound in this offline packet. */
-  REVIEW_AUTHORITY: ReviewAuthority;
   ARTIFACTS: { get(name: string): Promise<ForkRepository> };
 }
 
@@ -32,17 +30,40 @@ export class GitReadGateway extends WorkerEntrypoint<RunnerEnv, { remote: string
 export class ReceiptRunner extends DurableObject<RunnerEnv> {
   private busy = false;
 
-  async run(request: RunRequest): Promise<StoredReceipt> {
+  constructor(ctx: DurableObjectState, env: RunnerEnv) {
+    super(ctx, env);
+    // A restarted DO must not inherit untrusted processes/files from its old execution.
+    ctx.blockConcurrencyWhile(async () => {
+      if (ctx.container?.running) await ctx.container.destroy();
+    });
+  }
+
+  protected containerPort(): ContainerPort | undefined { return this.ctx.container; }
+  protected evidence(): Receipt["evidence"] { return "container"; }
+
+  async run(request: RunRequest, authority: ReviewAuthority & RpcTarget): Promise<StoredReceipt> {
     if (this.busy) throw new Error("Runner already in use");
-    const container = this.ctx.container;
+    const container = this.containerPort();
     if (!container) throw new Error("Container binding required");
     this.busy = true;
     try {
+      let authorizedFork: string | undefined;
       return await runReviewChecks(request, {
-        authority: this.env.REVIEW_AUTHORITY,
-        getFork: (name) => this.env.ARTIFACTS.get(name), container,
+        authority: {
+          authorize: async (input) => {
+            const review = await authority.authorize(input);
+            authorizedFork = review.forkRepoName;
+            return review;
+          },
+          storeReceipt: (record) => authority.storeReceipt(record),
+          setReviewReceiptDigest: (review, digest) => authority.setReviewReceiptDigest(review, digest),
+        },
+        getFork: (name) => {
+          if (!authorizedFork || name !== authorizedFork) throw new Error("Unauthorized fork");
+          return this.env.ARTIFACTS.get(name);
+        }, container,
         gitGateway: (remote) => this.ctx.exports.GitReadGateway({ props: { remote } }),
-        evidence: "container",
+        evidence: this.evidence(),
       });
     } finally {
       this.busy = false;

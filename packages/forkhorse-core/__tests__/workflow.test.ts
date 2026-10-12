@@ -54,12 +54,13 @@ async function fixture(branch = "main") {
   const id = `flow-${crypto.randomUUID().slice(0, 8)}`;
   await mutate(id, (instance) => {
     instance.fixture.defaultBranch = branch;
+    instance.fixture.checks = JSON.stringify([{ name: "fixture", tier: "full", image: "default", run: "true" }]);
   });
   const response = await worker.fetch(
     new Request("https://api.idiot.tax/projects", {
       method: "POST",
       headers: { authorization: `Bearer ${OWNER}` },
-      body: JSON.stringify({ id, agents: ["alpha", "beta"] }),
+      body: JSON.stringify({ id, agents: ["alpha", "beta"], requireReceipt: false }),
     }),
     env,
   );
@@ -99,6 +100,14 @@ async function review(id: string, token: string, repoName: string, pid = "one", 
   expect(response.status).toBe(201);
   const { review: requested } = await response.json<{ review: Review }>();
   expect(requested.receiptDigest).toBeNull();
+  // Drain this offline background execution before approving its attached digest.
+  await mutate(id, async (_instance, objectState) => {
+    for (let i = 0; i < 100; i++) {
+      const current = await objectState.storage.get<Review>(`review:${requested.id}`);
+      if (current?.receipt?.status !== "running") break;
+      await new Promise(resolve => setTimeout(resolve, 1));
+    }
+  });
   expect((await api(id, `/reviews/${requested.id}/approve`, OWNER, {})).status).toBe(200);
   return requested;
 }
@@ -138,11 +147,20 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
               return (original as (...args: unknown[]) => Promise<void>)(...args);
             });
           }
-          if (stage === "token") instance.fixture.beforeTokenCreate = async () => { throw provider; };
+          if (stage === "token") instance.fixture.beforeTokenCreate = async (repo) => { if (repo === f.id) throw provider; };
           if (stage === "push") vi.spyOn(instance.gitFixture, "preparePromote").mockResolvedValue({
             sha: AFTER, push: async () => { throw provider; },
           });
-          if (stage === "ledger") vi.spyOn(objectState.storage, "transaction").mockRejectedValueOnce(provider);
+          if (stage === "ledger") {
+            const prepare = instance.gitFixture.preparePromote.bind(instance.gitFixture);
+            vi.spyOn(instance.gitFixture, "preparePromote").mockImplementation(async (...args) => {
+              const prepared = await prepare(...args);
+              return { ...prepared, push: async (...pushArgs) => {
+                await prepared.push(...pushArgs);
+                vi.spyOn(objectState.storage, "transaction").mockRejectedValueOnce(provider);
+              } };
+            });
+          }
         });
         const response = await api(f.id, `/reviews/${r.id}/promote`, OWNER, {});
         expect(response.status).toBe(502);

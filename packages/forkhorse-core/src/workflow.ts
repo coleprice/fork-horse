@@ -1,3 +1,5 @@
+import { publicReview, readReceipt, settings } from "./receipts";
+import type { Receipts } from "./receipts";
 import { publicEvents } from "./subscriptions";
 import { branchHead } from "./artifacts";
 import { body, digest, HttpError, isRecord, json, slug } from "./http";
@@ -44,6 +46,7 @@ export class Workflow {
     private env: Env,
     private git: GitOperations,
     private diagnostic: ErrorContext = { op: "request" },
+    private receipts?: Receipts,
   ) {}
 
   private owner(actor: Actor): void {
@@ -85,6 +88,23 @@ export class Workflow {
   async route(request: Request, project: Project, actor: Actor): Promise<Response | null> {
     const path = new URL(request.url).pathname.slice(`/projects/${project.id}`.length);
     const method = request.method;
+    if (path === "/settings" && method === "PATCH") {
+      this.owner(actor);
+      const data = await body(request);
+      if (Object.keys(data).length !== 1 || typeof data.requireReceipt !== "boolean")
+        throw new HttpError(400, "Provide only requireReceipt as a boolean.");
+      project.settings = { requireReceipt: data.requireReceipt };
+      await this.storage.put("project", project);
+      return json({ settings: project.settings });
+    }
+    const receiptRoute = /^\/reviews\/([^/]+)\/receipt$/.exec(path);
+    if (receiptRoute && method === "GET") {
+      this.owner(actor);
+      const review = await this.storage.get<Review>(`review:${receiptRoute[1]}`);
+      const receipt = await readReceipt(this.storage, review?.receiptDigest ?? null);
+      if (!receipt) throw new HttpError(404, "Receipt not found.");
+      return json(receipt);
+    }
     if (path === "/agents" && method === "POST") {
       this.owner(actor);
       const data = await body(request);
@@ -252,8 +272,10 @@ export class Workflow {
         promoted: false,
         createdAt: now(),
       };
-      await this.storage.put(`review:${review.id}`, review);
-      return json({ review }, 201);
+      if (!this.receipts) throw new Error("Receipt integration required");
+      const run = await this.receipts.reserve(project, review, fork, "review-created");
+      this.receipts.start(run);
+      return json({ review: publicReview(review) }, 201);
     }
     const reviewing = /^\/reviews\/([^/]+)\/(approve|promote)$/.exec(path);
     if (reviewing && method === "POST") {
@@ -273,9 +295,18 @@ export class Workflow {
         throw new HttpError(409, "Approval is stale; request review again.");
       }
       if (reviewing[2] === "approve") {
-        review.approval = { sha: review.sha, receiptDigest: review.receiptDigest };
-        await this.storage.put(`review:${review.id}`, review);
-        return json({ review });
+        if (!this.receipts) throw new Error("Receipt integration required");
+        await this.receipts.requirePassing(project, review);
+        const approved = await this.storage.transaction(async txn => {
+          const current = await txn.get<Review>(`review:${review.id}`);
+          if (!current || current.stale || current.promoted || current.sha !== review.sha ||
+              current.receiptGeneration !== review.receiptGeneration || current.receiptDigest !== review.receiptDigest)
+            throw new HttpError(409, "Receipt changed; approve again.");
+          current.approval = { sha: current.sha, receiptDigest: current.receiptDigest };
+          await txn.put(`review:${review.id}`, current);
+          return current;
+        });
+        return json({ review: publicReview(approved) });
       }
       if (
         !review.approval ||
@@ -285,6 +316,23 @@ export class Workflow {
         throw new HttpError(409, "Approval does not match the commit and receipt digest.");
       if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
         throw staleBase();
+      if (!this.receipts) throw new Error("Receipt integration required");
+      const run = await this.receipts.reserve(project, review, fork, "before-promote");
+      const result = await this.receipts.run(run);
+      const current = await this.storage.get<Review>(`review:${review.id}`);
+      if (!current || current.stale || current.promoted || current.sha !== run.commit ||
+          current.receiptGeneration !== run.generation || current.receipt?.trigger !== "before-promote")
+        throw new HttpError(409, "Approval is stale; request review again.");
+      Object.assign(review, current);
+      if (!result || result.digest !== review.receiptDigest || result.receipt.trigger !== "before-promote" || result.receipt.commit !== run.commit ||
+          result.receipt.generation !== run.generation || result.receipt.reviewId !== run.reviewId ||
+          result.receipt.projectId !== project.id || result.receipt.forkRepoName !== fork.repoName ||
+          !result.receipt.checks.length || result.receipt.checks.some(c => c.outcome !== "passed" || c.exitStatus !== 0))
+        throw new HttpError(409, "Checks failed before promote.");
+      if (settings(project).requireReceipt) {
+        try { await this.receipts.requirePassing(project, review); }
+        catch { throw new HttpError(409, "Checks failed before promote."); }
+      }
       this.diagnostic.stage = "prepare";
       const prepared = await this.git.preparePromote(
         fork,
@@ -298,6 +346,11 @@ export class Workflow {
         throw new HttpError(409, "Approval is stale; request review again.");
       if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
         throw staleBase();
+      const checked = await this.storage.get<Review>(`review:${review.id}`);
+      if (!checked || checked.stale || checked.promoted || checked.sha !== run.commit ||
+          checked.receiptGeneration !== run.generation || checked.receiptDigest !== review.receiptDigest ||
+          checked.receipt?.trigger !== "before-promote")
+        throw new HttpError(409, "Receipt changed before promote.");
       const entry: LedgerEntry = {
         id: crypto.randomUUID(),
         review: review.id,
@@ -355,10 +408,12 @@ export class Workflow {
     return json({ agent, apiToken }, status);
   }
   private async invalidate(repoName: string, sha: string): Promise<void> {
-    for (const review of await list<Review>(this.storage, "review:")) {
-      if (review.repoName === repoName && review.sha !== sha && !review.promoted)
-        await this.storage.put(`review:${review.id}`, { ...review, stale: true });
-    }
+    await this.storage.transaction(async txn => {
+      for (const review of (await txn.list<Review>({ prefix: "review:" })).values()) {
+        if (review.repoName === repoName && review.sha !== sha && !review.promoted)
+          await txn.put(`review:${review.id}`, { ...review, stale: true });
+      }
+    });
   }
   private async state(project: Project): Promise<Response> {
     const forks = await list<Fork>(this.storage, "fork:");
@@ -368,10 +423,16 @@ export class Workflow {
     const reviews = await list<Review>(this.storage, "review:");
     for (const review of reviews) {
       if (!review.promoted && !review.stale && heads.get(review.repoName) !== review.sha) {
-        review.stale = true;
-        await this.storage.put(`review:${review.id}`, review);
+        await this.storage.transaction(async txn => {
+          const current = await txn.get<Review>(`review:${review.id}`);
+          if (current) {
+            current.stale = true;
+            await txn.put(`review:${review.id}`, current);
+            Object.assign(review, current);
+          }
+        });
       }
-      if (review.approval && review.approval.receiptDigest !== review.receiptDigest)
+      if (!review.promoted && review.approval && review.approval.receiptDigest !== review.receiptDigest)
         review.stale = true;
     }
     const current = await this.head(project.repoName, project.defaultBranch);
@@ -387,13 +448,13 @@ export class Workflow {
         reason: "Canonical head differs from the merge ledger.",
       });
     return json({
-      project: { ...project, ...await publicEvents(this.storage, project.repoName) },
+      project: { ...project, settings: settings(project), ...await publicEvents(this.storage, project.repoName) },
       agents: (await list<Agent>(this.storage, "agent:")).map(({ name }) => ({ name })),
       forks: await Promise.all(forks.map(async (fork) => ({ ...fork, ...await publicEvents(this.storage, fork.repoName), head: heads.get(fork.repoName)! }))),
       packets: await list<Packet>(this.storage, "packet:"),
       claims: await list<Claim>(this.storage, "claim:"),
       blockers: await list<Blocker>(this.storage, "blocker:"),
-      reviews,
+      reviews: reviews.map(publicReview),
       ledger: (await list<LedgerEntry>(this.storage, "ledger:")).toSorted((a, b) =>
         a.recordedAt.localeCompare(b.recordedAt),
       ),

@@ -1,3 +1,9 @@
+import { ReceiptRunner as NativeReceiptRunner } from "../../forkhorse-runner/src/index";
+import type { ReviewAuthority, RunRequest } from "../../forkhorse-runner/src/types";
+import type { RpcTarget } from "cloudflare:workers";
+import { runReviewChecks } from "../../forkhorse-runner/src/runner";
+import type { ExecuteReceipt } from "../src/receipts";
+import { MockContainer } from "./receipt-fixture";
 import { Supervisor } from "../src/supervisor";
 import type { Env } from "../src/types";
 import { FixtureGit } from "./git-fixture";
@@ -5,6 +11,22 @@ import { FixtureArtifacts } from "./fixtures";
 
 /** Test-only Worker injects fixtures; production has no fixture switch or public event route. */
 export class TestSupervisor extends Supervisor {
+  useRpcRunner = false;
+  receiptExitStatus = 0;
+  receiptBarrier?: Promise<void>;
+  receiptRuns: string[] = [];
+  protected override receiptExecution(): ExecuteReceipt {
+    return async (request, authority) => {
+      this.receiptRuns.push(request.trigger);
+      await this.receiptBarrier;
+      if (this.useRpcRunner) return super.receiptExecution()(request, authority, crypto.randomUUID());
+      return runReviewChecks(request, {
+        authority, container: new MockContainer(this.receiptExitStatus),
+        getFork: name => this.fixture.get(name), evidence: "mocked-container-port",
+        gitGateway: () => ({}) as Fetcher,
+      });
+    };
+  }
   readonly gitFixture: FixtureGit;
   protected override gitOperations() {
     return this.gitFixture;
@@ -21,3 +43,23 @@ export class TestSupervisor extends Supervisor {
   }
 }
 export { default } from "../src/index";
+
+/** Production adapter/RPC wiring with an explicitly mocked container port. */
+export class ReceiptRunner extends NativeReceiptRunner {
+  readonly fixture: FixtureArtifacts;
+  readonly mock = new MockContainer();
+  constructor(ctx: DurableObjectState, env: Env) {
+    const fixture = new FixtureArtifacts();
+    super(ctx, { ...env, ARTIFACTS: fixture });
+    this.fixture = fixture;
+    this.fixture.checks = JSON.stringify([{ name: "unit", tier: "full", image: "default", run: "npm test" }]);
+  }
+  protected override containerPort() { return this.mock; }
+  protected override evidence() { return "mocked-container-port" as const; }
+  override async run(request: RunRequest, authority: ReviewAuthority & RpcTarget) {
+    const review = await authority.authorize(request);
+    await this.fixture.create(review.forkRepoName);
+    return super.run(request, authority);
+  }
+}
+export { GitReadGateway } from "../../forkhorse-runner/src/index";

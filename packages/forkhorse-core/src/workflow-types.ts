@@ -19,6 +19,15 @@ export interface Claim {
   paths: string[];
   createdAt: string;
 }
+export interface ReceiptSummary {
+  status: "running" | "passed" | "failed" | "infrastructure-error" | "timed-out";
+  trigger: "review-created" | "before-promote";
+  digest: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  checks: { name: string; tier: "full"; outcome: ReceiptSummary["status"]; durationMs: number | null }[];
+}
 export interface Review {
   id: string;
   packet: string;
@@ -27,6 +36,9 @@ export interface Review {
   sha: string;
   base: string;
   receiptDigest: string | null;
+  receipt?: ReceiptSummary | null;
+  /** Private execution identity; stripped from public snapshots. */
+  receiptGeneration?: string;
   approval: { sha: string; receiptDigest: string | null } | null;
   stale: boolean;
   promoted: boolean;
@@ -66,14 +78,14 @@ export interface CommitFile {
 
 /** Authenticated dashboard/MCP snapshot. Arrays contain public records only. */
 export interface StateSnapshot {
-  project: import("./types").Project;
+  project: import("./types").Project & { settings: { requireReceipt: boolean } };
   agents: { name: string }[];
   forks: (Fork & { head: string })[];
   packets: Packet[];
   /** Only live claims appear. Release removes the claim, but keeps historical reviews. */
   claims: Claim[];
   blockers: Blocker[];
-  reviews: Review[];
+  reviews: (Review & { receipt: ReceiptSummary | null })[];
   ledger: LedgerEntry[];
   /** Most recent 100 entries in ascending receive sequence. */
   activity: import("./types").Activity[];

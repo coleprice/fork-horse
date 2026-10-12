@@ -1,14 +1,16 @@
 # Container test receipts
 
-FH-007 **offline implementation**. The acceptance suite uses an explicitly
+FH-007 runner with FH-032 core integration, **offline implementation**. The acceptance suite uses an explicitly
 **mocked container port**. No container was started, no Cloudflare service was
 called, and no live receipt is claimed. Live acceptance remains locked pending
-separate authorization and a spend cap.
+separate FH-032L authorization and the specified budget alert.
 
 This package exports a Sandbox SDK **1.0** native Durable Object adapter,
 `ReceiptRunner`, plus a pure orchestration function and typed FH-005 seams. It
-has no public HTTP endpoint, deployment configuration, Docker image, or binding
-into core. Its tests run in Node and never invoke a local container runtime.
+has no public HTTP endpoint. Core now composes both exports into its own Worker;
+its Wrangler configuration references `container/Dockerfile`. Tests run in workerd
+with mocked container ports and never invoke a local container runtime.
+See [receipts](../../docs/receipts.md) for the integration and locked live gate.
 
 ## Checks contract
 
@@ -56,9 +58,10 @@ the rest is drained without buffering. The log digest covers the retained,
 UTF-8-decoded logs plus truncation flag, not the discarded tail. The suite digest
 uses `receiptJson()`'s fixed field order. No empty suite can pass.
 
-## FH-005 integration dependencies (not implemented here)
+## FH-005 integration dependencies (wired by FH-032)
 
-`ReviewAuthority` in `src/types.ts` is a required trusted service seam:
+`ReviewAuthority` in `src/types.ts` is a required trusted service seam. Core supplies
+a per-execution RPC capability rather than a globally reusable authority binding:
 
 1. **Review-created trigger:** authenticate and authorize the caller; bind the
    review to a project, fork repo, returned Artifacts remote, and exact commit.
