@@ -52,6 +52,8 @@ export interface Activity {
   before: string;
   after: string;
   changedPaths: string[];
+  changedPathCount: number;
+  changedPathsTruncated: boolean;
   eventTimestamp: string;
   recordedAt: string;
 }

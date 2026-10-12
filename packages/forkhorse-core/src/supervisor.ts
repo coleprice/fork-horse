@@ -9,6 +9,8 @@ import type { Activity, Env, Project, PushEvent } from "./types";
 import { WorkerGit } from "./git";
 import type { GitOperations } from "./git";
 import { Workflow, recordWorkflowPush } from "./workflow";
+import { capActivity } from "./activity";
+import type { StoredActivity } from "./activity";
 
 interface Agent {
   name: string;
@@ -167,12 +169,12 @@ export class Supervisor extends DurableObject<Env> {
               "after must be a nonnegative integer; limit must be 1 to 100.",
             );
           }
-          const entries = await this.ctx.storage.list<Activity>({
+          const entries = await this.ctx.storage.list<StoredActivity>({
             prefix: "activity:",
             startAfter: `activity:${String(after).padStart(16, "0")}`,
             limit,
           });
-          const activity = [...entries.values()];
+          const activity = [...entries.values()].map(capActivity);
           return json({ activity, nextAfter: activity.at(-1)?.sequence ?? after });
         }
         const credentialResponse = await new CallerCredentials(this.ctx.storage, this.env).route(request, project, actor);
@@ -326,14 +328,17 @@ export class Supervisor extends DurableObject<Env> {
             agent,
             ...event.payload,
             changedPaths: paths,
+            changedPathCount: paths.length,
+            changedPathsTruncated: false,
             eventTimestamp: event.metadata.eventTimestamp,
             recordedAt: new Date().toISOString(),
           };
           await recordWorkflowPush(txn, project, event, entry);
+          // Conflict detection above must see every path, including those beyond the cap.
           await txn.put({
             [key]: true,
             sequence,
-            [`activity:${String(sequence).padStart(16, "0")}`]: entry,
+            [`activity:${String(sequence).padStart(16, "0")}`]: capActivity(entry),
           });
         });
       });

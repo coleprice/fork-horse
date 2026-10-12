@@ -100,6 +100,8 @@ cannot select another agent. The canonical write credential is confined to the o
     "before": "<40-character-sha1>",
     "after": "<40-character-sha1>",
     "changedPaths": ["src/index.ts"],
+    "changedPathCount": 1,
+    "changedPathsTruncated": false,
     "eventTimestamp": "2026-10-11T12:00:00.000Z",
     "recordedAt": "2026-10-11T12:00:01.000Z"
   }],
@@ -111,6 +113,13 @@ Canonical pushes have `agent: null`. Entries are ordered by durable receive
 sequence, not by provider timestamp. `after` is exclusive; use `nextAfter` for the
 next page. `limit` is 1–100 (default 100); an empty page retains the supplied cursor.
 The log and idempotency records persist without a retention cutoff in this version.
+
+`changedPaths` contains at most the first 50 paths from the sorted full diff.
+`changedPathCount` is the total number of changed paths; `changedPathsTruncated`
+is true only when that total exceeds 50. New entries are stored with this cap.
+Both `/activity` and `/state` (including MCP reads through them) cap legacy entries
+on read without rewriting storage and preserve existing totals. Blocker detection
+uses the full diff before the activity cap; blocker `paths` are unchanged.
 
 Errors have `{ "error": "..." }`: `400` invalid input, `401` missing/malformed
 bearer token, `403` unauthorized token/agent, `404` unknown route/project, `405`
