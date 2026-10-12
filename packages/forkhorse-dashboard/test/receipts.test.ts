@@ -99,7 +99,7 @@ test("receipt wire maps every status without logs; durations and timeout use sup
       "Failed",
       "Timed out",
       "Couldn't run",
-      "Waiting for checks.",
+      "Not started",
     ])
       assert.ok(
         rows.some((row) => row.textContent!.includes(word)),
@@ -164,6 +164,16 @@ test("owner logs use encoded owner route, last 200 lines, Show all; agent has no
       .find((b) => b.textContent === "Show all")!
       .click();
     await until(() => c.root.querySelector(".receipt-logs")!.textContent!.split("\n").length > 200);
+    const hide = [...c.root.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "Hide logs",
+    )!;
+    hide.click();
+    await until(() => !c.root.querySelector(".receipt-logs"));
+    assert.ok(
+      [...c.root.querySelectorAll<HTMLButtonElement>("button")].some(
+        (b) => b.textContent === "View logs",
+      ),
+    );
     assert.equal(c.calls.filter((call) => call.path.endsWith("/receipt")).length, 1);
     assert.match(c.calls.at(-1)!.path, /\/projects\/receipts\/reviews\/receipt-3\/receipt$/);
   } finally {
@@ -190,12 +200,26 @@ test("required promote 409 keeps dialog with failure and opens new receipt; advi
   const c = setup();
   try {
     await until(() => !!c.root.querySelector('[data-action="promote"]'));
-    c.root.querySelector<HTMLButtonElement>('[data-action="promote"]')!.click();
+    c.root
+      .querySelector<HTMLButtonElement>('[data-action="promote"][data-review="receipt-3"]')!
+      .click();
     await until(() => !!c.dom.window.document.querySelector('[data-action="confirm-promote"]'));
     assert.match(c.dom.window.document.body.textContent!, /Checks run again/);
     c.dom.window.document.querySelector('[data-action="confirm-promote"]').click();
     await until(() => c.dom.window.document.body.textContent!.includes("Nothing was promoted."));
     assert.ok(c.dom.window.document.querySelector(".promotion-dialog"));
+    assert.equal(
+      c.root.querySelector('[role="alert"]'),
+      null,
+      "handled conflict has no page error banner",
+    );
+    assert.equal(c.dom.window.document.querySelectorAll('[role="alert"]').length, 1);
+    assert.doesNotMatch(c.dom.window.document.body.textContent!, /Checks failed before promote\./);
+    assert.ok(
+      c.dom.window.document.querySelector(".receipt-error-line svg"),
+      "Warning icon accompanies error copy",
+    );
+    assert.equal(c.root.querySelector('[data-action="promote"][data-review="receipt-3"]'), null);
     assert.equal(c.calls.filter((call) => call.path.endsWith("/promote")).length, 1);
     [...c.dom.window.document.querySelectorAll(".promotion-dialog button")]
       .find((b: HTMLButtonElement) => b.textContent === "View receipt")!
@@ -331,6 +355,42 @@ test("receipt completion announces once after an observed running state", async 
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(mutations, 0, "identical snapshots don't repeat the announcement");
     observer.disconnect();
+  } finally {
+    c.close();
+  }
+});
+
+test("approved before-promote outcomes distinguish failed code from an interrupted run", async () => {
+  const wire = fixtureState("gating-recheck");
+  const state = stateView(wire);
+  const running = state.reviews[1];
+  assert.equal(running.status, "approved");
+  assert.equal(receiptGateCaption(running, true), "");
+  const failed = state.reviews[2];
+  assert.equal(reviewGate(failed, state).promote, false);
+  assert.equal(receiptGateCaption(failed, true), "Checks failed. The agent must push a fix.");
+  for (const index of [4, 5]) {
+    assert.equal(reviewGate(state.reviews[index], state).promote, true);
+    assert.equal(receiptGateCaption(state.reviews[index], true), "Promote runs the checks again.");
+  }
+  state.project.settings!.requireReceipt = false;
+  assert.equal(
+    reviewGate(failed, state).promote,
+    true,
+    "advisory mode never gates on a failed run",
+  );
+  const c = setup("gating-recheck");
+  try {
+    await until(() => !!c.root.querySelector("#reviews"));
+    const rows = [...c.root.querySelectorAll(".review-card")];
+    assert.match(rows[1].textContent!, /Approved/);
+    assert.doesNotMatch(rows[1].textContent!, /Waiting for checks/);
+    assert.equal(rows[2].querySelector('[data-action="promote"]'), null);
+    assert.ok(rows[4].querySelector('[data-action="promote"]'));
+    assert.match(rows[4].textContent!, /Promote runs the checks again/);
+    assert.equal(rows[6].querySelectorAll(".state-reason").length, 1);
+    assert.equal((rows[6].textContent!.match(/Waiting for checks\./g) ?? []).length, 1);
+    assert.match(rows[6].querySelector(".column-receipts")!.textContent!, /Not started/);
   } finally {
     c.close();
   }

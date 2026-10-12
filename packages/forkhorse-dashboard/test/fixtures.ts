@@ -254,7 +254,7 @@ export function fixtureState(id = "demo"): StateResponse {
       }
     }
   }
-  if (["receipts", "advisory", "recheck", "rerun-failed"].includes(id)) {
+  if (["receipts", "advisory", "recheck", "rerun-failed", "gating-recheck"].includes(id)) {
     const statuses: (ReceiptStatus | null)[] = [
       "running",
       "running",
@@ -300,7 +300,10 @@ export function fixtureState(id = "demo"): StateResponse {
         base: HEAD,
         receiptDigest: receipt?.digest ?? null,
         receipt,
-        approval: index === 2 ? { sha, receiptDigest: receipt?.digest ?? null } : null,
+        approval:
+          index === 2 || (index === 1 && id !== "advisory")
+            ? { sha, receiptDigest: index === 1 ? DIGEST : (receipt?.digest ?? null) }
+            : null,
         stale: false,
         promoted: false,
         createdAt,
@@ -309,6 +312,17 @@ export function fixtureState(id = "demo"): StateResponse {
     // A truthful required gate fixture also carries the two queue running trigger variants.
     if (id === "receipts") result.project.settings.requireReceipt = true;
     if (id === "advisory") result.reviews[1].receipt!.trigger = "review-created";
+    if (id === "gating-recheck") {
+      for (const index of [2, 4, 5]) {
+        const review = result.reviews[index];
+        review.receipt = fixtureReceipt(
+          index === 2 ? "failed" : index === 4 ? "timed-out" : "infrastructure-error",
+          "before-promote",
+        );
+        review.receiptDigest = review.receipt.digest;
+        review.approval = { sha: review.sha, receiptDigest: DIGEST };
+      }
+    }
   }
   return result;
 }

@@ -182,6 +182,13 @@ test("owner DOM Approve calls the review endpoint once; Promote refreshes head a
     approve.click();
     approve.click();
     await until(() => context.dom.window.document.body.textContent!.includes("Approved bbbbbbb"));
+    assert.ok(
+      [...context.dom.window.document.querySelectorAll("code")].some(
+        (code) =>
+          code.textContent === "bbbbbbb" && code.parentElement?.textContent === "Approved bbbbbbb",
+      ),
+      "Approved toast renders SHA as code",
+    );
     assert.equal(context.fixture.calls.filter((call) => call.options.method === "POST").length, 1);
     const approvalCall = context.fixture.calls.find((entry) => entry.options.method === "POST")!;
     assert.equal(approvalCall.url.pathname, "/projects/demo/reviews/review-1/approve");

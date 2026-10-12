@@ -90,8 +90,12 @@ host adapter implements that interface from its authorized `ui` capability.
 The client hides decisions for a moved fork, stale review or packet blocker.
 With `requireReceipt: true`, approve requires a passing summary and digest;
 already-approved reviews may enter promote so core can freshly re-run checks,
-including after a setting flip. Its exact receipt-failure 409 keeps the dialog
-open with the new receipt available. With `requireReceipt: false`, all receipt
+including after a setting flip. A failed before-promote run hides Promote until
+a fix; a timed-out or couldn't-run attempt keeps Promote with its retry caption.
+An approved Re-checking row has no gate caption. A required missing receipt shows
+Not started in its cell and Waiting for checks only under State. Its exact receipt-failure 409 keeps the dialog
+open with the new receipt available and a Warning icon. That handled conflict
+has no duplicate page banner or raw core error copy. With `requireReceipt: false`, all receipt
 outcomes are advisory and promote shows no re-check state. The server remains
 the authority. Unknown settings withhold actions until a valid snapshot arrives.
 All API/config text is escaped before entering markup.

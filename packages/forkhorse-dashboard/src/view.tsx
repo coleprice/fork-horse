@@ -156,13 +156,23 @@ function DataTable({
     </div>
   );
 }
-function Notice({ message }: { message?: string }) {
+function Notice({ message, sha }: { message?: string; sha?: string }) {
   const toasts = useKumoToastManager();
   const previous = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (message && message !== previous.current) toasts.add({ title: message, variant: "success" });
+    if (message && message !== previous.current)
+      toasts.add({
+        title: sha ? (
+          <>
+            Approved <code>{sha}</code>
+          </>
+        ) : (
+          message
+        ),
+        variant: "success",
+      });
     previous.current = message;
-  }, [message, toasts]);
+  }, [message, sha, toasts]);
   return null;
 }
 function ReviewActions({
@@ -270,11 +280,15 @@ function ReviewActions({
             </p>
           )}
           {failure && (
-            <div role="alert">
-              <p>Checks failed on the re-run. Nothing was promoted.</p>
+            <div role="alert" className="receipt-failure">
+              <p className="receipt-error-line">
+                <Warning size={20} aria-hidden="true" />{" "}
+                <span>Checks failed on the re-run. Nothing was promoted.</span>
+              </p>
               <Button
                 variant="ghost"
                 size="sm"
+                className="receipt-link"
                 onClick={() => {
                   setConfirmation(undefined);
                   openReceipt();
@@ -556,7 +570,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   );
   return (
     <>
-      <Notice message={view.notice} />
+      <Notice message={view.notice} sha={view.noticeSha} />
       <ReceiptAnnouncements project={view.project} reviews={state?.reviews ?? []} />
       <div className={`app-shell ${panel ? "panel-open" : ""}`}>
         <main className="main-pane">
@@ -1003,6 +1017,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                               <Button
                                                 variant="ghost"
                                                 size="sm"
+                                                className="receipt-link"
                                                 onClick={() => showReceipt(r.id)}
                                               >
                                                 View receipt

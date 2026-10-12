@@ -30,7 +30,7 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       response.end(JSON.stringify(data));
     }
     const match =
-      /^\/projects\/(demo|quiet|large|first|partial|truncated|superseded|paused|deleted|error|loading|receipts|advisory|recheck|rerun-failed)\/(state|activity|settings|reviews\/([^/]+)\/(approve|promote|receipt))$/.exec(
+      /^\/projects\/(demo|quiet|large|first|partial|truncated|superseded|paused|deleted|error|loading|receipts|advisory|recheck|rerun-failed|gating-recheck)\/(state|activity|settings|reviews\/([^/]+)\/(approve|promote|receipt))$/.exec(
         url.pathname,
       );
     if (!match) {

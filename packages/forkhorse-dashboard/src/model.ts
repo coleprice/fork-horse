@@ -17,6 +17,7 @@ export interface ViewModel {
   busy: boolean;
   error?: string;
   notice?: string;
+  noticeSha?: string;
   updatedAt?: string;
   livePaused?: boolean;
 }
@@ -39,11 +40,18 @@ export function reviewGate(
       promote: false,
       reason: "Receipt settings unavailable. Refresh before reviewing.",
     };
-  // An approved review may always enter promote: core freshly re-runs the gate there.
+  // Failed before-promote code requires a fix; interrupted runs may be tried again.
   if (
     requireReceipt &&
     review.status === "pending" &&
     (!review.receiptDigest || review.receipt?.status !== "passed")
+  ) {
+    return { approve: false, promote: false, reason: receiptGateCaption(review, true) };
+  }
+  if (
+    requireReceipt &&
+    review.receipt?.trigger === "before-promote" &&
+    review.receipt.status === "failed"
   ) {
     return { approve: false, promote: false, reason: receiptGateCaption(review, true) };
   }
@@ -174,6 +182,11 @@ export function receiptGateCaption(review: Review, required: boolean): string {
     if (status === "running")
       return "Checks are running. They're advisory here, so you can approve now.";
     return status === "passed" ? "" : "Advisory: this doesn't block approval.";
+  }
+  if (review.status === "approved" && review.receipt?.trigger === "before-promote") {
+    if (status === "running") return "";
+    if (status === "timed-out" || status === "infrastructure-error")
+      return "Promote runs the checks again.";
   }
   switch (status) {
     case "passed":

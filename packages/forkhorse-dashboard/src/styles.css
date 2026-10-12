@@ -589,3 +589,23 @@ footer {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+.receipt-log-toggle {
+  margin-top: calc(var(--spacing) * 2);
+}
+.receipt-link {
+  display: block;
+  padding-inline: 0;
+}
+.receipt-error-line {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--spacing) * 2);
+}
+.receipt-error-line svg {
+  flex-shrink: 0;
+  color: var(--color-kumo-warning);
+}
+.receipt-failure > .receipt-link {
+  margin-inline-start: calc(var(--spacing) * 7);
+}

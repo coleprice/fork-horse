@@ -205,21 +205,23 @@ export function mountDashboard(
         error instanceof Error
           ? error.message
           : "Owner action failed. Refresh before trying again.";
-      // No retry: even a connection failure can follow a successful server-side write.
-      await load();
-      view.error = message;
-      draw();
-      if (
+      // The exact receipt conflict belongs solely to the open Promote dialog.
+      const handledReceiptFailure =
         kind === "promote" &&
+        view.state?.project.settings?.requireReceipt === true &&
         error instanceof ApiError &&
         error.status === 409 &&
-        message === "Checks failed before promote."
-      )
-        throw error;
+        message === "Checks failed before promote.";
+      // No retry: even a connection failure can follow a successful server-side write.
+      await load();
+      if (handledReceiptFailure) throw error;
+      view.error = message;
+      draw();
       return false;
     }
     await load();
     view.notice = message;
+    view.noticeSha = kind === "approve" ? review.sha.slice(0, 7) : undefined;
     draw();
     if (invalidated) {
       invalidated = false;
@@ -239,6 +241,7 @@ export function mountDashboard(
       await options.transport.setSettings(view.project, { requireReceipt });
       await load();
       view.notice = "Receipt settings updated";
+      view.noticeSha = undefined;
     } catch (error) {
       await load();
       view.error =

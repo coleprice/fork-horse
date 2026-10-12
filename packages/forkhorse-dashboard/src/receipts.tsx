@@ -53,7 +53,7 @@ export function ReceiptCell({
     return () => clearInterval(timer);
   }, [receipt?.status, receipt?.trigger, receipt?.startedAt]);
   if (!receipt)
-    return <span className="caption muted">{required ? "Waiting for checks." : "No receipt"}</span>;
+    return <span className="caption muted">{required ? "Not started" : "No receipt"}</span>;
   const failed = receipt.checks.filter((check) => check.outcome === "failed");
   const timedOut = receipt.checks.find((check) => check.outcome === "timed-out");
   let caption;
@@ -176,7 +176,14 @@ export function ReceiptDetails({
               variant="ghost"
               size="sm"
               disabled={busy}
+              className="receipt-log-toggle"
               onClick={async () => {
+                if (logs !== undefined) {
+                  epoch.current++;
+                  setLogs(undefined);
+                  setAll(false);
+                  return;
+                }
                 const current = ++epoch.current;
                 setBusy(true);
                 setError(undefined);
@@ -207,7 +214,7 @@ export function ReceiptDetails({
                 }
               }}
             >
-              View logs
+              {logs === undefined ? "View logs" : "Hide logs"}
             </Button>
           )}
           {busy && (
