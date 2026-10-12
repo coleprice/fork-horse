@@ -11,6 +11,7 @@ import type {
   Review,
 } from "../src/workflow-types";
 import type { PushEvent } from "../src/types";
+import { branchHead } from "../src/artifacts";
 import { AFTER, BEFORE } from "./fixtures";
 import { TestSupervisor } from "./worker";
 
@@ -49,8 +50,11 @@ interface State {
 async function state(id: string) {
   return (await api(id, "/state")).json<State>();
 }
-async function fixture() {
+async function fixture(branch = "main") {
   const id = `flow-${crypto.randomUUID().slice(0, 8)}`;
+  await mutate(id, (instance) => {
+    instance.fixture.defaultBranch = branch;
+  });
   const response = await worker.fetch(
     new Request("https://api.idiot.tax/projects", {
       method: "POST",
@@ -113,6 +117,35 @@ function push(
 }
 
 describe("workflow in real Durable Objects, with explicitly offline Git/Artifacts fixtures", () => {
+  it("reads bare default branches for creation, caller heads and review through promotion", async () => {
+    const branch = "release/candidate";
+    const f = await fixture(branch);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get("canonicalHead")).toBe(BEFORE);
+    });
+    const me = await (await api(f.id, "/me", f.alpha)).json<{ forks: { head: string }[] }>();
+    expect(me.forks.map((fork) => fork.head)).toEqual([BEFORE]);
+    expect((await state(f.id)).forks.map((fork) => fork.head)).toEqual([BEFORE, BEFORE]);
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a);
+    expect(r.base).toBe(BEFORE);
+    expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(200);
+    expect((await state(f.id)).ledger).toMatchObject([{ before: BEFORE, after: AFTER }]);
+    await mutate(f.id, async (instance) => {
+      const reads = instance.fixture.calls.filter((call) => call.method === "log");
+      expect(reads.length).toBeGreaterThan(0);
+      expect(reads.every((call) => call.ref === branch)).toBe(true);
+      expect(instance.fixture.heads.get(f.id)).toBe(AFTER);
+      using repo = await instance.fixture.get(f.id);
+      expect(await repo.log({ ref: `refs/heads/${branch}`, limit: 1 })).toEqual([]);
+      expect(await repo.log({ ref: "HEAD", limit: 1 })).toEqual([]);
+      expect(await repo.log({ ref: "main", limit: 1 })).toEqual([]);
+      instance.fixture.heads.set(f.id, "0".repeat(40));
+      expect(await branchHead(repo, branch)).toBe("0".repeat(40));
+    });
+  });
+
   it("binds explicit and latest successful forks once; later joins and counter gaps cannot redirect claims", async () => {
     const f = await fixture();
     await packet(f.id);

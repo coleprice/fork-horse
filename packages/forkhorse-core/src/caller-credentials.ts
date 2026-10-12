@@ -1,6 +1,6 @@
 import { publicEvents } from "./subscriptions";
 import { body, HttpError, json } from "./http";
-import { ZERO_SHA } from "./trees";
+import { branchHead } from "./artifacts";
 import type { Env, Project } from "./types";
 import type { Actor } from "./workflow";
 import type { Fork } from "./workflow-types";
@@ -64,9 +64,7 @@ export class CallerCredentials {
         )
           continue;
         using repo = await this.env.ARTIFACTS.get(fork.repoName);
-        const head =
-          (await repo.log({ ref: `refs/heads/${project.defaultBranch}`, limit: 1 }))[0]?.hash ??
-          ZERO_SHA;
+        const head = await branchHead(repo, project.defaultBranch);
         forks.push({
           ...await publicEvents(this.storage, fork.repoName),
           repoName: fork.repoName,
