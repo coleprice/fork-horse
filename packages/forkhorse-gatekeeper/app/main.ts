@@ -13,11 +13,12 @@ import { applyAppTheme, followSystemTheme } from "../../forkhorse-dashboard/src/
 
 class ThemeReceiver extends RpcTarget implements GatekeeperAppThemeReceiver {
   setTheme(theme: GatekeeperAppTheme) {
+    if (closed) return;
     stopSystem();
     applyAppTheme(theme);
   }
 }
-let stopSystem = followSystemTheme();
+const stopSystem = followSystemTheme();
 
 interface Host extends RpcTarget {
   subscribeTheme(receiver: GatekeeperAppThemeReceiver): Promise<GatekeeperAppTheme>;
@@ -26,28 +27,22 @@ interface Host extends RpcTarget {
 }
 
 const root = document.getElementById("sidebar")!;
-const status = document.createElement("p");
-status.setAttribute("role", "status");
-status.hidden = true;
-root.before(status);
 document.title = brand.name;
 const { port1, port2 } = new MessageChannel();
 // Matches the pinned OS opaque-origin iframe handshake. Only the private port is transferred.
 window.parent.postMessage({ type: "handshake" }, "*", [port2]);
 const receiver = new ThemeReceiver();
 const host = newMessagePortRpcSession<Host>(port1, receiver);
-void host
-  .subscribeTheme(receiver)
-  .then((theme) => receiver.setTheme(theme))
-  .catch(() => {});
+async function resubscribeTheme() {
+  receiver.setTheme(await host.subscribeTheme(receiver));
+}
 let dispose = () => {};
 let closed = false;
-void (async () => {
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let failures = 0;
+async function start() {
   try {
-    const client = await connectSidebar(await host.ui, (message) => {
-      status.textContent = message;
-      status.hidden = !message;
-    });
+    const client = await connectSidebar(await host.ui, () => {}, resubscribeTheme);
     if (closed) {
       client.dispose();
       return;
@@ -66,14 +61,23 @@ void (async () => {
       client.dispose();
     };
   } catch {
-    root.textContent = "Sidebar connection unavailable. Reopen this app to reconnect.";
+    if (closed) return;
+    // Keep the static content position visible until the first authenticated snapshot arrives.
+    const caption = root.querySelector("[role=status]");
+    if (caption) caption.textContent = "Live updates paused. Reconnecting…";
+    retryTimer = setTimeout(
+      () => void start(),
+      Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5)),
+    );
   }
-})();
+}
+void start();
 window.addEventListener(
   "pagehide",
   () => {
     closed = true;
     stopSystem();
+    clearTimeout(retryTimer);
     dispose();
     host[Symbol.dispose]();
     port1.close();

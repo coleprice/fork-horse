@@ -31,6 +31,8 @@ assert.ok(document.querySelector("style")!.textContent!.length > 1000, "dashboar
 assert.doesNotMatch(html, /Fixture update batch|LOCAL FIXTURE ONLY|git\.idiot\.tax/);
 assert.doesNotMatch(html, /\bprocess\.env\b/, "the sandboxed browser has no Node process global");
 assert.equal(document.getElementById("sidebar")!.dataset.fixture, undefined);
+assert.equal(document.querySelector("#sidebar [role=status]")!.textContent, `Loading ${brand.name}…`);
+assert.match(document.querySelector("style")!.textContent!, /:root\{--font-sans/);
 console.log("Bundle verified: branded inline HTML, JavaScript and CSS; fixture data absent.");
 dom.window.close();
 const configurator = new JSDOM(

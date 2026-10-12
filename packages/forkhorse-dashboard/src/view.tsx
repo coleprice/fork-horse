@@ -16,7 +16,7 @@ import {
   useKumoToastManager,
 } from "@cloudflare/kumo";
 import { ArrowLeft, ArrowLineUp, Pulse, Warning, X } from "@phosphor-icons/react";
-import { reviewGate, type ViewModel } from "./model.ts";
+import { reviewGate, reviewQueue, type ViewModel } from "./model.ts";
 import type { Activity, ProjectState, Review } from "./contracts.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
@@ -26,6 +26,7 @@ export interface ViewActions {
   owner: boolean;
   selectProject(id: string): Promise<void>;
   retry?: () => Promise<void>;
+  reconnect?: () => Promise<void>;
   agent?: string;
   ask?: () => Promise<void>;
   action(kind: "approve" | "promote", review: string): Promise<void>;
@@ -122,14 +123,27 @@ export function packetStatus(id: string, state: ProjectState): { label: string; 
     return { label: "In progress", tone: "brand" };
   return { label: "Ready", tone: "info" };
 }
-function DataTable({ headings, children }: { headings: string[]; children: ReactNode }) {
+function DataTable({
+  headings,
+  children,
+  kind,
+}: {
+  headings: string[];
+  children: ReactNode;
+  kind: string;
+}) {
   return (
-    <div className="table-scroll">
+    <div className={`table-scroll table-${kind}`}>
       <Table>
         <Table.Header>
           <Table.Row>
             {headings.map((text) => (
-              <Table.Head key={text}>{text}</Table.Head>
+              <Table.Head
+                key={text}
+                className={`column-${text.toLowerCase().replaceAll(" ", "-")}`}
+              >
+                {text}
+              </Table.Head>
             ))}
           </Table.Row>
         </Table.Header>
@@ -273,7 +287,7 @@ export function DashboardView(props: { view: ViewModel; actions: ViewActions }) 
 function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewActions }) {
   const [panel, setPanel] = useState(() => {
     try {
-      const saved = globalThis.localStorage?.getItem("dashboard-activity");
+      const saved = window.sessionStorage?.getItem("dashboard-activity");
       if (saved != null) return saved === "open";
     } catch {
       /* Opaque frames may deny storage. */
@@ -295,7 +309,10 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const toggleRef = useRef<HTMLButtonElement>(null);
   const state = view.state;
   const blockers = state?.blockers.filter((b) => !b.resolved) ?? [];
-  const reviews = state?.reviews.filter((r) => r.status !== "promoted") ?? [];
+  const reviews = state ? reviewQueue(state) : [];
+  const reviewCount = reviews.filter(
+    (r) => r.status === "pending" || r.status === "approved",
+  ).length;
   const claims = state?.claims.filter((c) => c.active) ?? [];
   const selected = state?.packets.find((p) => p.id === packetId);
   const selectedReview = state?.reviews.find((r) => r.id === reviewId);
@@ -303,7 +320,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     setPanel(value);
     if (!value && narrow) window.setTimeout(() => toggleRef.current?.focus(), 0);
     try {
-      globalThis.localStorage?.setItem("dashboard-activity", value ? "open" : "closed");
+      window.sessionStorage?.setItem("dashboard-activity", value ? "open" : "closed");
     } catch {
       /* Keep the in-frame preference. */
     }
@@ -537,7 +554,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     label: (
                       <span className="tab-label">
                         Review
-                        {reviews.length > 0 && <Badge variant="secondary">{reviews.length}</Badge>}
+                        {reviewCount > 0 && <Badge variant="secondary">{reviewCount}</Badge>}
                       </span>
                     ),
                   },
@@ -546,6 +563,26 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               />
             </div>
             <div className="content">
+              {view.livePaused && (
+                <Banner
+                  variant="alert"
+                  size="sm"
+                  className="live-paused"
+                  role="status"
+                  description={`Live updates paused. Showing data from ${view.updatedAt ?? "the last snapshot"}.`}
+                  action={
+                    actions.reconnect && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void actions.reconnect!()}
+                      >
+                        Reconnect
+                      </Button>
+                    )
+                  }
+                />
+              )}
               {!actions.owner && (
                 <Banner
                   variant="secondary"
@@ -637,7 +674,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         {[
                           ["Open packets", state.packets.length],
                           ["Active claims", claims.length],
-                          ["In review", reviews.length],
+                          ["In review", reviewCount],
                           ["Blockers", blockers.length],
                         ].map(([label, count]) => (
                           <LayerCard key={label} className="p-4">
@@ -693,6 +730,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         <h2>Packets and claims</h2>
                         {state.packets.length ? (
                           <DataTable
+                            kind="work"
                             headings={["Packet", "State", "Claimed by", "Fork", "Paths", "Claimed"]}
                           >
                             {state.packets.map((p) => {
@@ -715,11 +753,30 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Status {...packetStatus(p.id, state)} />
+                                    <div className="caption muted folded">
+                                      {live
+                                        .filter((c) => c.createdAt)
+                                        .map((c) => (
+                                          <span key={c.agent}>
+                                            Claimed {relative(c.createdAt!)}
+                                          </span>
+                                        ))}
+                                    </div>
                                   </Table.Cell>
                                   <Table.Cell>
-                                    {live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                    <Tooltip
+                                      content={live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                      render={<span className="truncated-name" />}
+                                    >
+                                      {live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                    </Tooltip>
+                                    <div className="caption muted folded">
+                                      {live.map((c) => (
+                                        <TruncatedCode key={c.repoName} value={c.repoName} />
+                                      ))}
+                                    </div>
                                   </Table.Cell>
-                                  <Table.Cell>
+                                  <Table.Cell className="column-fork">
                                     {live.map((c) => (
                                       <TruncatedCode key={c.repoName} value={c.repoName} />
                                     ))}
@@ -727,7 +784,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell className="work-paths">
                                     <Paths paths={p.paths} />
                                   </Table.Cell>
-                                  <Table.Cell>
+                                  <Table.Cell className="column-claimed">
                                     {live
                                       .filter((c) => c.createdAt)
                                       .map((c) => (
@@ -753,6 +810,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         <h2>Review queue</h2>
                         {reviews.length ? (
                           <DataTable
+                            kind="review"
                             headings={[
                               "Packet",
                               "Agent",
@@ -783,7 +841,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     </button>
                                   </Table.Cell>
                                   <Table.Cell>
-                                    {r.agent}
+                                    <Tooltip
+                                      content={r.agent}
+                                      render={<span className="truncated-name" />}
+                                    >
+                                      {r.agent}
+                                    </Tooltip>
                                     <div className="caption muted">
                                       <TruncatedCode value={r.repoName} />
                                     </div>
@@ -806,6 +869,20 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                             : "info"
                                       }
                                     />
+                                    <div className="caption muted folded">
+                                      {r.receipt ? (
+                                        `${r.receipt.status === "passed" ? "Passed" : "Failed"} ${r.receipt.commands.length}`
+                                      ) : r.receiptDigest ? (
+                                        <>
+                                          Receipt <code>{r.receiptDigest.slice(0, 7)}</code>
+                                        </>
+                                      ) : (
+                                        "No receipt"
+                                      )}
+                                      {r.requestedAt && (
+                                        <div>Requested {relative(r.requestedAt)}</div>
+                                      )}
+                                    </div>
                                     {stale && (
                                       <div className="caption muted state-reason">
                                         The agent must request review again.
@@ -817,7 +894,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       </div>
                                     )}
                                   </Table.Cell>
-                                  <Table.Cell>
+                                  <Table.Cell className="column-receipts">
                                     {r.receipt && (
                                       <Status
                                         label={`${r.receipt.status === "passed" ? "Passed" : "Failed"} ${r.receipt.commands.length}`}
@@ -834,7 +911,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       )}
                                     </div>
                                   </Table.Cell>
-                                  <Table.Cell>
+                                  <Table.Cell className="column-requested">
                                     {r.requestedAt && (
                                       <span className="caption muted">
                                         {relative(r.requestedAt)}
@@ -881,7 +958,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       <h2>Agents</h2>
                       {state.agents.length ? (
                         <DataTable
-                          headings={["Agent", "Fork", "Head", "Last push", "Claim", "Events"]}
+                          kind="agents"
+                          headings={["Agent", "Fork", "Last push", "Claim", "Events"]}
                         >
                           {state.agents.flatMap((agent) => {
                             const forks = state.forks.filter((f) => f.agent === agent.name);
@@ -891,19 +969,30 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                               );
                               return (
                                 <Table.Row key={`${agent.name}-${fork?.repoName ?? "none"}`}>
-                                  <Table.Cell>{agent.name}</Table.Cell>
                                   <Table.Cell>
+                                    <Tooltip
+                                      content={agent.name}
+                                      render={<span className="truncated-name" />}
+                                    >
+                                      {agent.name}
+                                    </Tooltip>
+                                    <div className="caption muted folded">
+                                      {fork && <TruncatedCode value={fork.repoName} />}
+                                    </div>
+                                  </Table.Cell>
+                                  <Table.Cell className="column-fork">
                                     {fork && <TruncatedCode value={fork.repoName} />}
                                   </Table.Cell>
-                                  <Table.Cell>{fork && short(fork.head)}</Table.Cell>
                                   <Table.Cell>
                                     {recent ? (
                                       <div className="last-push">
-                                        {short(recent.after)}
                                         <Paths paths={recent.changedPaths} event={recent} />
-                                        <time className="caption muted">
-                                          {relative(recent.recordedAt)}
-                                        </time>
+                                        <div className="caption muted">
+                                          {short(recent.after)} ·{" "}
+                                          <time dateTime={recent.recordedAt}>
+                                            {relative(recent.recordedAt)}
+                                          </time>
+                                        </div>
                                       </div>
                                     ) : (
                                       "No recent pushes"

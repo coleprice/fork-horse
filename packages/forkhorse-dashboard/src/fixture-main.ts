@@ -7,6 +7,20 @@ import themeFixture from "../test/theme-fixture.json";
 
 declare const __DASHBOARD_BRAND__: Brand;
 document.title = `${__DASHBOARD_BRAND__.name} · Fixture projects`;
+let paused = new URL(location.href).searchParams.get("scenario") === "paused";
+const statusListeners = new Set<(paused: boolean) => void>();
+const fixtureTransport = createHttpTransport({ origin: location.origin });
+fixtureTransport.live = {
+  subscribe(listener) {
+    statusListeners.add(listener);
+    listener(paused);
+    return () => statusListeners.delete(listener);
+  },
+  async reconnect() {
+    paused = false;
+    for (const listener of statusListeners) listener(false);
+  },
+};
 mountDashboard(document.getElementById("dashboard")!, {
   brand: __DASHBOARD_BRAND__,
   fixture: true,
@@ -18,12 +32,22 @@ mountDashboard(document.getElementById("dashboard")!, {
   projects: [
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
-    ...["large", "first", "partial", "deleted", "error", "loading"].map((id) => ({
+    ...[
+      "large",
+      "first",
+      "partial",
+      "truncated",
+      "superseded",
+      "paused",
+      "deleted",
+      "error",
+      "loading",
+    ].map((id) => ({
       id,
       label: `${id} fixture`,
     })),
   ],
-  transport: createHttpTransport({ origin: location.origin }),
+  transport: fixtureTransport,
 });
 
 const stopTheme = followSystemTheme();

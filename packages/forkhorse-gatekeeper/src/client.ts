@@ -5,68 +5,155 @@ import type { SidebarBatch, SidebarUi, Subscription, UpdateReceiver } from "./ui
 
 export const OWNER_UNAVAILABLE = "Approve and Promote are unavailable for this agent connection.";
 
-/** One snapshot and one subscription; updates need no per-batch inbound snapshot RPCs. */
-export async function connectSidebar(ui: SidebarUi, onError: (message: string) => void) {
+/** One owned subscription or long poll, with a single bounded retry timer. */
+export async function connectSidebar(
+  ui: SidebarUi,
+  onError: (message: string) => void,
+  resubscribeTheme: () => Promise<void> = async () => {},
+) {
   let batch = await ui.snapshot();
   assertState(batch.state);
   if (!Number.isSafeInteger(batch.version) || batch.version < 0)
     throw new Error("Invalid sidebar version.");
   const project = batch.state.project.id;
   let closed = false;
-  let polling = false;
+  let paused = false;
   let subscription: Subscription | undefined;
-  let watchdog: ReturnType<typeof setTimeout> | undefined;
+  let receiver: Receiver | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let running: Promise<void> | undefined;
+  let failures = 0;
   const listeners = new Set<() => void>();
+  const statusListeners = new Set<(paused: boolean) => void>();
 
-  function accept(next: SidebarBatch): void {
+  function status(value: boolean) {
+    if (closed || paused === value) return;
+    paused = value;
+    onError(value ? "Live updates paused." : "");
+    for (const listener of statusListeners) listener(value);
+  }
+  function accept(next: SidebarBatch, snapshot = false): void {
     if (closed) return;
     assertState(next.state);
-    if (next.state.project.id !== project || !Number.isSafeInteger(next.version) || next.version < 0)
+    if (
+      next.state.project.id !== project ||
+      !Number.isSafeInteger(next.version) ||
+      next.version < 0
+    )
       throw new Error("Invalid sidebar update.");
-    if (next.version <= batch.version) return;
-    batch = next;
-    for (const listener of listeners) listener();
+    // A fresh snapshot may reset the session-local version after a Worker restart.
+    if (!snapshot && next.version < batch.version) throw new Error("Sidebar version moved back.");
+    if (snapshot || next.version > batch.version) {
+      batch = next;
+      for (const listener of listeners) listener();
+    }
+    status(false);
+    failures = 0;
   }
-
-  async function poll(): Promise<void> {
-    if (closed || polling) return;
-    polling = true;
-    clearTimeout(watchdog);
+  function schedule(operation: () => Promise<void>, delay: number) {
+    clearTimeout(timer);
+    if (!closed)
+      timer = setTimeout(() => {
+        timer = undefined;
+        void single(operation);
+      }, delay);
+  }
+  async function release() {
+    if (receiver) receiver.active = false;
+    receiver = undefined;
+    const previous = subscription;
+    subscription = undefined;
     try {
-      await subscription?.close();
-      while (true) {
-        if (closed) break;
-        accept(await ui.waitForChanges(batch.version));
-      }
+      await previous?.close();
     } catch {
-      if (!closed) onError("Activity connection lost. Reopen the sidebar to reconnect.");
+      /* A failed remote is already disconnected. */
+    }
+    if (previous && Symbol.dispose in previous) {
+      const dispose = previous[Symbol.dispose];
+      if (typeof dispose === "function") dispose.call(previous);
     }
   }
-
-  function watch(): void {
-    clearTimeout(watchdog);
-    if (!closed && !polling) watchdog = setTimeout(() => void poll(), 30_000);
+  async function single(operation: () => Promise<void>): Promise<void> {
+    if (closed) return;
+    if (running) return running;
+    // Defer execution so synchronous callbacks cannot start an overlapping operation.
+    running = Promise.resolve()
+      .then(operation)
+      .catch(() => {
+        status(true);
+        schedule(recover, Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5)));
+      })
+      .finally(() => {
+        running = undefined;
+      });
+    return running;
   }
-
+  function watch() {
+    // Quiet projects are normal. A long poll distinguishes quiet from a broken callback.
+    schedule(poll, 30_000);
+  }
+  async function poll() {
+    await release();
+    while (true) {
+      if (closed) break;
+      // One outstanding poll (server timeout 25s), never a burst of health checks.
+      accept(await ui.waitForChanges(batch.version));
+    }
+  }
   class Receiver extends RpcTarget implements UpdateReceiver {
-    async receive(next: SidebarBatch): Promise<void> {
+    active = true;
+    async receive(next: SidebarBatch) {
+      if (!this.active || closed) return;
       accept(next);
       watch();
     }
   }
-  const receiver = new Receiver();
-  try {
-    subscription = await ui.subscribe(receiver);
-    watch();
-  } catch {
-    void poll();
+  async function subscribe() {
+    try {
+      receiver = new Receiver();
+      subscription = await ui.subscribe(receiver);
+      if (closed) {
+        await release();
+        return;
+      }
+      status(false);
+      watch();
+    } catch {
+      // Hosts without push support still receive updates through the bounded fallback.
+      schedule(poll, 0);
+    }
   }
-
-  function requireProject(id: string): void {
+  async function recover() {
+    await release();
+    if (closed) return;
+    // Theme is host-local; renew even if the UI capability remains unavailable.
+    await resubscribeTheme();
+    const next = await ui.snapshot();
+    if (closed) return;
+    accept(next, true);
+    await subscribe();
+  }
+  await single(async () => {
+    await resubscribeTheme();
+    await subscribe();
+  });
+  function requireProject(id: string) {
     if (id !== project) throw new Error("This sidebar connection is bound to another project.");
   }
-
   const transport: DashboardTransport = {
+    live: {
+      subscribe(listener) {
+        statusListeners.add(listener);
+        listener(paused);
+        return () => statusListeners.delete(listener);
+      },
+      async reconnect() {
+        clearTimeout(timer);
+        // An active long poll owns the remote call until it settles; do not race it.
+        if (running) return running;
+        await single(recover);
+      },
+    },
     async getState(id) {
       requireProject(id);
       return structuredClone(batch.state);
@@ -76,8 +163,12 @@ export async function connectSidebar(ui: SidebarUi, onError: (message: string) =
       const activity = (batch.state.recentActivity ?? []).filter((event) => event.sequence > after);
       return { activity, nextAfter: activity.at(-1)?.sequence ?? after };
     },
-    async approve() { throw new Error(OWNER_UNAVAILABLE); },
-    async promote() { throw new Error(OWNER_UNAVAILABLE); },
+    async approve() {
+      throw new Error(OWNER_UNAVAILABLE);
+    },
+    async promote() {
+      throw new Error(OWNER_UNAVAILABLE);
+    },
     subscribe(id, invalidate) {
       requireProject(id);
       listeners.add(invalidate);
@@ -89,9 +180,10 @@ export async function connectSidebar(ui: SidebarUi, onError: (message: string) =
     transport,
     dispose() {
       closed = true;
-      clearTimeout(watchdog);
+      clearTimeout(timer);
       listeners.clear();
-      void subscription?.close().catch(() => {});
+      statusListeners.clear();
+      void release();
     },
   };
 }

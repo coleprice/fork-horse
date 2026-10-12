@@ -73,6 +73,7 @@ export function mountDashboard(
             setSection,
             selectProject,
             retry: refresh,
+            reconnect: options.transport.live?.reconnect,
             owner: options.owner ?? true,
             agent: options.agent,
             ask: options.openPrompt
@@ -208,6 +209,10 @@ export function mountDashboard(
     }
   }
 
+  const stopLive = options.transport.live?.subscribe((paused) => {
+    view.livePaused = paused;
+    draw();
+  });
   draw();
   if (initial) void selectProject(initial);
   return {
@@ -216,6 +221,7 @@ export function mountDashboard(
       disposed = true;
       generation++;
       unsubscribe?.();
+      stopLive?.();
       window.removeEventListener("hashchange", onHash);
       flushSync(() => react.unmount());
     },

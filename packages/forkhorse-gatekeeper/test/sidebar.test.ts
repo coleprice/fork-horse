@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { setImmediate as turn } from "node:timers/promises";
 import { test } from "node:test";
-import { newMessagePortRpcSession } from "capnweb";
+import { newMessagePortRpcSession, RpcStub, RpcTarget } from "capnweb";
 import { createRateLimitedCapability } from "../../../cloudflare-os/packages/workshop-frontend/src/rateLimitedCapability.ts";
 import { fixtureState } from "../../forkhorse-dashboard/test/fixtures.ts";
 import { stateView } from "../../forkhorse-dashboard/src/model.ts";
@@ -220,4 +220,66 @@ test("silent push channel falls back after 30 seconds without overlapping polls"
   t.mock.timers.tick(250);
   await until(() => updates === 1);
   assert.ok(link.service.calls.poll <= 2);
+});
+
+test("failed long poll retries at bounded backoff, keeps last snapshot and renews theme", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const link = connection();
+  t.after(() => link.close());
+  let down = false,
+    themes = 0;
+  const times: number[] = [];
+  const ui = new class extends RpcTarget {
+    async snapshot() {
+      times.push(Date.now());
+      if (down) throw new Error("Offline fixture restart");
+      return link.feed.snapshot();
+    }
+    async subscribe(receiver: Parameters<SidebarUi["subscribe"]>[0]) {
+      using forwarded = new RpcStub(receiver);
+      return await link.service.subscribe(forwarded);
+    }
+    async waitForChanges(after: number) {
+      if (down) throw new Error("Offline fixture disconnect");
+      return link.service.waitForChanges(after);
+    }
+  }();
+  const status: string[] = [];
+  const client = await connectSidebar(
+    ui,
+    (message) => status.push(message),
+    async () => {
+      themes++;
+    },
+  );
+  t.after(() => client.dispose());
+  let paused = false;
+  client.transport.live!.subscribe((value) => {
+    paused = value;
+  });
+  await turn();
+  down = true;
+  t.mock.timers.tick(30_000);
+  await until(() => paused);
+  assert.equal((await client.transport.getState("demo")).project.id, "demo");
+  for (const delay of [1000, 2000, 4000, 8000, 16000, 30000, 30000]) {
+    const count = times.length;
+    t.mock.timers.tick(delay - 1);
+    await turn();
+    assert.equal(times.length, count);
+    t.mock.timers.tick(1);
+    await until(() => times.length === count + 1);
+    await turn();
+  }
+  down = false;
+  await Promise.all([client.transport.live!.reconnect(), client.transport.live!.reconnect()]);
+  assert.equal(paused, false);
+  assert.equal(themes, 9);
+  assert.equal(link.service.calls.subscribe, 2);
+  assert.equal(status.at(-1), "");
+  client.dispose();
+  const calls = times.length;
+  t.mock.timers.tick(90_000);
+  await turn();
+  assert.equal(times.length, calls);
 });

@@ -4,6 +4,10 @@ import { defineConfig } from "vite-plus";
 import { markIconUrl } from "../forkhorse-dashboard/src/mark.ts";
 
 const brand = JSON.parse(readFileSync(new URL("../../brand.json", import.meta.url), "utf8"));
+const vars = (values: Record<string, string>) =>
+  Object.entries(values)
+    .map(([name, value]) => `${name}:${value}`)
+    .join(";");
 const escape = (text: string) =>
   text.replace(
     /[&<>"']/g,
@@ -55,6 +59,16 @@ export default defineConfig(({ mode }) => ({
       generateBundle(_options, bundle) {
         const scripts: string[] = [];
         const styles: string[] = [];
+        // Seed reviewed host variables before any JS mounts or host theme arrives.
+        const tokens = JSON.parse(
+          readFileSync(
+            new URL("../forkhorse-dashboard/src/host-tokens.json", import.meta.url),
+            "utf8",
+          ),
+        );
+        styles.push(
+          `:root{${vars({ ...tokens.shared, ...tokens.light })}}[data-mode="dark"]{${vars(tokens.dark)}}`,
+        );
         for (const [name, entry] of Object.entries(bundle)) {
           if (entry.type === "chunk") scripts.push(entry.code);
           else if (name.endsWith(".css")) styles.push(String(entry.source));
@@ -69,7 +83,7 @@ export default defineConfig(({ mode }) => ({
               : mode === "configurator"
                 ? "configurator.html"
                 : "sidebar.html",
-          source: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(brand.name)}</title><link rel="icon" type="image/svg+xml" href="${markIconUrl(brand.mark)}"><script>document.documentElement.dataset.mode=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.style.colorScheme=document.documentElement.dataset.mode;</script><style>${styles.join("\n").replace(/<\/style/gi, "<\\/style")}</style></head><body><div id="sidebar"></div><script>${scripts.join("\n").replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
+          source: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(brand.name)}</title><link rel="icon" type="image/svg+xml" href="${markIconUrl(brand.mark)}"><script>document.documentElement.dataset.mode=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.style.colorScheme=document.documentElement.dataset.mode;</script><style>${styles.join("\n").replace(/<\/style/gi, "<\\/style")}</style></head><body><div id="sidebar">${mode === "picker" || mode === "configurator" ? "" : `<div class="main-container"><div class="content"><p role="status" class="caption muted">Loading ${escape(brand.name)}…</p></div></div>`}</div><script>${scripts.join("\n").replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
         });
       },
     },
