@@ -72,6 +72,7 @@ export function mountDashboard(
             section,
             setSection,
             selectProject,
+            retry: refresh,
             owner: options.owner ?? true,
             agent: options.agent,
             ask: options.openPrompt
@@ -163,7 +164,9 @@ export function mountDashboard(
       });
     } catch (error) {
       view.error =
-        error instanceof Error ? error.message : "Unable to subscribe to activity. Use Refresh.";
+        error instanceof Error
+          ? error.message
+          : "Unable to subscribe to activity. Try reopening the app.";
       draw();
     }
   }
@@ -180,10 +183,10 @@ export function mountDashboard(
     try {
       if (kind === "approve") {
         await options.transport.approve(view.project, review.id);
-        message = `Approved ${review.packet} at ${review.sha.slice(0, 10)}. The server binds the receipt digest.`;
+        message = `Approved ${review.sha.slice(0, 7)}`;
       } else {
         const result = await options.transport.promote(view.project, review.id);
-        message = `Promoted ${review.packet} at ${result.sha.slice(0, 10)}.`;
+        message = `Promoted ${result.sha.slice(0, 7)}`;
       }
     } catch (error) {
       message =
@@ -205,24 +208,6 @@ export function mountDashboard(
     }
   }
 
-  function onClick(event: Event) {
-    const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]");
-    if (!button || !root.contains(button) || button.disabled) return;
-    const kind = button.dataset.action;
-    if (kind === "refresh") void refresh();
-  }
-  function onSubmit(event: Event) {
-    const form = event.target as HTMLFormElement;
-    if (form.id !== "open-project" || options.owner === false) return;
-    event.preventDefault();
-    if (!view.busy)
-      void selectProject(
-        String(new root.ownerDocument.defaultView!.FormData(form).get("project") ?? ""),
-      );
-  }
-  root.addEventListener("click", onClick);
-
-  root.addEventListener("submit", onSubmit);
   draw();
   if (initial) void selectProject(initial);
   return {
@@ -231,9 +216,6 @@ export function mountDashboard(
       disposed = true;
       generation++;
       unsubscribe?.();
-      root.removeEventListener("click", onClick);
-
-      root.removeEventListener("submit", onSubmit);
       window.removeEventListener("hashchange", onHash);
       flushSync(() => react.unmount());
     },

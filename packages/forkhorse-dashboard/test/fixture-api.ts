@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { fixtureActivity, fixtureState } from "./fixtures.ts";
+import { fixtureState } from "./fixtures.ts";
 
 export interface FixtureCall {
   method: string;
@@ -23,22 +23,29 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       response.end(JSON.stringify(data));
     }
     const match =
-      /^\/projects\/(demo|quiet)\/(state|activity|reviews\/([^/]+)\/(approve|promote))$/.exec(
+      /^\/projects\/(demo|quiet|large|first|partial|deleted|error|loading)\/(state|activity|reviews\/([^/]+)\/(approve|promote))$/.exec(
         url.pathname,
       );
     if (!match) {
       send({ error: "Fixture project or route not found." }, 404);
       return;
     }
-    const state = match[1] === "demo" ? demo : fixtureState("quiet");
+    const state = match[1] === "demo" ? demo : fixtureState(match[1]);
     if (match[2] === "state" && request.method === "GET") {
+      if (match[1] === "error") {
+        send({ error: "Fixture connection unavailable. Try again." }, 503);
+        return;
+      }
+      if (match[1] === "loading") {
+        setTimeout(() => send(state), 8000);
+        return;
+      }
       send(state);
       return;
     }
     if (match[2] === "activity" && request.method === "GET") {
       const after = Number(url.searchParams.get("after") ?? 0);
-      const activity =
-        match[1] === "demo" ? fixtureActivity().filter((entry) => entry.sequence > after) : [];
+      const activity = state.activity.filter((entry) => entry.sequence > after);
       send({ activity, nextAfter: activity.at(-1)?.sequence ?? after });
       return;
     }

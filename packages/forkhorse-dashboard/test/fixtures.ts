@@ -165,14 +165,16 @@ export function fixtureActivity(): Activity[] {
 export function fixtureState(id = "demo"): StateResponse {
   const data = fixtureData(id);
   const createdAt = "2026-10-12T00:00:00.000Z";
-  return {
+  const result: StateResponse = {
     project: {
       ...data.project,
       namespace: "fixture",
+      events: "active",
       remote: `https://git.idiot.tax/fixture/${id}.git`,
     },
     agents: data.agents,
-    forks: data.forks.map((fork) => ({
+    forks: data.forks.map((fork, index) => ({
+      events: index === 0 ? "active" : "pending",
       ...fork,
       remote: `https://git.idiot.tax/fixture/${fork.repoName}.git`,
       createdAt,
@@ -202,4 +204,26 @@ export function fixtureState(id = "demo"): StateResponse {
     reconcilerAlerts: [],
     promotionPending: null,
   };
+  if (["large", "first", "partial", "deleted"].includes(id)) {
+    const paths = Array.from(
+      { length: 450 },
+      (_, i) => `src/imported/assets/group-${i}/very-long-filename-for-path-overflow-check-${i}.ts`,
+    );
+    for (const packet of result.packets) packet.paths = paths;
+    for (const claim of result.claims) claim.paths = paths;
+    for (const blocker of result.blockers) blocker.paths = paths;
+    for (const activity of result.activity) {
+      activity.changedPaths = id === "partial" ? paths.slice(0, 30) : paths;
+      if (id === "first") activity.before = "0".repeat(40);
+      if (id === "deleted") {
+        activity.after = "0".repeat(40);
+        activity.ref = "refs/heads/topic";
+      }
+      if (id === "partial") {
+        activity.changedPathCount = 450;
+        activity.changedPathsTruncated = true;
+      }
+    }
+  }
+  return result;
 }

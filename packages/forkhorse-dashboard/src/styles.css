@@ -26,6 +26,7 @@ body,
   min-height: 100%;
 }
 body {
+  margin: 0 !important;
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   line-height: var(--text-sm--line-height);
@@ -105,18 +106,10 @@ p {
   flex-wrap: wrap;
 }
 .content {
-  max-width: var(--layout-content-wide);
-  margin-inline: auto;
   padding: calc(var(--spacing) * 6) calc(var(--spacing) * 3);
   display: flex;
   flex-direction: column;
   gap: calc(var(--spacing) * 6);
-}
-.project-controls {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: calc(var(--spacing) * 4);
 }
 label {
   display: block;
@@ -149,7 +142,8 @@ select {
   overflow: auto;
 }
 .table-scroll td {
-  vertical-align: top;
+  vertical-align: middle;
+  font-size: var(--text-sm);
 }
 .table-scroll tr:hover {
   background: var(--color-kumo-tint);
@@ -276,4 +270,140 @@ footer {
   border-radius: var(--radius-xl) 0 0 var(--radius-xl);
   box-shadow: var(--themed-floating-shadow);
   padding: calc(var(--spacing) * 4);
+}
+
+/* Header, tabs and content share a single centered host frame. */
+.main-container {
+  max-width: var(--layout-content-wide);
+  margin-inline: auto;
+}
+.view-stack {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing) * 4);
+}
+#view-work {
+  gap: calc(var(--spacing) * 6);
+}
+.blockers {
+  display: grid;
+  gap: calc(var(--spacing) * 4);
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: calc(var(--spacing) * 4);
+  margin-top: calc(var(--spacing) * 6);
+}
+.promotion-dialog > div {
+  min-width: 0;
+}
+.truncated-code {
+  display: block;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.path-summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: calc(var(--spacing) * 1);
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+.path-summary .truncated-code {
+  min-width: 0;
+  flex: 1;
+}
+.path-more {
+  flex-shrink: 0;
+}
+.collision-copy {
+  display: block;
+}
+.collision-copy .path-summary {
+  max-width: 20rem;
+  vertical-align: bottom;
+}
+.path-details code {
+  overflow-wrap: anywhere;
+}
+.table-scroll table {
+  width: 100%;
+}
+.table-scroll td {
+  white-space: nowrap;
+  padding-block: calc(var(--spacing) * 3);
+}
+.table-scroll th {
+  white-space: nowrap;
+}
+.table-scroll td p {
+  margin: 0;
+}
+.packet-link,
+.claim-link {
+  color: var(--text-color-kumo-default);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+.claim-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.packet-link:hover {
+  text-decoration: underline;
+}
+.state-reason {
+  white-space: normal;
+  max-width: 14rem;
+  margin-top: calc(var(--spacing) * 1);
+}
+.last-push {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--spacing) * 2);
+  white-space: nowrap;
+}
+.last-push .path-summary {
+  max-width: 16rem;
+}
+.metric-value {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+}
+.warning-dot {
+  width: calc(var(--spacing) * 2);
+  height: calc(var(--spacing) * 2);
+  border-radius: var(--radius-xl);
+  background: var(--color-kumo-warning);
+}
+.panel-heading {
+  margin-bottom: calc(var(--spacing) * 4);
+}
+
+.packet-link {
+  display: block;
+  max-width: 16rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.table-scroll th {
+  font-size: var(--text-sm);
+}
+/* The drawer scrim uses the host shadow token instead of an opaque surface. */
+[data-base-ui-portal]:has(.activity-drawer) > [role="presentation"][data-open] {
+  background: var(--color-kumo-shadow-drop);
+  opacity: 1;
+}
+@media (max-width: 639px) {
+  .tab-gutter [role="tab"] {
+    flex-shrink: 0;
+    padding-inline: calc(var(--spacing) * 3);
+  }
 }

@@ -148,9 +148,8 @@ test("feed coalesces bursts and slow receivers, releases polls, refuses cross-pr
 });
 
 for (const fixtureMode of [true, false])
-  test(`dashboard renders with fixture=${fixtureMode}, owner actions disabled, and host openPrompt`, async (t) => {
+  test(`dashboard renders with fixture=${fixtureMode}, owner actions hidden, and host openPrompt`, async (t) => {
     const dom = new JSDOM('<div id="root"></div>');
-    t.after(() => dom.window.close());
     const link = connection();
     t.after(() => link.close());
     const client = await connectSidebar(link.remote, () => {});
@@ -167,19 +166,20 @@ for (const fixtureMode of [true, false])
         prompts.push(prompt);
       },
     });
-    t.after(() => view.dispose());
-    await until(() => !!root.querySelector('button[data-action="approve"]'));
-    for (const button of root.querySelectorAll<HTMLButtonElement>(
-      'button[data-action="approve"], button[data-action="promote"]',
-    )) {
-      assert.ok(button.disabled);
-      assert.match(
-        root.querySelector(".agent-notice")!.textContent!,
-        /Promote and approve stay with the owner/,
-      );
-      // Even a synthetic dispatch that skips HTML disabled behavior is capture-blocked.
-      button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    }
+    t.after(() => {
+      view.dispose();
+      dom.window.close();
+    });
+    await until(() => !!root.querySelector("#reviews"));
+    assert.equal(
+      root.querySelector('button[data-action="approve"], button[data-action="promote"]'),
+      null,
+    );
+    assert.match(
+      root.querySelector(".agent-notice")!.textContent!,
+      /Promote and approve stay with the owner/,
+    );
+    assert.equal(root.querySelector('[role="combobox"]'), null);
     const ask = [...root.querySelectorAll("button")].find(
       (button) => button.textContent === "Ask an agent",
     )!;
@@ -195,7 +195,7 @@ for (const fixtureMode of [true, false])
       /Owner workspace|Owner Access session|Owner actions are authorized/,
     );
     assert.equal(root.querySelector(".sidebar, .topbar"), null);
-    assert.equal(root.querySelector<HTMLElement>("#open-project")!.hidden, true);
+    assert.equal(root.querySelector("#open-project"), null);
     const reviewTab = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((button) =>
       button.textContent!.startsWith("Review"),
     )!;

@@ -1,0 +1,12 @@
+@import "../../forkhorse-dashboard/src/styles.css";
+/* The host Account card supplies the outer gutter. */
+.fork-picker {
+  display: grid;
+  gap: calc(var(--spacing) * 2);
+}
+.fork-picker p {
+  margin: 0;
+}
+.fork-picker label {
+  font-size: var(--text-sm);
+}

@@ -28,6 +28,7 @@ interface Host extends RpcTarget {
 const root = document.getElementById("sidebar")!;
 const status = document.createElement("p");
 status.setAttribute("role", "status");
+status.hidden = true;
 root.before(status);
 document.title = brand.name;
 const { port1, port2 } = new MessageChannel();
@@ -45,6 +46,7 @@ void (async () => {
   try {
     const client = await connectSidebar(await host.ui, (message) => {
       status.textContent = message;
+      status.hidden = !message;
     });
     if (closed) {
       client.dispose();

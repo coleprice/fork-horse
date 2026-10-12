@@ -1,12 +1,25 @@
 /** View projection of the public FH-005 wire state; never includes credentials. */
 export interface ProjectState {
-  project: { id: string; repoName: string; defaultBranch: string; remote?: string };
+  project: {
+    id: string;
+    repoName: string;
+    defaultBranch: string;
+    remote?: string;
+    events?: "pending" | "active";
+  };
   canonicalHead?: string;
   recentActivity?: Activity[];
   agents: { name: string }[];
-  forks: { agent: string; repoName: string; head: string }[];
+  forks: { agent: string; repoName: string; head: string; events?: "pending" | "active" }[];
   packets: { id: string; title: string; goal: string; paths: string[]; acceptance: string[] }[];
-  claims: { packet: string; agent: string; repoName: string; paths: string[]; active: boolean }[];
+  claims: {
+    packet: string;
+    agent: string;
+    repoName: string;
+    paths: string[];
+    active: boolean;
+    createdAt?: string;
+  }[];
   blockers: {
     id: string;
     agent: string;
@@ -14,6 +27,9 @@ export interface ProjectState {
     paths: string[];
     reason: string;
     resolved: boolean;
+    claimingAgent?: string;
+    pushingAgent?: string;
+    sha?: string;
   }[];
   reviews: Review[];
   ledger: { review: string; sha: string; promotedAt: string }[];
@@ -28,6 +44,7 @@ export interface Review {
   sha: string;
   receiptDigest: string | null;
   requestedAt?: string;
+  base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
   receipt?: { status: "passed" | "failed"; commands: string[] };
 }
@@ -42,6 +59,8 @@ export interface Activity {
   before: string;
   after: string;
   changedPaths: string[];
+  changedPathCount?: number;
+  changedPathsTruncated?: boolean;
   eventTimestamp: string;
   recordedAt: string;
 }
@@ -77,9 +96,17 @@ export interface StateResponse {
     repoName: string;
     remote: string;
     defaultBranch: string;
+    events?: "pending" | "active";
   };
   agents: { name: string }[];
-  forks: { agent: string; repoName: string; head: string; remote: string; createdAt: string }[];
+  forks: {
+    agent: string;
+    repoName: string;
+    head: string;
+    remote: string;
+    createdAt: string;
+    events?: "pending" | "active";
+  }[];
   packets: ProjectState["packets"];
   claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string }[];
   blockers: {

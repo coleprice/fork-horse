@@ -21,6 +21,15 @@ export function installDom(window: Window & typeof globalThis) {
       value: name === "window" ? window : window[name],
     });
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440, writable: true });
+  // jsdom 26 has MouseEvent but no PointerEvent; Base UI synthesizes a click from keyboard input.
+  Object.defineProperty(window, "PointerEvent", {
+    configurable: true,
+    value: class extends window.MouseEvent {
+      pointerId = 1;
+      pointerType = "mouse";
+      isPrimary = true;
+    },
+  });
   window.HTMLElement.prototype.scrollIntoView = () => {};
   globalThis.ResizeObserver = class {
     observe() {}

@@ -1,6 +1,7 @@
 import { followSystemTheme } from "../../forkhorse-dashboard/src/theme.ts";
 import { RpcTarget, newMessagePortRpcSession } from "capnweb";
-import "./configurator.css";
+import "./picker.css";
+import { mountForkPicker } from "../../forkhorse-dashboard/src/picker.tsx";
 interface Fork {
   url: string;
   repoName: string;
@@ -27,39 +28,35 @@ const channel = new MessageChannel();
 window.parent.postMessage({ type: "handshake" }, "*", [channel.port2]);
 const host = newMessagePortRpcSession<Host>(channel.port1, new Picker());
 const root = document.getElementById("sidebar")!;
-root.innerHTML =
-  '<h1>Select an agent fork</h1><select aria-label="Agent fork"><option value="">Choose a fork</option></select><p role="status">Loading your forks…</p>';
-const select = root.querySelector("select")!;
-const status = root.querySelector('[role="status"]')!;
-select.addEventListener("change", () => {
-  selected = select.value;
+const picker = mountForkPicker(root, (url) => {
+  selected = url;
+  picker.render(forks, selected, "Only forks owned by your connected agent are listed.");
   void host.setSelectionReady(forks.some((f) => f.url === selected));
 });
+picker.render([], undefined, "Loading your forks…", true);
 void (async () => {
   await host.setSelectionReady(false);
   forks = await host.gatekeeper.list();
-  for (const fork of forks) {
-    const option = document.createElement("option");
-    option.value = fork.url;
-    option.textContent = `${fork.repoName} · ${fork.head.slice(0, 12)}`;
-    select.append(option);
-  }
   const initial = await host.getInitialResource();
   if (initial && forks.some((f) => f.url === initial.resourceUrl)) {
     selected = initial.resourceUrl;
-    select.value = selected;
     await host.setSelectionReady(true);
   }
-  status.textContent = forks.length
-    ? "Only forks owned by your connected agent are listed."
-    : "This agent has no forks yet.";
+  picker.render(
+    forks,
+    selected,
+    forks.length
+      ? "Only forks owned by your connected agent are listed."
+      : "This agent has no forks yet.",
+  );
   await host.resize(300, 300);
 })().catch(() => {
-  status.textContent = "Fork discovery unavailable. Reconnect your agent.";
+  picker.render([], undefined, "Fork discovery unavailable. Reconnect your agent.");
 });
 window.addEventListener(
   "pagehide",
   () => {
+    picker.dispose();
     host[Symbol.dispose]();
     channel.port1.close();
   },

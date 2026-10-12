@@ -126,12 +126,12 @@ test("fixture DOM renders every packet view with fork-bound claims and evidence"
       assert.ok(context.root.querySelector(`#${section}`));
     assert.match(context.root.textContent!, /FIXTURE · OFFLINE/);
     assert.match(context.root.textContent!, /demo--builder-1/);
-    assert.match(context.root.textContent!, /Receipt bound/);
+    assert.match(context.root.textContent!, /Receipt ddddddd/);
     assert.match(context.root.textContent!, /Fork moved/);
     assert.equal(button(context.root, "approve").disabled, false);
-    assert.equal(button(context.root, "promote").disabled, true);
-    assert.equal(button(context.root, "approve", "review-2").disabled, true);
-    assert.equal(button(context.root, "approve", "review-3").disabled, true);
+    assert.equal(button(context.root, "promote"), null);
+    assert.equal(button(context.root, "approve", "review-2"), null);
+    assert.equal(button(context.root, "approve", "review-3"), null);
   } finally {
     context.cleanup();
   }
@@ -144,14 +144,14 @@ test("owner DOM Approve calls the review endpoint once; Promote refreshes head a
     const approve = button(context.root, "approve");
     approve.click();
     approve.click();
-    await until(() => context.root.textContent!.includes("Approved ui-01"));
+    await until(() => context.dom.window.document.body.textContent!.includes("Approved bbbbbbb"));
     assert.equal(context.fixture.calls.filter((call) => call.options.method === "POST").length, 1);
     const approvalCall = context.fixture.calls.find((entry) => entry.options.method === "POST")!;
     assert.equal(approvalCall.url.pathname, "/projects/demo/reviews/review-1/approve");
     assert.equal(approvalCall.options.credentials, "same-origin");
     assert.equal(approvalCall.options.body, "{}");
     assert.deepEqual(approvalCall.options.headers, { "Content-Type": "application/json" });
-    assert.equal(button(context.root, "promote").disabled, false);
+    await until(() => !!button(context.root, "promote"));
     button(context.root, "promote").click();
     await until(
       () => !!context.dom.window.document.querySelector('[data-action="confirm-promote"]'),
@@ -164,7 +164,7 @@ test("owner DOM Approve calls the review endpoint once; Promote refreshes head a
     context.dom.window.document
       .querySelector<HTMLButtonElement>('[data-action="confirm-promote"]')!
       .click();
-    await until(() => context.root.textContent!.includes("Promoted ui-01"));
+    await until(() => context.dom.window.document.body.textContent!.includes("Promoted bbbbbbb"));
     assert.equal(context.fixture.state.ledger[0].after, NEXT_HEAD);
     assert.equal(context.fixture.state.ledger.length, 1);
     assert.ok(context.fixture.calls.some((entry) => entry.url.pathname.endsWith("/promote")));
@@ -181,9 +181,12 @@ test("a stale-base conflict is surfaced and refreshed without retrying the owner
     context.fixture.failAction();
     button(context.root, "approve").click();
     await until(
-      () => context.root.querySelector('[role="alert"]')?.textContent === "stale base, rebase",
+      () =>
+        context.root
+          .querySelector('[role="alert"]')
+          ?.textContent?.includes("stale base, rebase") === true,
     );
-    assert.equal(button(context.root, "approve").disabled, true);
+    assert.equal(button(context.root, "approve"), null);
     assert.equal(context.fixture.calls.filter((call) => call.options.method === "POST").length, 1);
   } finally {
     context.cleanup();
@@ -194,9 +197,32 @@ test("expired session clears old actionable state; project switching shows empty
   const context = setup();
   try {
     await until(() => Boolean(context.root.querySelector("#reviews")));
-    const select = context.root.querySelector<HTMLSelectElement>("#project")!;
-    select.value = "quiet";
-    select.dispatchEvent(new context.dom.window.Event("change", { bubbles: true }));
+    const combo = context.root.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+    combo.focus();
+    combo.dispatchEvent(
+      new context.root.ownerDocument.defaultView!.KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        bubbles: true,
+      }),
+    );
+    await until(() => !!context.dom.window.document.querySelector('[role="option"]'));
+    const option = [
+      ...context.dom.window.document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((entry) => entry.textContent === "Quiet")!;
+    option.focus();
+    option.dispatchEvent(
+      new context.root.ownerDocument.defaultView!.MouseEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+      }),
+    );
+    option.dispatchEvent(
+      new context.root.ownerDocument.defaultView!.MouseEvent("mouseup", {
+        bubbles: true,
+        button: 0,
+      }),
+    );
+    option.click();
     await until(() => context.root.textContent!.includes("No enrolled agents."));
     assert.equal(context.root.querySelectorAll(".review-card").length, 0);
     context.fixture.expireSession();
@@ -370,7 +396,7 @@ test("promotion confirmation stays bound to the displayed head when a fresh snap
   try {
     await until(() => Boolean(context.root.querySelector("#reviews")));
     button(context.root, "approve").click();
-    await until(() => button(context.root, "promote").disabled === false);
+    await until(() => !!button(context.root, "promote"));
     button(context.root, "promote").click();
     await until(
       () => !!context.dom.window.document.querySelector('[data-action="confirm-promote"]'),
@@ -403,6 +429,123 @@ test("tabs preserve fragment selection when the sandbox rejects History API URLs
     assert.equal(window.location.hash, "#work");
     await context.app.refresh();
     assert.equal(context.root.querySelector<HTMLElement>("#view-work")!.hidden, false);
+  } finally {
+    context.cleanup();
+  }
+});
+
+test("packet states follow blocker, promotion, approval, stale review and claim precedence", async () => {
+  const { packetStatus } = await import("../src/view.tsx");
+  const state = stateView(fixtureState());
+  const id = state.packets[0].id;
+  const review = state.reviews[0];
+  assert.equal(packetStatus(id, state).label, "In review");
+  review.status = "stale";
+  assert.equal(packetStatus(id, state).label, "Fork moved");
+  review.status = "approved";
+  assert.equal(packetStatus(id, state).label, "Approved");
+  review.status = "promoted";
+  assert.equal(packetStatus(id, state).label, "Promoted");
+  state.blockers[0].packet = id;
+  assert.equal(packetStatus(id, state).label, "Blocked");
+  state.blockers = [];
+  state.reviews = [];
+  assert.equal(packetStatus(id, state).label, "In progress");
+  state.claims = [];
+  assert.equal(packetStatus(id, state).label, "Ready");
+});
+
+test("optional events and real claim times are preserved; absent metadata is omitted", () => {
+  const wire = fixtureState();
+  wire.project.events = "active";
+  wire.forks[0].events = "pending";
+  const state = stateView(wire);
+  assert.equal(state.project.events, "active");
+  assert.equal(state.forks[0].events, "pending");
+  assert.equal(state.claims[0].createdAt, wire.claims[0].createdAt);
+  assert.equal(state.blockers[0].claimingAgent, wire.blockers[0].claimingAgent);
+  delete state.project.events;
+  for (const fork of state.forks) delete fork.events;
+  const html = renderDashboard({
+    brand,
+    project: "demo",
+    projects: [],
+    fixture: false,
+    state,
+    activity: [],
+    busy: false,
+  });
+  assert.doesNotMatch(
+    html,
+    /Events pending|Unavailable|Details pending|Return to agent|Load older|Exact identifiers/,
+  );
+});
+
+test("path summaries use true totals, first-push and deletion copy; details limit and expand only supplied paths", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { createRoot } = await import("react-dom/client");
+  const { flushSync } = await import("react-dom");
+  const { Paths, PathDetails } = await import("../src/view.tsx");
+  for (const [scenario, text] of [
+    ["large", "+449 more"],
+    ["first", "First push · 450 files"],
+    ["partial", "+449 more"],
+    ["deleted", "Deleted"],
+  ]) {
+    const event = fixtureState(scenario).activity[0];
+    const html = renderToStaticMarkup(createElement(Paths, { paths: event.changedPaths, event }));
+    assert.match(html, new RegExp(text.replace(/[+·]/g, "\\$&")));
+  }
+  const dom = new JSDOM('<div id="dashboard"></div>');
+  installDom(dom.window as unknown as Window & typeof globalThis);
+  const root = dom.window.document.getElementById("dashboard")!;
+  const react = createRoot(root);
+  try {
+    const event = fixtureState("partial").activity[0];
+    flushSync(() =>
+      react.render(
+        createElement(PathDetails, {
+          paths: event.changedPaths,
+          total: event.changedPathCount,
+          partial: true,
+        }),
+      ),
+    );
+    assert.equal(root.querySelectorAll("code").length, 20);
+    assert.match(root.textContent!, /Show all 30 paths/);
+    assert.match(root.textContent!, /Showing 30 of 450 paths/);
+    root.querySelector<HTMLButtonElement>("button")!.click();
+    await until(() => root.querySelectorAll("code").length === 30);
+    assert.equal(root.querySelector("button"), null);
+  } finally {
+    flushSync(() => react.unmount());
+    dom.window.close();
+  }
+});
+
+test("promotion confirmation refuses a changed base even when the fork head and digest stay equal", async () => {
+  const context = setup();
+  try {
+    await until(() => !!context.root.querySelector("#reviews"));
+    button(context.root, "approve").click();
+    await until(() => !!button(context.root, "promote"));
+    button(context.root, "promote").click();
+    await until(
+      () => !!context.dom.window.document.querySelector('[data-action="confirm-promote"]'),
+    );
+    context.fixture.state.reviews[0].base = "9".repeat(40);
+    await context.app.refresh();
+    assert.equal(
+      context.dom.window.document.querySelector<HTMLButtonElement>(
+        '[data-action="confirm-promote"]',
+      )!.disabled,
+      true,
+    );
+    assert.equal(
+      context.fixture.calls.filter((call) => call.url.pathname.endsWith("/promote")).length,
+      0,
+    );
   } finally {
     context.cleanup();
   }
