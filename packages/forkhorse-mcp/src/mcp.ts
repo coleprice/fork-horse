@@ -164,6 +164,7 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
             method: request.method,
             headers: request.headers,
             body: requestBody,
+            redirect: "manual",
             signal,
           });
           signal.throwIfAborted();

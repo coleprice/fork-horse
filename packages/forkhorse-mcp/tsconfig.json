@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["@cloudflare/workers-types", "node"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types", "node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,

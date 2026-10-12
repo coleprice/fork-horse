@@ -30,7 +30,9 @@ All adapters must honor `signal` and check it before starting writes. Core remai
 
 The join/claim workflow explicitly passes the returned `repoName` to `claim`. If omitted, core defaults it to the most recently successfully registered fork. Claim creation atomically returns the immutable `{packet, agent, repoName}` binding. `state.claims` must contain live bindings in that same shape. `submit_work` filters them by the authenticated caller and packet, refuses missing/ambiguous bindings, and uses exactly the bound repository. Later joins never redirect that binding. Releasing and reclaiming belongs to core's claim lifecycle; no release tool or route is invented here.
 
-`files` contains `{path, content}` objects, up to 200 unique safe relative paths. The commit body is bounded to 1 MiB; the enclosing MCP request must fit strictly below 1 MiB, so practical file payloads are smaller. The three read tools advertise `readOnlyHint: true`; writes are marked non-idempotent. Enrollment, rotation, packet creation, approval and promotion are absent from the tool inventory. There are seven tools, below the 200-tool cap.
+`files` contains `{path, content}` objects, up to 200 unique safe relative paths. The commit body is bounded to 1 MiB; the enclosing MCP request must fit strictly below 1 MiB, so practical file payloads are smaller. All outbound core Requests use manual redirect handling: every upstream 3xx is refused with a sanitized error without following or exposing its Location.
+
+The three read tools advertise `readOnlyHint: true`; writes are marked non-idempotent. Enrollment, rotation, packet creation, approval and promotion are absent from the tool inventory. There are seven tools, below the 200-tool cap.
 
 Each call has a 25-second deadline, including authentication, input and output body reads. Serialized HTTP responses stay strictly below 1 MiB, including JSON-RPC wrapping and escaping. Bodies are counted while streaming, regardless of Content-Length. No persistent GET/SSE stream is offered: POST uses the SDK's JSON response mode and GET/DELETE return 405. Each request gets a fresh server/transport, so no in-memory MCP session holds a credential. Responses are `no-store`; provider errors are replaced with fixed public messages.
 
@@ -42,6 +44,7 @@ The real `@cloudflare/workers-oauth-provider` library handles RFC 9728 resource 
 - Registration/token endpoints: `/oauth/register`, `/oauth/token`.
 - Consent: `/authorize`, protected by the required `authorizeOwner(request, signal)` callback. FH-012 must validate Access JWT signature, issuer, audience, expiry and the owner allowlist. Merely checking an Access header is not sufficient. The fixture test callback is explicitly not a deployment implementation.
 - Public client authorization requires S256 PKCE and the coarse `mcp:agent` scope. That scope permits only the agent tools, subject to core authorization.
+- Consent requires an exact registered `redirect_uri`, including loopback ports. The browser response remains a 302 to that callback with only the OAuth result parameters added. The final Location is checked against the registered target and result fields; the wrapper rejects every other 3xx, and never fetches a returned Location.
 - The page shows escaped client metadata, redirect host, project and permissions. Provider helpers supply anti-framing headers and a browser-bound, single-use consent handle. Denial creates no agent.
 - Each approved grant enrolls a fresh agent. Its core credential is stored only in encrypted provider props, never sent to the OAuth client. MCP revalidates it on every call, so core rotation immediately removes effective access.
 - Access tokens last one hour; refresh grants and dynamic registrations expire after one day. Client metadata URL fetching and token-exchange grants are disabled.
@@ -51,10 +54,10 @@ Enrollment and OAuth grant persistence span two systems. If grant completion fai
 ## Local checks
 
 ```sh
-pnpm --filter forkhorse-mcp test
+pnpm --filter forkhorse-mcp test:run
 pnpm --filter forkhorse-mcp types:check
 pnpm test
 pnpm lint
 ```
 
-The official MCP SDK client initializes and lists tools against this library. Tests also cover exact route/body/token mappings, immutable binding across later joins, input/authentication rejection, size/deadline limits and redacted conflicts. OAuth tests run the real provider against fixture KV and a minimal Node-only `WorkerEntrypoint` shim, checking discovery, DCR, consent, PKCE exchange, replay refusal and core-token revocation. No test calls live Cloudflare services.
+The official MCP SDK client initializes and lists tools against this library. Tests also cover exact route/body/token mappings, immutable binding across later joins, input/authentication rejection, size/deadline limits and redacted conflicts. OAuth tests run the real provider against fixture KV and a minimal Node-only `WorkerEntrypoint` shim, checking discovery, DCR, consent, PKCE exchange, replay refusal and core-token revocation. A separate `workerd` Vitest project uses the real Worker runtime and local KV without that shim. It covers authenticated MCP tools/list, OAuth discovery and registration, manual refusal of upstream 3xx responses (including a core 302), valid approve/deny consent responses, mismatched callback URIs and unexpected provider redirects. Outbound fetch is blocked in those fixtures. No test calls live Cloudflare services.
