@@ -140,7 +140,7 @@ test("advisory receipt outcomes never gate; approved reviews re-satisfy the gate
     "Checks timed out. A new push runs them again.",
   );
   const advisory = fixtureState("advisory");
-  advisory.reviews[3].approval!.receiptDigest = null;
+  advisory.reviews[3].approval = { sha: advisory.reviews[3].sha, receiptDigest: null };
   assert.equal(
     stateView(advisory).reviews[3].status,
     "approved",
@@ -213,6 +213,10 @@ test("required promote 409 keeps dialog with failure and opens new receipt; advi
   }
   const a = setup("advisory");
   try {
+    await until(() => !!a.root.querySelector('[data-action="approve"][data-review="receipt-4"]'));
+    a.root
+      .querySelector<HTMLButtonElement>('[data-action="approve"][data-review="receipt-4"]')!
+      .click();
     await until(() => !!a.root.querySelector('[data-action="promote"][data-review="receipt-4"]'));
     a.root
       .querySelector<HTMLButtonElement>('[data-action="promote"][data-review="receipt-4"]')!

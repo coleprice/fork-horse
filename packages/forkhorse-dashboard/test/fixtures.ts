@@ -300,10 +300,7 @@ export function fixtureState(id = "demo"): StateResponse {
         base: HEAD,
         receiptDigest: receipt?.digest ?? null,
         receipt,
-        approval:
-          index === 2 || (id === "advisory" && index === 3)
-            ? { sha, receiptDigest: receipt?.digest ?? null }
-            : null,
+        approval: index === 2 ? { sha, receiptDigest: receipt?.digest ?? null } : null,
         stale: false,
         promoted: false,
         createdAt,
