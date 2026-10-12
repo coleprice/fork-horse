@@ -1,3 +1,4 @@
+import { CallerCredentials } from "./caller-credentials";
 import { DurableObject } from "cloudflare:workers";
 import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, slug } from "./http";
 import { changedPaths, ZERO_SHA } from "./trees";
@@ -166,6 +167,8 @@ export class Supervisor extends DurableObject<Env> {
           const activity = [...entries.values()];
           return json({ activity, nextAfter: activity.at(-1)?.sequence ?? after });
         }
+        const credentialResponse = await new CallerCredentials(this.ctx.storage, this.env).route(request, project, actor);
+        if (credentialResponse) return credentialResponse;
         const response = await new Workflow(this.ctx.storage, this.env, this.gitOperations()).route(
           request,
           project,

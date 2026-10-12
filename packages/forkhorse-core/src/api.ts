@@ -24,16 +24,18 @@ export async function dispatchApi(request: Request, env: Env, owner = false): Pr
         suffix === "/agents" ||
         suffix === "/reviews" ||
         /^\/agents\/[^/]+\/rotate$/.test(suffix) ||
-        /^\/forks\/[^/]+\/commit$/.test(suffix) ||
+        /^\/forks\/[^/]+\/(commit|token)$/.test(suffix) ||
         /^\/reviews\/[^/]+\/(approve|promote)$/.test(suffix)
           ? ["POST"]
-          : /^\/packets\/[^/]+\/claim$/.test(suffix)
-            ? ["POST", "DELETE"]
-            : suffix === "/packets"
-              ? ["GET", "POST"]
-              : ["/activity", "/blockers", "/state"].includes(suffix)
-                ? ["GET"]
-                : [];
+          : /^\/forks\/[^/]+\/tokens$/.test(suffix)
+            ? ["DELETE"]
+            : /^\/packets\/[^/]+\/claim$/.test(suffix)
+              ? ["POST", "DELETE"]
+              : suffix === "/packets"
+                ? ["GET", "POST"]
+                : ["/activity", "/blockers", "/state", "/me"].includes(suffix)
+                  ? ["GET"]
+                  : [];
       if (!methods.length) return json({ error: "Not found." }, 404);
       if (!methods.includes(request.method)) return json({ error: "Method not allowed." }, 405);
       project = match[1];

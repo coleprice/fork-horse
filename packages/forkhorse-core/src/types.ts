@@ -3,7 +3,7 @@ import type { Supervisor } from "./supervisor";
 /** Narrow views of the generated platform types; fixtures implement this same API. */
 export type Repository = Pick<
   ArtifactsRepo,
-  "log" | "fork" | "createToken" | "revokeToken" | "readCommit" | "readTree" | typeof Symbol.dispose
+  "log" | "fork" | "createToken" | "listTokens" | "revokeToken" | "readCommit" | "readTree" | typeof Symbol.dispose
 >;
 export type ArtifactsBinding = Pick<Artifacts, "create" | "import"> & {
   get(name: string): Promise<Repository>;
