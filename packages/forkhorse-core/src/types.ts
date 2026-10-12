@@ -13,6 +13,15 @@ export interface Env {
   ARTIFACTS: ArtifactsBinding;
   ARTIFACTS_NAMESPACE: string;
   OWNER_API_TOKEN_HASH: string;
+  // Optional only for API-only offline fixtures. Public integration fails closed if incomplete.
+  CORE_PUBLIC_ORIGIN?: string;
+  MCP_PATH?: string;
+  MCP_PROJECT?: string;
+  CORE_ACCESS_ISSUER?: string;
+  CORE_ACCESS_AUDIENCE?: string;
+  CORE_ACCESS_OWNERS?: string[];
+  OAUTH_KV?: KVNamespace;
+  ASSETS?: Fetcher;
   SUPERVISOR: DurableObjectNamespace<Supervisor>;
 }
 

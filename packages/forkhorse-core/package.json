@@ -7,8 +7,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "types:check": "tsc --noEmit",
-    "test": "vitest run",
-    "test:run": "vitest run"
+    "test": "pnpm --filter forkhorse-dashboard build && vitest run",
+    "test:run": "pnpm --filter forkhorse-dashboard build && vitest run"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.4.0",
@@ -19,6 +19,8 @@
     "wrangler": "4.149.0"
   },
   "dependencies": {
-    "isomorphic-git": "1.42.2"
+    "forkhorse-mcp": "workspace:*",
+    "isomorphic-git": "1.42.2",
+    "jose": "6.2.12"
   }
 }

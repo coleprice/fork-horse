@@ -1,51 +1,10 @@
-import { body, errorResponse, HttpError, json, slug } from "./http";
+import { publicFetch } from "./public";
 import { parsePush, projectForRepo } from "./events";
 import type { Env } from "./types";
 export { Supervisor } from "./supervisor";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-      let project: string;
-      if (request.method === "POST" && url.pathname === "/projects") {
-        const data = await body(request);
-        if (!slug(data.id))
-          throw new HttpError(400, "id must be a lowercase slug of at most 48 characters.");
-        project = data.id;
-        request = new Request(request.url, {
-          method: request.method,
-          headers: request.headers,
-          body: JSON.stringify(data),
-        });
-      } else {
-        const match = /^\/projects\/([^/]+)(\/.*)$/.exec(url.pathname);
-        if (!match || !slug(match[1])) return json({ error: "Not found." }, 404);
-        const suffix = match[2]!;
-        const methods =
-          suffix === "/join" ||
-          suffix === "/agents" ||
-          suffix === "/reviews" ||
-          /^\/agents\/[^/]+\/rotate$/.test(suffix) ||
-          /^\/forks\/[^/]+\/commit$/.test(suffix) ||
-          /^\/reviews\/[^/]+\/(approve|promote)$/.test(suffix)
-            ? ["POST"]
-            : /^\/packets\/[^/]+\/claim$/.test(suffix)
-              ? ["POST", "DELETE"]
-              : suffix === "/packets"
-                ? ["GET", "POST"]
-                : ["/activity", "/blockers", "/state"].includes(suffix)
-                  ? ["GET"]
-                  : [];
-        if (!methods.length) return json({ error: "Not found." }, 404);
-        if (!methods.includes(request.method)) return json({ error: "Method not allowed." }, 405);
-        project = match[1];
-      }
-      return await env.SUPERVISOR.get(env.SUPERVISOR.idFromName(project)).fetch(request);
-    } catch (error) {
-      return errorResponse(error);
-    }
-  },
+  fetch: publicFetch,
 
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     for (const message of batch.messages) {

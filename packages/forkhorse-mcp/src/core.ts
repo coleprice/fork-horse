@@ -174,7 +174,7 @@ export function coreRequest(token: string, operation: CoreOperation, signal: Abo
   return new Request(`https://core.invalid${path}`, {
     method: body === undefined ? "GET" : "POST",
     signal,
-    redirect: "error",
+    redirect: "manual",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body,
   });
@@ -192,6 +192,12 @@ export function createCoreClient(
     async execute(token, operation, signal) {
       signal.throwIfAborted();
       const response = await options.fetch(coreRequest(token, operation, signal));
+      // workerd supports manual redirect handling, not the Fetch "error" mode.
+      // Refuse every upstream 3xx without reading or exposing its Location/body.
+      if (response.status >= 300 && response.status < 400) {
+        void response.body?.cancel().catch(() => {});
+        throw new PublicError(502, "Core redirect refused.");
+      }
       if (!response.ok) {
         void response.body?.cancel().catch(() => {});
         const status = [400, 401, 403, 404, 409, 413, 429].includes(response.status)

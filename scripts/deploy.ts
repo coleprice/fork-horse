@@ -6,6 +6,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { pnpmCommand } from "../cloudflare-os/scripts/pnpm-command.ts";
 import { resolveBinEntry } from "../cloudflare-os/scripts/bin-entry.ts";
+import { coreConfig, validateCore } from "./core-deployment.ts";
 import { AI_GATEWAY_PROVIDERS } from "./deployment-config.ts";
 import type {
   BaseConfigs,
@@ -26,6 +27,7 @@ const packageDirs = {
   scheduler: "cloudflare-os/packages/gatekeeper-scheduler",
   customGatekeeper: "packages/custom-gatekeeper",
   errorReporter: "packages/error-reporter",
+  core: "packages/forkhorse-core",
 } as const;
 const generatedPaths = Object.fromEntries(
   Object.entries(packageDirs).map(([name, dir]) => [name, join(root, dir, generatedName)]),
@@ -189,6 +191,7 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
       errorReporting: { enabled: false },
     };
   }
+  if (!config.core?.enabled) activeConfig = { ...activeConfig, core: undefined };
   const placeholder = JSON.stringify(activeConfig).match(/<[^>]+>/)?.[0];
   if (placeholder) throw new Error(`Replace deployment placeholder ${placeholder}.`);
 
@@ -305,6 +308,7 @@ export function validateConfig(config: DeploymentConfig): DeploymentConfig {
   if (typeof traceSampling !== "number" || traceSampling < 0 || traceSampling > 1) {
     throw new Error("Observability trace sampling must be between 0 and 1.");
   }
+  validateCore(config);
   return config;
 }
 
@@ -438,6 +442,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
   const errorReporter = config.errorReporting.enabled
     ? structuredClone(bases.errorReporter)
     : undefined;
+  const core = coreConfig(config, bases);
   const origin = publicOrigin(config);
 
   setCommon(router, config, config.workers.router.name, config.workers.router.route);
@@ -524,7 +529,7 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
     { binding: "BLUEPRINT_CONTENT", ...(config.resources.blueprintContentBucket
       ? { bucket_name: config.resources.blueprintContentBucket } : {}) },
   ];
-  // The router serves the frontend, and it is the only Worker with a public route.
+  // The OS router serves its frontend; the optional core has its own separate public route.
   delete workshop.assets;
 
   setCommon(context, config, config.workers.context.name);
@@ -556,7 +561,10 @@ export function generateConfigs(config: DeploymentConfig, bases: BaseConfigs): G
     setCommon(errorReporter, config, config.workers.errorReporter!.name);
   }
 
+  if (core) setCommon(core, config, config.core!.workerName, { customDomain: config.core!.hostname });
+
   return {
+    ...(core && { core }),
     router, workshop, context, scheduler, customGatekeeper,
     ...(errorReporter && { errorReporter }),
   };
@@ -604,6 +612,11 @@ export function buildCommands(config: DeploymentConfig): BuildCommand[] {
     // The Scheduler's `build` nests the same cached `vp run build:app`, so it needs the same pair.
     { args: submoduleBuild("@gadgets/gatekeeper-scheduler", "build:app") },
     { args: submoduleBuild("@gadgets/gatekeeper-scheduler") },
+    ...(config.core?.enabled ? [
+      { args: ownBuild("forkhorse-mcp") },
+      { args: ownBuild("forkhorse-dashboard") },
+      { args: ownBuild("forkhorse-core") },
+    ] : []),
     { args: ownBuild("custom-gatekeeper") },
     ...(config.errorReporting.enabled ? [{ args: ownBuild("error-reporter") }] : []),
     // Access mode is a build-time constant in the frontend bundle (`src/useAuth.ts`), so it is set
@@ -718,6 +731,7 @@ async function main(): Promise<void> {
   const localConfig = join(root, "deployment.local.jsonc");
   const config = await readDeployment(existsSync(localConfig) ? localConfig : join(root, "deployment.jsonc"));
   const generated = generateConfigs(config, {
+    core: await readJsonc(join(root, packageDirs.core, "wrangler.jsonc")),
     router: await readJsonc(join(root, packageDirs.router, "wrangler.jsonc")),
     workshop: await readJsonc(join(root, packageDirs.workshop, "wrangler.jsonc")),
     context: await readJsonc(join(root, packageDirs.context, "wrangler.jsonc")),
@@ -737,6 +751,7 @@ async function main(): Promise<void> {
     if (check) run(["test"]);
     build(config);
     const deployArgs = check ? ["--dry-run"] : [];
+    if (config.core?.enabled) deployWorker(packageDirs.core, deployArgs);
     if (config.errorReporting.enabled) {
       deployWorker(packageDirs.errorReporter, deployArgs);
     }

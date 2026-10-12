@@ -10,6 +10,7 @@ import { boundedCall, MAX_BYTES, PublicError, readBounded } from "./core";
 import type { OwnerIdentity } from "./core";
 import { createMcpHandler, endpointConfig, publicFailure } from "./mcp";
 import type { McpOptions } from "./mcp";
+import { consentRedirect, requireRegisteredRedirect } from "./consent";
 
 export interface OAuthEnv {
   OAUTH_KV: KVNamespace;
@@ -42,13 +43,14 @@ ${details.redirectIsLoopback ? "<p>This sends access to an app on your computer.
 <button name="decision" value="approve">Allow</button><button name="decision" value="deny">Deny</button></form></body></html>`;
 }
 
-/** Provider configuration for the single core Worker. No Worker entrypoint or deployment is created. */
-export function createOAuthConfiguration(options: OAuthOptions): OAuthProviderOptions<OAuthEnv> {
+function configureOAuth(options: OAuthOptions) {
+  // Only consent responses checked below may leave the wrapper as a 3xx.
+  const consentResponses = new WeakSet<Response>();
   const config = endpointConfig(options);
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(options.project) || options.project.length > 48)
     throw new Error("Invalid OAuth project.");
   const mcp = createMcpHandler(options);
-  return {
+  const configuration: OAuthProviderOptions<OAuthEnv> = {
     apiRoute: config.path,
     authorizeEndpoint: `${config.origin}/authorize`,
     tokenEndpoint: `${config.origin}/oauth/token`,
@@ -109,6 +111,7 @@ export function createOAuthConfiguration(options: OAuthOptions): OAuthProviderOp
             const oauth = env.OAUTH_PROVIDER;
             if (request.method === "GET") {
               const auth = await oauth.parseAuthRequest(request);
+              await requireRegisteredRedirect(oauth, auth);
               if (
                 auth.codeChallengeMethod !== "S256" ||
                 !auth.codeChallenge ||
@@ -133,11 +136,20 @@ export function createOAuthConfiguration(options: OAuthOptions): OAuthProviderOp
               throw new PublicError(400, "Invalid consent handle.");
             if (form.get("decision") === "deny") {
               const denied = await oauth.denyConsent(request, handle);
-              return new Response(null, { status: 302, headers: denied.headers });
+              await requireRegisteredRedirect(oauth, denied.request);
+              const response = consentRedirect(
+                denied.request,
+                denied.redirectTo,
+                denied.headers,
+                "deny",
+              );
+              consentResponses.add(response);
+              return response;
             }
             if (form.get("decision") !== "approve")
               throw new PublicError(400, "An explicit consent decision is required.");
             const approved = await oauth.approveConsent(request, handle);
+            await requireRegisteredRedirect(oauth, approved.request);
             if (
               approved.request.codeChallengeMethod !== "S256" ||
               approved.request.scope.length !== 1 ||
@@ -163,8 +175,14 @@ export function createOAuthConfiguration(options: OAuthOptions): OAuthProviderOp
               scope: [scope],
               props,
             });
-            approved.headers.set("location", redirectTo);
-            return new Response(null, { status: 302, headers: approved.headers });
+            const response = consentRedirect(
+              approved.request,
+              redirectTo,
+              approved.headers,
+              "approve",
+            );
+            consentResponses.add(response);
+            return response;
           },
           config.timeoutMs,
           request.signal,
@@ -172,12 +190,19 @@ export function createOAuthConfiguration(options: OAuthOptions): OAuthProviderOp
       },
     },
   };
+  return { configuration, consentResponses };
+}
+
+/** Provider configuration for the single core Worker. No Worker entrypoint or deployment is created. */
+export function createOAuthConfiguration(options: OAuthOptions): OAuthProviderOptions<OAuthEnv> {
+  return configureOAuth(options).configuration;
 }
 
 /** Bounded facade for discovery, DCR, PKCE, consent, token exchange and authenticated MCP. */
 export function createOAuthHandler(options: OAuthOptions) {
   const config = endpointConfig(options);
-  const provider = new OAuthProvider<OAuthEnv>(createOAuthConfiguration(options));
+  const { configuration, consentResponses } = configureOAuth(options);
+  const provider = new OAuthProvider<OAuthEnv>(configuration);
   return async (request: Request, env: OAuthEnv, ctx: ExecutionContext): Promise<Response> => {
     try {
       return await boundedCall(
@@ -194,10 +219,15 @@ export function createOAuthHandler(options: OAuthOptions) {
             method: request.method,
             headers: request.headers,
             body,
-            redirect: "error",
+            redirect: "manual",
             signal,
           });
+          // In-process dispatch: do not fetch the provider's returned Location.
           const response = await provider.fetch(bounded, env, ctx);
+          if (response.status >= 300 && response.status < 400 && !consentResponses.has(response)) {
+            void response.body?.cancel().catch(() => {});
+            throw new PublicError(502, "OAuth redirect refused.");
+          }
           const text = await readBounded(response.body, MAX_BYTES - 1, signal);
           const headers = new Headers(response.headers);
           headers.set("cache-control", "no-store");

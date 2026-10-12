@@ -7,6 +7,7 @@
 // `verbatimModuleSyntax` erase completely -- `node` never resolves them, so the submodule's
 // runtime dependencies are not this script's problem.
 
+import type { CoreDeployment } from "./core-deployment.ts";
 import type {
   BindingDecl,
   ObservabilityConfig,
@@ -115,6 +116,7 @@ export interface DeploymentConfig {
     /** Only required when `errorReporting.enabled`. */
     errorReporter?: { name: string };
   };
+  core?: CoreDeployment;
   access: AccessConfig;
   aiGateway: AiGatewayConfigInput;
   context: ContextConfig;
@@ -149,11 +151,27 @@ export interface ProdObservabilityConfig extends ObservabilityConfig {
  * `BindingDecl`s, because the release manifest replaces every id with a placeholder while a
  * generated config either names the resource or leaves it for automatic provisioning.
  *
- * `assets` is *not* redeclared -- upstream's is already the shape written here.
+ * `assets` adds the core Worker-first gate; Queue consumers and Durable Objects are core bindings.
  */
 export type ProdWranglerConfig =
-  Omit<WranglerConfig, "observability" | "artifacts" | "kv_namespaces" | "r2_buckets">
+  Omit<WranglerConfig, "observability" | "artifacts" | "kv_namespaces" | "r2_buckets" | "assets" | "queues">
   & {
+    durable_objects?: { bindings: { name: string; class_name: string }[] };
+    assets?: {
+      directory?: string;
+      binding?: string;
+      run_worker_first?: boolean | string[];
+      html_handling?: "none";
+      not_found_handling?: "none";
+    };
+    queues?: {
+      consumers: {
+        queue: string;
+        dead_letter_queue: string;
+        max_retries: number;
+        max_batch_size: number;
+      }[];
+    };
     /** KV bindings. `id` absent requests Wrangler automatic provisioning. */
     kv_namespaces?: (BindingDecl & { id?: string })[];
     /** R2 bindings. `bucket_name` absent requests Wrangler automatic provisioning. */
@@ -177,6 +195,7 @@ export type ProdWranglerConfig =
 
 /** The generated configs, keyed as `deployment.jsonc` keys them. */
 export interface GeneratedConfigs {
+  core?: ProdWranglerConfig;
   router: ProdWranglerConfig;
   workshop: ProdWranglerConfig;
   context: ProdWranglerConfig;
@@ -188,6 +207,7 @@ export interface GeneratedConfigs {
 
 /** The upstream base configs the generated ones are derived from. */
 export interface BaseConfigs {
+  core?: ProdWranglerConfig;
   router: ProdWranglerConfig;
   workshop: ProdWranglerConfig;
   context: ProdWranglerConfig;

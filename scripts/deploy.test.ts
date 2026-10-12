@@ -274,6 +274,7 @@ test("gives the router the public route, the frontend, and every service binding
   assert.deepEqual(generated.router.assets, bases.router.assets);
   assert.equal(generated.router.assets!.binding, "ASSETS");
   assert.equal(generated.router.assets!.directory, "../workshop-frontend/dist");
+  assert.ok(Array.isArray(generated.router.assets!.run_worker_first));
   assert.ok(generated.router.assets!.run_worker_first!.includes("/gatekeeper/*"),
     JSON.stringify(generated.router.assets));
 });
@@ -615,4 +616,77 @@ test("skips the Error Reporter build when error reporting is disabled", () => {
   });
   const commands = buildCommands(config).map(({ args }) => args.join(" "));
   assert.equal(commands.some((command) => command.includes("error-reporter")), false);
+});
+
+function withCore(): DeploymentConfig {
+  return {
+    ...structuredClone(validConfig),
+    core: {
+      enabled: true, workerName: "fixture-core", hostname: "core.idiot.tax", mcpPath: "/mcp",
+      project: "fixture", artifactsNamespace: "fixture", oauthKvNamespaceId: null,
+      pushQueue: "fixture-push", deadLetterQueue: "fixture-push-dlq",
+      access: { issuer: "https://fixture.cloudflareaccess.com", audience: "fixture-audience", owners: ["owner@idiot.tax"] },
+    },
+  };
+}
+
+test("core integration generates one public Worker with protected assets, OAuth KV and Queue consumer", async () => {
+  const config = withCore();
+  const bases = { ...await baseConfigs(), core: await baseConfig("../packages/forkhorse-core/wrangler.jsonc") };
+  const before = structuredClone(bases);
+  const { core } = generateConfigs(config, bases);
+  assert.ok(core);
+  assert.equal(core.name, "fixture-core");
+  assert.equal(core.workers_dev, false);
+  assert.equal(core.preview_urls, false);
+  assert.deepEqual(core.routes, [{ pattern: "core.idiot.tax", custom_domain: true }]);
+  assert.equal(core.assets?.run_worker_first, true);
+  assert.equal(core.assets?.html_handling, "none");
+  assert.equal(core.assets?.not_found_handling, "none");
+  assert.equal(core.assets?.directory, "../forkhorse-dashboard/dist");
+  assert.deepEqual(core.kv_namespaces, [{ binding: "OAUTH_KV" }]);
+  assert.deepEqual(core.secrets, { required: ["OWNER_API_TOKEN_HASH"] });
+  assert.deepEqual(core.artifacts, [{ binding: "ARTIFACTS", namespace: "fixture" }]);
+  assert.deepEqual(core.queues?.consumers, [{ queue: "fixture-push", dead_letter_queue: "fixture-push-dlq", max_retries: 5, max_batch_size: 10 }]);
+  assert.equal(core.vars?.CORE_PUBLIC_ORIGIN, "https://core.idiot.tax");
+  assert.deepEqual(core.vars?.CORE_ACCESS_OWNERS, ["owner@idiot.tax"]);
+  assert.equal(core.vars?.CORE_ACCESS_AUDIENCE, "fixture-audience");
+  assert.equal(core.vars?.MCP_PATH, "/mcp");
+  assert.equal(core.vars?.MCP_PROJECT, "fixture");
+  assert.deepEqual(core.durable_objects, bases.core.durable_objects);
+  assert.deepEqual(core.migrations, bases.core.migrations);
+  assert.deepEqual(bases, before);
+  for (const pkg of ["forkhorse-mcp", "forkhorse-dashboard", "forkhorse-core"]) {
+    assert.ok(buildCommands(config).some(({ args }) => args.includes(pkg) && args.includes("--no-cache")));
+  }
+  config.core!.oauthKvNamespaceId = "0123456789abcdef0123456789abcdef";
+  assert.equal(generateConfigs(config, bases).core?.kv_namespaces?.[0]?.id, config.core!.oauthKvNamespaceId);
+});
+
+test("core disabled stays inert; enabled rejects route, auth, resource and identity ambiguity", async () => {
+  const bases = await baseConfigs();
+  const config = withCore();
+  config.core!.enabled = false;
+  config.core!.hostname = "<OWNER_HOSTNAME>";
+  assert.equal(generateConfigs(config, bases).core, undefined);
+  assert.ok(!buildCommands(config).some(({ args }) => args.includes("forkhorse-core")));
+  const changes: ((value: NonNullable<DeploymentConfig["core"]>) => void)[] = [
+    (v) => { v.workerName = validConfig.workers.router.name; },
+    (v) => { v.hostname = "os.example.com"; },
+    (v) => { v.hostname = "https://core.idiot.tax/app"; },
+    (v) => { v.mcpPath = "/app"; },
+    (v) => { v.mcpPath = "/oauth/token"; },
+    (v) => { v.deadLetterQueue = v.pushQueue; },
+    (v) => { v.oauthKvNamespaceId = "not-a-resource-id"; },
+    (v) => { v.access.owners = []; },
+    (v) => { v.access.issuer = "https://keys.idiot.tax"; },
+    (v) => { v.access.audience = " padded "; },
+    (v) => { v.project = "../other"; },
+    (v) => { v.artifactsNamespace = ""; },
+  ];
+  for (const change of changes) {
+    const invalid = withCore();
+    change(invalid.core!);
+    assert.throws(() => validateConfig(invalid));
+  }
 });
