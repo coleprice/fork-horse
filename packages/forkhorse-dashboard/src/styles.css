@@ -59,6 +59,7 @@ summary {
 .main-pane {
   min-width: 0;
   flex: 1;
+  container-type: inline-size;
 }
 .page-header {
   display: flex;
@@ -309,22 +310,22 @@ footer {
 .path-summary {
   display: inline-flex;
   align-items: baseline;
-  gap: calc(var(--spacing) * 1);
+  gap: calc(var(--spacing) * 1.5);
   max-width: 100%;
   min-width: 0;
   white-space: nowrap;
 }
 .path-summary .truncated-code {
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
 }
 .path-more {
   flex-shrink: 0;
 }
 /* Bound the table's intrinsic path width; reserve the full count before truncating the path. */
 .work-paths .path-summary {
-  display: flex;
-  width: 12rem;
+  display: inline-flex;
+  max-width: 100%;
 }
 .collision-copy {
   display: block;
@@ -368,10 +369,9 @@ footer {
   margin-top: calc(var(--spacing) * 1);
 }
 .last-push {
-  display: flex;
-  align-items: baseline;
-  gap: calc(var(--spacing) * 2);
-  white-space: nowrap;
+  display: grid;
+  gap: calc(var(--spacing) * 1);
+  min-width: 0;
 }
 .last-push .path-summary {
   max-width: 16rem;
@@ -410,5 +410,152 @@ footer {
   .tab-gutter [role="tab"] {
     flex-shrink: 0;
     padding-inline: calc(var(--spacing) * 3);
+  }
+}
+
+/* Fixed columns keep intrinsic Git/path text from enlarging any table. */
+.table-scroll table {
+  table-layout: fixed;
+}
+.table-scroll th,
+.table-scroll td {
+  padding-inline: calc(var(--spacing) * 2);
+}
+.table-scroll .truncated-code,
+.truncated-name,
+.packet-link {
+  max-width: 100%;
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.table-scroll .caption,
+.table-scroll .state-reason {
+  white-space: normal;
+}
+.table-scroll .path-summary {
+  max-width: 100%;
+}
+.table-scroll .status-dot {
+  white-space: normal;
+}
+.table-work th:nth-child(1) {
+  width: 23%;
+}
+.table-work th:nth-child(2) {
+  width: 17%;
+}
+.table-work th:nth-child(3) {
+  width: 15%;
+}
+.table-work th:nth-child(4) {
+  width: 17%;
+}
+.table-work th:nth-child(5) {
+  width: 18%;
+}
+.table-work th:nth-child(6) {
+  width: 10%;
+}
+.table-review th:nth-child(1) {
+  width: 13%;
+}
+.table-review th:nth-child(2) {
+  width: 20%;
+}
+.table-review th:nth-child(3) {
+  width: 12%;
+}
+.table-review th:nth-child(4) {
+  width: 17%;
+}
+.table-review th:nth-child(5) {
+  width: 15%;
+}
+.table-review th:nth-child(6) {
+  width: 11%;
+}
+.table-review th:nth-child(7) {
+  width: 12%;
+}
+.table-agents th:nth-child(1) {
+  width: 19%;
+}
+.table-agents th:nth-child(2) {
+  width: 23%;
+}
+.table-agents th:nth-child(3) {
+  width: 28%;
+}
+.table-agents th:nth-child(4) {
+  width: 13%;
+}
+.table-agents th:nth-child(5) {
+  width: 17%;
+}
+.folded {
+  display: none;
+}
+/* Frame width is authoritative; also fold when the docked panel narrows the pane. */
+@container (max-width: 819px) {
+  .folded {
+    display: block;
+  }
+  .column-fork,
+  .column-receipts,
+  .column-requested,
+  .column-claimed {
+    display: none;
+  }
+  .table-work th:nth-child(1) {
+    width: 27%;
+  }
+  .table-work th:nth-child(2) {
+    width: 24%;
+  }
+  .table-work th:nth-child(3) {
+    width: 22%;
+  }
+  .table-work th:nth-child(5) {
+    width: 27%;
+  }
+  .table-review th:nth-child(1) {
+    width: 16%;
+  }
+  .table-review th:nth-child(2) {
+    width: 24%;
+  }
+  .table-review th:nth-child(3) {
+    width: 15%;
+  }
+  .table-review th:nth-child(4) {
+    width: 29%;
+  }
+  .table-review th:nth-child(7) {
+    width: 16%;
+  }
+  .table-agents th:nth-child(1) {
+    width: 29%;
+  }
+  .table-agents th:nth-child(3) {
+    width: 34%;
+  }
+  .table-agents th:nth-child(4) {
+    width: 16%;
+  }
+  .table-agents th:nth-child(5) {
+    width: 21%;
+  }
+}
+@media (max-width: 899px) {
+  .folded {
+    display: block;
+  }
+  .column-fork,
+  .column-receipts,
+  .column-requested,
+  .column-claimed {
+    display: none;
   }
 }

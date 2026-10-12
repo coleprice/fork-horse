@@ -11,7 +11,10 @@ import { DIGEST, fixtureActivity, fixtureState, NEXT_HEAD } from "./fixtures.ts"
 const require = createRequire(import.meta.url);
 // jsdom is used only for local DOM acceptance; production has no runtime dependency.
 const { JSDOM } = require("jsdom") as {
-  JSDOM: new (html: string) => {
+  JSDOM: new (
+    html: string,
+    options?: { url: string },
+  ) => {
     window: {
       document: Document;
       MouseEvent: typeof MouseEvent;
@@ -581,4 +584,107 @@ test("promotion confirmation refuses a changed base even when the fork head and 
   } finally {
     context.cleanup();
   }
+});
+
+test("superseded stale reviews leave the queue; unsuperseded stale rows do not count", async () => {
+  const { reviewQueue } = await import("../src/model.ts");
+  const state = stateView(fixtureState("superseded"));
+  assert.equal(reviewQueue(state).length, 0);
+  state.reviews[0].status = "pending";
+  assert.deepEqual(
+    reviewQueue(state).map((r) => r.id),
+    ["review-1"],
+  );
+  state.reviews[0].requestedAt = state.reviews[1].requestedAt;
+  assert.equal(reviewQueue(state).length, 2);
+  const html = renderDashboard({
+    brand,
+    project: "demo",
+    projects: [],
+    fixture: true,
+    state,
+    activity: [],
+    busy: false,
+  });
+  assert.match(html, /Fork moved/);
+  assert.match(html, /In review/);
+});
+
+test("panel defaults use first frame width and remember only a session toggle", async () => {
+  const dom = new JSDOM('<div id="dashboard"></div>', { url: origin });
+  installDom(dom.window as unknown as Window & typeof globalThis);
+  const window = dom.window as unknown as Window & typeof globalThis;
+  const root = window.document.getElementById("dashboard")!;
+  function mount(width: number) {
+    window.innerWidth = width;
+    return mountDashboard(root, {
+      brand,
+      transport: createHttpTransport({ origin, fetch: apiFixture().fetcher }),
+      initialProject: "demo",
+    });
+  }
+  try {
+    for (const width of [1340, 1340, 1100, 1100]) {
+      const app = mount(width);
+      assert.equal(
+        root.querySelector("[data-action=toggle-activity]")!.getAttribute("aria-expanded"),
+        String(width >= 1280),
+      );
+      app.dispose();
+    }
+    const app = mount(1340);
+    root.querySelector<HTMLButtonElement>("[data-action=toggle-activity]")!.click();
+    await until(
+      () =>
+        root.querySelector("[data-action=toggle-activity]")!.getAttribute("aria-expanded") ===
+        "false",
+    );
+    app.dispose();
+    const reopened = mount(1340);
+    assert.equal(
+      root.querySelector("[data-action=toggle-activity]")!.getAttribute("aria-expanded"),
+      "false",
+    );
+    reopened.dispose();
+  } finally {
+    window.close();
+  }
+});
+
+test("live pause preserves the snapshot and tabs; Reconnect clears the warning", async () => {
+  const dom = new JSDOM('<div id="dashboard"></div>');
+  installDom(dom.window as unknown as Window & typeof globalThis);
+  const root = dom.window.document.getElementById("dashboard")!;
+  const transport = createHttpTransport({ origin, fetch: apiFixture().fetcher });
+  let notify!: (paused: boolean) => void;
+  let stopped = false;
+  transport.live = {
+    subscribe(listener) {
+      notify = listener;
+      return () => {
+        stopped = true;
+      };
+    },
+    async reconnect() {
+      notify(false);
+    },
+  };
+  const app = mountDashboard(root, { brand, transport, initialProject: "demo" });
+  try {
+    await until(() => !!root.querySelector("#reviews"));
+    notify(true);
+    assert.match(
+      root.querySelector(".live-paused")!.textContent!,
+      /Live updates paused. Showing data from/,
+    );
+    root.querySelectorAll<HTMLButtonElement>("[role=tab]")[3].click();
+    await until(() => !root.querySelector<HTMLElement>("#view-agents")!.hidden);
+    assert.ok(root.querySelector("#lanes table"));
+    root.querySelector<HTMLButtonElement>(".live-paused button")!.click();
+    await until(() => !root.querySelector(".live-paused"));
+  } finally {
+    app.dispose();
+    dom.window.close();
+  }
+  assert.equal(stopped, true);
 });

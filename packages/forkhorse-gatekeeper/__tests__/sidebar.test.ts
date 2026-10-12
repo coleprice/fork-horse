@@ -7,16 +7,24 @@ import brand from "../../../brand.json";
 import { markIconUrl } from "../../forkhorse-dashboard/src/mark.ts";
 
 declare global {
-  namespace Cloudflare { interface Env { FIXTURE: Service<FixtureHarness> } }
+  namespace Cloudflare {
+    interface Env {
+      FIXTURE: Service<FixtureHarness>;
+    }
+  }
 }
 
 class Receiver extends RpcTarget implements WorkerUpdateReceiver {
   readonly batches: SidebarBatch[] = [];
-  async receive(batch: SidebarBatch): Promise<void> { this.batches.push(batch); }
+  async receive(batch: SidebarBatch): Promise<void> {
+    this.batches.push(batch);
+  }
 }
 
 async function refuses(operation: () => PromiseLike<unknown>, message = ""): Promise<void> {
-  try { await operation(); } catch (error) {
+  try {
+    await operation();
+  } catch (error) {
     expect(error instanceof Error ? error.message : String(error)).toContain(message);
     return;
   }
@@ -26,16 +34,29 @@ async function refuses(operation: () => PromiseLike<unknown>, message = ""): Pro
 describe("Worker-native sidebar capability (local fixtures)", () => {
   it("checks a configurator draft through native RPC without echoing its credential or granting a connection", async () => {
     using draft = await env.FIXTURE.configurator();
-    const result = await draft.checkDraft({ coreOrigin: "https://core.fixture.idiot.tax",
-      project: "fixture", agentCredential: "fixture-only-not-a-real-credential" });
+    const result = await draft.checkDraft({
+      coreOrigin: "https://core.fixture.idiot.tax",
+      project: "fixture",
+      agentCredential: "fixture-only-not-a-real-credential",
+    });
     expect(result.connectionAvailable).toBe(false);
     expect(JSON.stringify(result)).not.toContain("fixture-only-not-a-real-credential");
-    await refuses(() => draft.checkDraft({ coreOrigin: "http://127.0.0.1",
-      project: "fixture", agentCredential: "fixture-only-not-a-real-credential" }), "HTTPS");
+    await refuses(
+      () =>
+        draft.checkDraft({
+          coreOrigin: "http://127.0.0.1",
+          project: "fixture",
+          agentCredential: "fixture-only-not-a-real-credential",
+        }),
+      "HTTPS",
+    );
   });
   it("runs under workerd and derives sidebar metadata from branding", () => {
     expect(navigator.userAgent).toBe("Cloudflare-Workers");
-    expect(sidebarAccountDescription()).toMatchObject({ displayName: brand.name, providesUi: { title: brand.name } });
+    expect(sidebarAccountDescription()).toMatchObject({
+      displayName: brand.name,
+      providesUi: { title: brand.name },
+    });
     expect(sidebarAccountDescription().singleton).toBeUndefined();
     const icon = { url: markIconUrl(brand.mark) };
     expect(sidebarAccountDescription()).toMatchObject({ avatar: icon, providesUi: { icon } });
@@ -113,4 +134,22 @@ describe("Worker-native sidebar capability (local fixtures)", () => {
     await refuses(() => ui.snapshot(), "unavailable");
     expect(await session.stopped()).toBe(1);
   });
+});
+
+it("replaces and releases native subscriptions after reconnect without leaking callbacks", async () => {
+  using session = await env.FIXTURE.session();
+  using ui = await session.open();
+  const first = new Receiver();
+  using old = await ui.subscribe(first);
+  await vi.waitFor(() => expect(first.batches.length).toBe(1));
+  await old.close();
+  const second = new Receiver();
+  using replacement = await ui.subscribe(second);
+  await session.publish();
+  await vi.waitFor(() => expect(second.batches.at(-1)?.version).toBe(1));
+  expect(first.batches.length).toBe(1);
+  await replacement.close();
+  await session.publish();
+  await vi.waitFor(async () => expect((await ui.snapshot()).version).toBe(2));
+  expect(second.batches.at(-1)?.version).toBe(1);
 });

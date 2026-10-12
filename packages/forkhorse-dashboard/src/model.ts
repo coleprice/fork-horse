@@ -18,6 +18,7 @@ export interface ViewModel {
   error?: string;
   notice?: string;
   updatedAt?: string;
+  livePaused?: boolean;
 }
 
 /** Exact head and digest are visible; the server remains the authority for every action. */
@@ -134,4 +135,22 @@ export function stateView(wire: StateResponse): ProjectState {
         : []),
     ],
   };
+}
+
+/** Keep unsuperseded stale rows visible, but count only actionable review states. */
+export function reviewQueue(state: ProjectState): Review[] {
+  return state.reviews.filter(
+    (review) =>
+      review.status !== "promoted" &&
+      !(
+        review.status === "stale" &&
+        state.reviews.some(
+          (other) =>
+            other.packet === review.packet &&
+            other.id !== review.id &&
+            (other.status === "promoted" ||
+              Date.parse(other.requestedAt ?? "") > Date.parse(review.requestedAt ?? "")),
+        )
+      ),
+  );
 }

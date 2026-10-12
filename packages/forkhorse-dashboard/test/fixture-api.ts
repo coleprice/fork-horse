@@ -23,7 +23,7 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       response.end(JSON.stringify(data));
     }
     const match =
-      /^\/projects\/(demo|quiet|large|first|partial|deleted|error|loading)\/(state|activity|reviews\/([^/]+)\/(approve|promote))$/.exec(
+      /^\/projects\/(demo|quiet|large|first|partial|truncated|superseded|paused|deleted|error|loading)\/(state|activity|reviews\/([^/]+)\/(approve|promote))$/.exec(
         url.pathname,
       );
     if (!match) {

@@ -80,6 +80,11 @@ export interface Brand {
 
 /** An HTTP implementation today; a host may supply its Cap'n Web ui capability later. */
 export interface DashboardTransport {
+  /** Local connection state, separate from the Core wire snapshot. */
+  live?: {
+    subscribe(listener: (paused: boolean) => void): () => void;
+    reconnect(): Promise<void>;
+  };
   getState(project: string): Promise<ProjectState>;
   getActivity(project: string, after?: number): Promise<ActivityPage>;
   approve(project: string, review: string): Promise<unknown>;

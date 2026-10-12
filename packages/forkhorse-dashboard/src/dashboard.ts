@@ -73,6 +73,7 @@ export function mountDashboard(
             setSection,
             selectProject,
             retry: refresh,
+            reconnect: options.transport.live?.reconnect,
             owner: options.owner ?? true,
             agent: options.agent,
             ask: options.openPrompt
@@ -114,7 +115,7 @@ export function mountDashboard(
       ]
         .toSorted((a, b) => a.sequence - b.sequence)
         .slice(-100);
-      view.updatedAt = new Date().toLocaleTimeString();
+      view.updatedAt = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
     } catch (error) {
       if (current !== generation || disposed) return;
       view.error = error instanceof Error ? error.message : "Unable to load this project.";
@@ -208,6 +209,10 @@ export function mountDashboard(
     }
   }
 
+  const stopLive = options.transport.live?.subscribe((paused) => {
+    view.livePaused = paused;
+    draw();
+  });
   draw();
   if (initial) void selectProject(initial);
   return {
@@ -216,6 +221,7 @@ export function mountDashboard(
       disposed = true;
       generation++;
       unsubscribe?.();
+      stopLive?.();
       window.removeEventListener("hashchange", onHash);
       flushSync(() => react.unmount());
     },
