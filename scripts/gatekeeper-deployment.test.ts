@@ -99,7 +99,7 @@ test("vendor config rejects malformed switches and colliding Worker identities",
   config.forkhorseGatekeeper = { enabled: true, workerName: "fixture-core" };
   config.core = {
     enabled: true, workerName: "fixture-core", hostname: "core.idiot.tax", mcpPath: "/mcp", project: "fixture",
-    artifactsNamespace: "fixture", oauthKvNamespaceId: null, pushQueue: "fixture-push", deadLetterQueue: "fixture-dlq",
+    artifactsNamespace: "fixture", oauthKvNamespaceId: null, pushQueue: "fixture-push", pushQueueId: "0".repeat(32), deadLetterQueue: "fixture-dlq",
     access: { issuer: "https://fixture.cloudflareaccess.com", audience: "fixture", owners: ["owner@idiot.tax"] },
   };
   assert.throws(() => validateConfig(config), /forkhorseGatekeeper.workerName must be unique/);
