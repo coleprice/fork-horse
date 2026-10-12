@@ -32,8 +32,20 @@ export function reviewGate(
   }
   if (review.status === "promoted")
     return { approve: false, promote: false, reason: "Promoted to canonical" };
-  if (!review.receiptDigest || review.receipt?.status === "failed") {
-    return { approve: false, promote: false, reason: "Waiting for a passing receipt" };
+  const requireReceipt = state.project.settings?.requireReceipt;
+  if (requireReceipt === undefined)
+    return {
+      approve: false,
+      promote: false,
+      reason: "Receipt settings unavailable. Refresh before reviewing.",
+    };
+  // An approved review may always enter promote: core freshly re-runs the gate there.
+  if (
+    requireReceipt &&
+    review.status === "pending" &&
+    (!review.receiptDigest || review.receipt?.status !== "passed")
+  ) {
+    return { approve: false, promote: false, reason: receiptGateCaption(review, true) };
   }
   const blocked = state.blockers.some(
     (blocker) => !blocker.resolved && blocker.packet === review.packet,
@@ -43,10 +55,7 @@ export function reviewGate(
   return {
     approve: review.status === "pending",
     promote: review.status === "approved",
-    reason:
-      review.status === "approved"
-        ? "Approved · ready to promote"
-        : "Receipt bound · ready for owner review",
+    reason: receiptGateCaption(review, requireReceipt),
   };
 }
 
@@ -112,7 +121,9 @@ export function stateView(wire: StateResponse): ProjectState {
         : review.stale ||
             (review.approval !== null &&
               (review.approval.sha !== review.sha ||
-                review.approval.receiptDigest !== review.receiptDigest))
+                (wire.project.settings?.requireReceipt !== false &&
+                  review.receipt?.trigger !== "before-promote" &&
+                  review.approval.receiptDigest !== review.receiptDigest)))
           ? "stale"
           : review.approval
             ? "approved"
@@ -153,4 +164,27 @@ export function reviewQueue(state: ProjectState): Review[] {
         )
       ),
   );
+}
+
+/** Farrier receipt copy, with advisory semantics from the 16:55 ruling. */
+export function receiptGateCaption(review: Review, required: boolean): string {
+  const status = review.receipt?.status;
+  if (!required) {
+    if (!status) return "Receipts aren't required in this project.";
+    if (status === "running")
+      return "Checks are running. They're advisory here, so you can approve now.";
+    return status === "passed" ? "" : "Advisory: this doesn't block approval.";
+  }
+  switch (status) {
+    case "passed":
+      return "";
+    case "failed":
+      return "Checks failed. The agent must push a fix.";
+    case "timed-out":
+      return "Checks timed out. A new push runs them again.";
+    case "infrastructure-error":
+      return "Checks couldn't start. A new push runs them again.";
+    default:
+      return "Waiting for checks.";
+  }
 }

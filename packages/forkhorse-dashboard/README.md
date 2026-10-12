@@ -32,7 +32,7 @@ pnpm lint
 `dist-fixture/` is a separate, ignored fixture build. The fixture dev server alone
 mounts the labeled fictional API. A static fixture build requires that same fixture
 API to be served by a test host; it does not emulate responses in the browser.
-Restart the dev server to reset fixture approvals/promotions. All fixture actions
+Restart the dev server (or POST to its test-only `/__fixtures/reset`) to reset fixture approvals/promotions. All fixture actions
 are local. Passing these checks is not Access, Cloudflare, deployment or live Git
 acceptance.
 
@@ -58,7 +58,7 @@ project IDs and an “Open project by ID” field. It never invents project data
 For a sidebar app or gadget, import `mountDashboard`, include `src/styles.css`,
 and pass `brand`, project options, and a host-owned `DashboardTransport`. Its
 interface has `getState`, `getActivity`, `approve`, `promote`, and optional
-`subscribe`. The UI does not import Cap'n Web or mint a capability. The future
+`subscribe`, owner-only `getReceipt` and `setSettings`. The UI does not import Cap'n Web or mint a capability. The future
 host adapter implements that interface from its authorized `ui` capability.
 
 ## Wire contract
@@ -70,12 +70,12 @@ host adapter implements that interface from its authorized `ui` capability.
   heads, packets, live-only claims including `{packet, agent, repoName}`, blockers,
   reviews, ledger, recent activity, reconciler alerts and `promotionPending`.
 - Approval state comes from `{sha, receiptDigest}` or `null`; `stale` and `promoted`
-  are explicit flags. A changed approval SHA/digest is treated as stale.
+  are explicit flags. A changed approval SHA is treated as stale. Digest binding applies to required review-created receipts; a fresh before-promote run or advisory receipt movement does not mean the fork moved.
 - Blockers show the pushing and claiming agents. There is no resolution field in
   the current wire contract, so returned blockers are shown as open.
-- Receipt digests are displayed as evidence identifiers. The current core does
-  not expose command output or pass/fail details; the HTTP adapter never invents
-  them. A capability transport may supply those optional details later.
+- FH-032 adds `project.settings.requireReceipt` and the five-state `reviews[].receipt` summary: status, trigger, digest, timestamps, duration and check outcomes. No logs enter `/state`.
+- Owner-only `GET /projects/:id/reviews/:rid/receipt` returns the stored `{digest, receipt}` runner record. The panel shows the last 200 log lines and can expand all bounded output. A changed receipt/selection discards late responses. Agents have no log control or request.
+- Owner-only `PATCH /projects/:id/settings` sends only `{requireReceipt}` and reloads authoritative state. An absent setting is unavailable, never synthesized as On or Off.
 - Core currently does not return the canonical head in state. The shell says
   “Head unavailable” when commits are recorded, or “No commits yet” for an empty
   snapshot; it does not infer a current head from push history.
@@ -87,10 +87,13 @@ host adapter implements that interface from its authorized `ui` capability.
   reloads state; writes are never automatically retried. A failed refresh clears
   actionable old state. A `409` message such as `stale base, rebase` stays visible.
 
-The client disables decisions for a moved fork, stale review, missing receipt,
-failed optional receipt, or blocker on that packet. Promote also requires approval.
-The server must independently enforce its invariants even when a button is enabled.
-Exact SHA and digest text is available in each review's identifier disclosure.
+The client hides decisions for a moved fork, stale review or packet blocker.
+With `requireReceipt: true`, approve requires a passing summary and digest;
+already-approved reviews may enter promote so core can freshly re-run checks,
+including after a setting flip. Its exact receipt-failure 409 keeps the dialog
+open with the new receipt available. With `requireReceipt: false`, all receipt
+outcomes are advisory and promote shows no re-check state. The server remains
+the authority. Unknown settings withhold actions until a valid snapshot arrives.
 All API/config text is escaped before entering markup.
 
 HTTP works without sockets. `createHttpTransport` accepts an optional host-supplied
@@ -128,7 +131,24 @@ again. Agent connections disable these actions and refuse them in the controller
 and transport. Ask an agent opens the host composer without sending the prompt.
 
 Contract gaps remain visible: no Return-to-agent method; no older-history cursor
-on the snapshot capability; no event-registration state, receipt runner/duration,
-packet update time, or connected-agent identity. Those fields/actions are labeled
+on the snapshot capability; no packet update time,
+or connected-agent identity. Those fields/actions are labeled
 unavailable or pending rather than synthesized. Activity preference storage is
 best-effort: an opaque sandbox may deny browser storage.
+
+## FH-033 offline receipts evidence
+
+The receipt fixtures (`receipts`, `advisory`, `recheck`, `rerun-failed`) implement
+FH-032's fixed wire contract and the 16:55 advisory ruling. `role=agent` exercises
+the shared read-only view; it does not simulate owner authority. Check copy and
+warning dots follow the receipts spec: Timed out and Couldn't run. Durations use
+supplied milliseconds, including the timed-out check's own duration. Receipt
+completion has a polite announcement; elapsed time changes never spin.
+
+Required handback remains fixture captures in both themes, narrow/phone frames,
+owner and agent details/settings, promote pending/409, advisory actions, empty,
+error/loading, focus, theme accent and first paint. The fetched base already emits
+the sidebar bundle after its loading caption at the end of body. FH-033 leaves
+that gatekeeper source unchanged and compares baseline/final first paint.
+Farrier design PASS, superprime code acceptance and the post-FH-032L live receipt
+capture are separate gates; this package's offline checks cannot establish them.

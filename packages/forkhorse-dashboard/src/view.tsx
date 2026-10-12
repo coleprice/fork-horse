@@ -8,6 +8,7 @@ import {
   Empty,
   LayerCard,
   Select,
+  Switch,
   Table,
   Tabs,
   Toasty,
@@ -16,8 +17,9 @@ import {
   useKumoToastManager,
 } from "@cloudflare/kumo";
 import { ArrowLeft, ArrowLineUp, Pulse, Warning, X } from "@phosphor-icons/react";
-import { reviewGate, reviewQueue, type ViewModel } from "./model.ts";
-import type { Activity, ProjectState, Review } from "./contracts.ts";
+import { ReceiptAnnouncements, ReceiptCell, ReceiptDetails } from "./receipts.tsx";
+import { receiptGateCaption, reviewGate, reviewQueue, type ViewModel } from "./model.ts";
+import type { Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
 export interface ViewActions {
@@ -29,7 +31,9 @@ export interface ViewActions {
   reconnect?: () => Promise<void>;
   agent?: string;
   ask?: () => Promise<void>;
-  action(kind: "approve" | "promote", review: string): Promise<void>;
+  action(kind: "approve" | "promote", review: string): Promise<boolean | void>;
+  getReceipt?(review: string): Promise<OwnerReceipt>;
+  setSettings?(required: boolean): Promise<void>;
 }
 const short = (value: string) => <code title={value}>{value.slice(0, 7)}</code>;
 const empty = (title: string) => <Empty size="sm" title={title} />;
@@ -165,10 +169,12 @@ function ReviewActions({
   review,
   view,
   actions,
+  openReceipt,
 }: {
   review: Review;
   view: ViewModel;
   actions: ViewActions;
+  openReceipt(): void;
 }) {
   const [confirmation, setConfirmation] = useState<{
     sha: string;
@@ -176,6 +182,9 @@ function ReviewActions({
     digest: string | null;
     branch: string;
   }>();
+  const [promoting, setPromoting] = useState(false);
+  const [failure, setFailure] = useState(false);
+  const required = view.state!.project.settings?.requireReceipt === true;
   const matches =
     !!confirmation &&
     review.sha === confirmation.sha &&
@@ -205,14 +214,15 @@ function ReviewActions({
           data-action="promote"
           data-review={review.id}
           disabled={view.busy}
-          onClick={() =>
+          onClick={() => (
+            setFailure(false),
             setConfirmation({
               sha: review.sha,
               base: review.base,
               digest: review.receiptDigest,
               branch: view.state!.project.defaultBranch,
             })
-          }
+          )}
         >
           <ArrowLineUp size={16} />
           Promote
@@ -221,7 +231,7 @@ function ReviewActions({
       <Dialog.Root
         open={!!confirmation}
         onOpenChange={(open) => {
-          if (!open) setConfirmation(undefined);
+          if (!open && !promoting) setConfirmation(undefined);
         }}
       >
         <Dialog className="p-6 promotion-dialog">
@@ -248,7 +258,33 @@ function ReviewActions({
               <ClipboardText text={confirmation.digest} size="sm" />
             </div>
           )}
-          {(!matches || !gate.promote) && (
+          {required && !failure && (
+            <p className="caption muted">
+              Checks run again on {short(confirmation?.sha ?? review.sha)} before{" "}
+              {confirmation?.branch} moves.
+            </p>
+          )}
+          {!required && review.receipt?.status === "failed" && (
+            <p className="caption muted">
+              The latest checks failed; receipts are advisory in this project.
+            </p>
+          )}
+          {failure && (
+            <div role="alert">
+              <p>Checks failed on the re-run. Nothing was promoted.</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setConfirmation(undefined);
+                  openReceipt();
+                }}
+              >
+                View receipt
+              </Button>
+            </div>
+          )}
+          {!promoting && !failure && (!matches || !gate.promote) && (
             <Banner
               variant="alert"
               size="sm"
@@ -256,18 +292,36 @@ function ReviewActions({
             />
           )}
           <div className="dialog-actions">
-            <Button onClick={() => setConfirmation(undefined)}>Cancel</Button>
+            <Button disabled={promoting} onClick={() => setConfirmation(undefined)}>
+              Cancel
+            </Button>
             <Button
               variant="primary"
               data-action="confirm-promote"
-              disabled={!matches || !gate.promote || view.busy}
-              onClick={() => {
-                if (!matches || !gate.promote) return;
-                setConfirmation(undefined);
-                void actions.action("promote", review.id);
+              disabled={!matches || !gate.promote || view.busy || promoting || failure}
+              aria-busy={promoting}
+              onClick={async () => {
+                if (!matches || !gate.promote || promoting) return;
+                setPromoting(true);
+                try {
+                  if (await actions.action("promote", review.id)) setConfirmation(undefined);
+                } catch {
+                  // Only the transport's exact required-receipt 409 reaches this branch.
+                  if (required) setFailure(true);
+                } finally {
+                  setPromoting(false);
+                }
               }}
             >
-              Promote to {confirmation?.branch}
+              {promoting ? (
+                required ? (
+                  "Re-checking…"
+                ) : (
+                  "Promoting…"
+                )
+              ) : (
+                <>Promote to {confirmation?.branch}</>
+              )}
             </Button>
           </div>
         </Dialog>
@@ -304,6 +358,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   }, []);
   const [packetId, setPacketId] = useState<string>();
   const [reviewId, setReviewId] = useState<string>();
+  const [receiptPanel, setReceiptPanel] = useState(false);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string>();
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -326,11 +381,19 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     }
   }
   function showPacket(id: string) {
+    setReceiptPanel(false);
     setPacketId(id);
     setReviewId(undefined);
     toggle(true);
   }
+  function showReceipt(id: string) {
+    setReceiptPanel(true);
+    setReviewId(id);
+    setPacketId(undefined);
+    toggle(true);
+  }
   function back() {
+    setReceiptPanel(false);
     setPacketId(undefined);
     setReviewId(undefined);
   }
@@ -391,7 +454,15 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
           <X size={16} />
         </Tooltip>
       </div>
-      {selected || selectedReview ? (
+      {selectedReview && receiptPanel ? (
+        <ReceiptDetails
+          key={`${view.project}:${selectedReview.id}`}
+          review={selectedReview}
+          project={view.project}
+          owner={actions.owner}
+          load={actions.getReceipt}
+        />
+      ) : selected || selectedReview ? (
         <>
           <h3>{selected?.title ?? selectedReview?.packet}</h3>
           {selected && (
@@ -486,6 +557,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   return (
     <>
       <Notice message={view.notice} />
+      <ReceiptAnnouncements project={view.project} reviews={state?.reviews ?? []} />
       <div className={`app-shell ${panel ? "panel-open" : ""}`}>
         <main className="main-pane">
           <div className="main-container">
@@ -670,6 +742,27 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             "No promotions yet"
                           )}
                         </p>
+                        <h3>Settings</h3>
+                        {state.project.settings ? (
+                          actions.owner && actions.setSettings ? (
+                            <>
+                              <Switch
+                                label="Require passing receipts"
+                                checked={state.project.settings.requireReceipt}
+                                disabled={view.busy}
+                                onCheckedChange={(checked) => void actions.setSettings!(checked)}
+                              />
+                              <p className="caption muted">Approve waits for a passing receipt.</p>
+                            </>
+                          ) : (
+                            <p>
+                              Require passing receipts:{" "}
+                              {state.project.settings.requireReceipt ? "On" : "Off"}
+                            </p>
+                          )
+                        ) : (
+                          <p className="caption muted">Receipt settings unavailable.</p>
+                        )}
                       </LayerCard>
                       <section className="metrics" aria-label="Project summary">
                         {[
@@ -686,6 +779,13 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                 <span className="warning-dot" aria-label="Open blockers" />
                               )}
                             </h3>
+                            {label === "In review" &&
+                              reviews.some((r) => r.receipt?.status === "running") && (
+                                <p className="caption muted">
+                                  {reviews.filter((r) => r.receipt?.status === "running").length}{" "}
+                                  checking
+                                </p>
+                              )}
                           </LayerCard>
                         ))}
                       </section>
@@ -833,6 +933,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     <button
                                       className="claim-link"
                                       onClick={() => {
+                                        setReceiptPanel(false);
                                         setReviewId(r.id);
                                         setPacketId(undefined);
                                         toggle(true);
@@ -871,15 +972,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       }
                                     />
                                     <div className="caption muted folded">
-                                      {r.receipt ? (
-                                        `${r.receipt.status === "passed" ? "Passed" : "Failed"} ${r.receipt.commands.length}`
-                                      ) : r.receiptDigest ? (
-                                        <>
-                                          Receipt <code>{r.receiptDigest.slice(0, 7)}</code>
-                                        </>
-                                      ) : (
-                                        "No receipt"
-                                      )}
+                                      <ReceiptCell
+                                        receipt={r.receipt}
+                                        required={state.project.settings?.requireReceipt === true}
+                                        open={() => showReceipt(r.id)}
+                                      />
                                       {r.requestedAt && (
                                         <div>Requested {relative(r.requestedAt)}</div>
                                       )}
@@ -889,28 +986,37 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                         The agent must request review again.
                                       </div>
                                     )}
-                                    {!stale && !gate.approve && !gate.promote && (
-                                      <div className="caption muted state-reason">
-                                        {gate.reason}
-                                      </div>
-                                    )}
+                                    {!stale &&
+                                      (receiptGateCaption(
+                                        r,
+                                        state.project.settings?.requireReceipt === true,
+                                      ) ||
+                                        (!gate.approve && !gate.promote && gate.reason)) && (
+                                        <div className="caption muted state-reason">
+                                          {gate.reason ||
+                                            receiptGateCaption(
+                                              r,
+                                              state.project.settings?.requireReceipt === true,
+                                            )}
+                                          {actions.owner &&
+                                            r.receipt?.status === "infrastructure-error" && (
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => showReceipt(r.id)}
+                                              >
+                                                View receipt
+                                              </Button>
+                                            )}
+                                        </div>
+                                      )}
                                   </Table.Cell>
                                   <Table.Cell className="column-receipts">
-                                    {r.receipt && (
-                                      <Status
-                                        label={`${r.receipt.status === "passed" ? "Passed" : "Failed"} ${r.receipt.commands.length}`}
-                                        tone={r.receipt.status === "passed" ? "success" : "danger"}
-                                      />
-                                    )}
-                                    <div className="caption">
-                                      {r.receiptDigest ? (
-                                        <>
-                                          Receipt <code>{r.receiptDigest.slice(0, 7)}</code>
-                                        </>
-                                      ) : (
-                                        "No receipt"
-                                      )}
-                                    </div>
+                                    <ReceiptCell
+                                      receipt={r.receipt}
+                                      required={state.project.settings?.requireReceipt === true}
+                                      open={() => showReceipt(r.id)}
+                                    />
                                   </Table.Cell>
                                   <Table.Cell className="column-requested">
                                     {r.requestedAt && (
@@ -921,7 +1027,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   </Table.Cell>
                                   {actions.owner && (
                                     <Table.Cell>
-                                      <ReviewActions review={r} view={view} actions={actions} />
+                                      <ReviewActions
+                                        review={r}
+                                        view={view}
+                                        actions={actions}
+                                        openReceipt={() => showReceipt(r.id)}
+                                      />
                                     </Table.Cell>
                                   )}
                                 </Table.Row>
@@ -931,25 +1042,6 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         ) : (
                           empty("No reviews waiting for owner action.")
                         )}
-                      </section>
-                      <section id="receipts">
-                        {state.reviews.some((r) => r.receipt) && <h2>Receipts</h2>}
-                        {state.reviews
-                          .filter((r) => r.receipt)
-                          .map((r) => (
-                            <LayerCard key={r.id} className="p-4 receipt">
-                              <strong>{r.packet}</strong> {short(r.sha)}{" "}
-                              <Status
-                                label={r.receipt!.status === "passed" ? "Passed" : "Failed"}
-                                tone={r.receipt!.status === "passed" ? "success" : "danger"}
-                              />
-                              {r.receipt!.commands.map((c) => (
-                                <p key={c}>
-                                  <code>{c}</code>
-                                </p>
-                              ))}
-                            </LayerCard>
-                          ))}
                       </section>
                     </>,
                   )}

@@ -1,4 +1,5 @@
 import type { Brand, DashboardTransport, ProjectOption } from "./contracts.ts";
+import { ApiError } from "./transport.ts";
 import { assertState, reviewGate, type ViewModel } from "./model.ts";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -83,6 +84,12 @@ export function mountDashboard(
                   )
               : undefined,
             action,
+            getReceipt:
+              options.owner !== false && options.transport.getReceipt
+                ? (review: string) => options.transport.getReceipt!(view.project, review)
+                : undefined,
+            setSettings:
+              options.owner !== false && options.transport.setSettings ? setSettings : undefined,
           },
         }),
       ),
@@ -115,7 +122,11 @@ export function mountDashboard(
       ]
         .toSorted((a, b) => a.sequence - b.sequence)
         .slice(-100);
-      view.updatedAt = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+      view.updatedAt = new Date().toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
     } catch (error) {
       if (current !== generation || disposed) return;
       view.error = error instanceof Error ? error.message : "Unable to load this project.";
@@ -173,9 +184,9 @@ export function mountDashboard(
   }
 
   async function action(kind: "approve" | "promote", reviewId: string) {
-    if (options.owner === false || view.busy || !view.state) return;
+    if (options.owner === false || view.busy || !view.state) return false;
     const review = view.state.reviews.find((entry) => entry.id === reviewId);
-    if (!review || !reviewGate(review, view.state)[kind]) return;
+    if (!review || !reviewGate(review, view.state)[kind]) return false;
     view.busy = true;
     view.error = undefined;
     view.notice = undefined;
@@ -186,8 +197,8 @@ export function mountDashboard(
         await options.transport.approve(view.project, review.id);
         message = `Approved ${review.sha.slice(0, 7)}`;
       } else {
-        const result = await options.transport.promote(view.project, review.id);
-        message = `Promoted ${result.sha.slice(0, 7)}`;
+        await options.transport.promote(view.project, review.id);
+        message = `Promoted to ${view.state.project.defaultBranch}`;
       }
     } catch (error) {
       message =
@@ -198,7 +209,14 @@ export function mountDashboard(
       await load();
       view.error = message;
       draw();
-      return;
+      if (
+        kind === "promote" &&
+        error instanceof ApiError &&
+        error.status === 409 &&
+        message === "Checks failed before promote."
+      )
+        throw error;
+      return false;
     }
     await load();
     view.notice = message;
@@ -207,6 +225,28 @@ export function mountDashboard(
       invalidated = false;
       await refresh();
     }
+    return true;
+  }
+
+  async function setSettings(requireReceipt: boolean) {
+    if (options.owner === false || view.busy || !options.transport.setSettings || !view.state)
+      return;
+    view.busy = true;
+    view.error = undefined;
+    view.notice = undefined;
+    draw();
+    try {
+      await options.transport.setSettings(view.project, { requireReceipt });
+      await load();
+      view.notice = "Receipt settings updated";
+    } catch (error) {
+      await load();
+      view.error =
+        error instanceof Error
+          ? error.message
+          : "Unable to update settings. Refresh and try again.";
+    }
+    draw();
   }
 
   const stopLive = options.transport.live?.subscribe((paused) => {

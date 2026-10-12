@@ -24,6 +24,8 @@ fixtureTransport.live = {
 mountDashboard(document.getElementById("dashboard")!, {
   brand: __DASHBOARD_BRAND__,
   fixture: true,
+  owner: new URL(location.href).searchParams.get("role") !== "agent",
+  agent: "fixture-agent",
   async openPrompt(prompt) {
     document.getElementById("fixture-prompt")!.textContent =
       `Fixture prompt received (not sent): ${prompt}`;
@@ -42,6 +44,10 @@ mountDashboard(document.getElementById("dashboard")!, {
       "deleted",
       "error",
       "loading",
+      "receipts",
+      "advisory",
+      "recheck",
+      "rerun-failed",
     ].map((id) => ({
       id,
       label: `${id} fixture`,

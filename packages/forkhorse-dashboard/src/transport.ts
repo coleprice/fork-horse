@@ -1,5 +1,5 @@
 import { stateView } from "./model.ts";
-import type { ActivityPage, DashboardTransport, StateResponse } from "./contracts.ts";
+import type { ActivityPage, DashboardTransport, StateResponse, OwnerReceipt } from "./contracts.ts";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -25,13 +25,15 @@ const projectPath = (id: string) => `/projects/${encodeURIComponent(id)}`;
 export function createHttpTransport(options: HttpTransportOptions): DashboardTransport {
   const origin = new URL(options.origin).origin;
   const request = options.fetch ?? globalThis.fetch.bind(globalThis);
-  async function call<T>(path: string, method = "GET"): Promise<T> {
+  async function call<T>(path: string, method = "GET", body = {}): Promise<T> {
     const response = await request(new URL(path, origin), {
       method,
       credentials: "same-origin",
       cache: "no-store",
       redirect: "error",
-      ...(method === "POST" ? { headers: { "Content-Type": "application/json" }, body: "{}" } : {}),
+      ...(method === "POST" || method === "PATCH"
+        ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        : {}),
     });
     if (!response.ok) {
       let message = `Request failed (${response.status}).`;
@@ -62,6 +64,9 @@ export function createHttpTransport(options: HttpTransportOptions): DashboardTra
       call<ActivityPage>(`${projectPath(id)}/activity?after=${after}&limit=100`),
     approve: (id, review) =>
       call(`${projectPath(id)}/reviews/${encodeURIComponent(review)}/approve`, "POST"),
+    getReceipt: (id, review) =>
+      call<OwnerReceipt>(`${projectPath(id)}/reviews/${encodeURIComponent(review)}/receipt`),
+    setSettings: (id, settings) => call(`${projectPath(id)}/settings`, "PATCH", settings),
     promote: (id, review) =>
       call<{ sha: string }>(
         `${projectPath(id)}/reviews/${encodeURIComponent(review)}/promote`,

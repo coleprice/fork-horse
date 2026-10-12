@@ -6,6 +6,7 @@ export interface ProjectState {
     defaultBranch: string;
     remote?: string;
     events?: "pending" | "active";
+    settings?: { requireReceipt: boolean };
   };
   canonicalHead?: string;
   recentActivity?: Activity[];
@@ -46,7 +47,30 @@ export interface Review {
   requestedAt?: string;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
-  receipt?: { status: "passed" | "failed"; commands: string[] };
+  receipt?: ReceiptSummary | null;
+}
+
+/** FH-032 fixed public wire summary: logs belong only to the owner receipt endpoint. */
+export type ReceiptStatus = "running" | "passed" | "failed" | "infrastructure-error" | "timed-out";
+export interface ReceiptSummary {
+  status: ReceiptStatus;
+  trigger: "review-created" | "before-promote";
+  digest: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  checks: { name: string; tier: "full"; outcome: ReceiptStatus; durationMs: number | null }[];
+}
+/** Stored runner receipt returned by the owner-only endpoint. No bearer token plumbing. */
+export interface OwnerReceipt {
+  digest: string;
+  receipt: {
+    commit: string;
+    checks: {
+      check: { name: string };
+      logs: { stdout: string; stderr: string; truncated: boolean };
+    }[];
+  };
 }
 
 /** FH-003 receive sequence is the cursor, not event time. */
@@ -89,6 +113,12 @@ export interface DashboardTransport {
   getActivity(project: string, after?: number): Promise<ActivityPage>;
   approve(project: string, review: string): Promise<unknown>;
   promote(project: string, review: string): Promise<{ sha: string }>;
+  /** Optional because the read-only agent host has no owner capabilities. */
+  getReceipt?(project: string, review: string): Promise<OwnerReceipt>;
+  setSettings?(
+    project: string,
+    settings: { requireReceipt: boolean },
+  ): Promise<{ settings: { requireReceipt: boolean } }>;
   /** Optional invalidations only. The authoritative snapshot still comes from getState. */
   subscribe?(project: string, invalidate: () => void): () => void;
 }
@@ -102,6 +132,7 @@ export interface StateResponse {
     remote: string;
     defaultBranch: string;
     events?: "pending" | "active";
+    settings?: { requireReceipt: boolean };
   };
   agents: { name: string }[];
   forks: {
@@ -131,6 +162,7 @@ export interface StateResponse {
     sha: string;
     base: string;
     receiptDigest: string | null;
+    receipt?: ReceiptSummary | null;
     approval: { sha: string; receiptDigest: string | null } | null;
     stale: boolean;
     promoted: boolean;

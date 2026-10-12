@@ -1,4 +1,11 @@
-import type { Activity, ProjectState, StateResponse } from "../src/contracts.ts";
+import type {
+  Activity,
+  ProjectState,
+  StateResponse,
+  ReceiptSummary,
+  ReceiptStatus,
+  OwnerReceipt,
+} from "../src/contracts.ts";
 
 export const HEAD = "a".repeat(40);
 export const NEXT_HEAD = "b".repeat(40);
@@ -8,7 +15,7 @@ export const DIGEST = "d".repeat(64);
 function fixtureData(id = "demo"): ProjectState {
   if (id === "quiet")
     return {
-      project: { id, repoName: id, defaultBranch: "main" },
+      project: { id, repoName: id, defaultBranch: "main", settings: { requireReceipt: true } },
       canonicalHead: HEAD,
       agents: [],
       forks: [],
@@ -20,7 +27,7 @@ function fixtureData(id = "demo"): ProjectState {
       reconcilerAlerts: [],
     };
   return {
-    project: { id, repoName: id, defaultBranch: "main" },
+    project: { id, repoName: id, defaultBranch: "main", settings: { requireReceipt: true } },
     canonicalHead: HEAD,
     agents: [{ name: "builder" }, { name: "reviewer" }, { name: "docs" }],
     forks: [
@@ -93,7 +100,7 @@ function fixtureData(id = "demo"): ProjectState {
         sha: NEXT_HEAD,
         receiptDigest: DIGEST,
         status: "pending",
-        receipt: { status: "passed", commands: ["pnpm test", "pnpm lint"] },
+        receipt: fixtureReceipt("passed"),
       },
       {
         id: "review-2",
@@ -103,7 +110,7 @@ function fixtureData(id = "demo"): ProjectState {
         sha: "f".repeat(40),
         receiptDigest: "1".repeat(64),
         status: "stale",
-        receipt: { status: "passed", commands: ["pnpm test"] },
+        receipt: fixtureReceipt("passed"),
       },
       {
         id: "review-3",
@@ -190,7 +197,7 @@ export function fixtureState(id = "demo"): StateResponse {
       sha: "c".repeat(40),
       paths: blocker.paths,
     })),
-    reviews: data.reviews.map(({ status, receipt: _receipt, ...review }) => ({
+    reviews: data.reviews.map(({ status, ...review }) => ({
       ...review,
       base: HEAD,
       approval:
@@ -247,5 +254,119 @@ export function fixtureState(id = "demo"): StateResponse {
       }
     }
   }
+  if (["receipts", "advisory", "recheck", "rerun-failed"].includes(id)) {
+    const statuses: (ReceiptStatus | null)[] = [
+      "running",
+      "running",
+      "passed",
+      "failed",
+      "timed-out",
+      "infrastructure-error",
+      null,
+    ];
+    result.project.settings = { requireReceipt: id !== "advisory" && id !== "receipts" };
+    result.blockers = [];
+    result.claims = [];
+    result.packets = [];
+    result.forks = [];
+    result.reviews = statuses.map((status, index) => {
+      const sha = String(index + 1).repeat(40);
+      const packet = `ui-${String(index + 1).padStart(2, "0")}`;
+      const agent = `builder-${index + 1}`;
+      const repoName = `${id}--${agent}-1`;
+      result.packets.push({
+        id: packet,
+        title: `Receipt ${packet}`,
+        goal: "Inspect fixture checks",
+        paths: ["src/dashboard/**"],
+        acceptance: ["Receipt state shown"],
+      });
+      result.forks.push({
+        agent,
+        repoName,
+        head: sha,
+        remote: `https://git.idiot.tax/fixture/${repoName}.git`,
+        createdAt,
+      });
+      const receipt = status
+        ? fixtureReceipt(status, index === 1 ? "before-promote" : "review-created")
+        : null;
+      return {
+        id: `receipt-${index + 1}`,
+        packet,
+        agent,
+        repoName,
+        sha,
+        base: HEAD,
+        receiptDigest: receipt?.digest ?? null,
+        receipt,
+        approval:
+          index === 2 || (id === "advisory" && index === 3)
+            ? { sha, receiptDigest: receipt?.digest ?? null }
+            : null,
+        stale: false,
+        promoted: false,
+        createdAt,
+      };
+    });
+    // A truthful required gate fixture also carries the two queue running trigger variants.
+    if (id === "receipts") result.project.settings.requireReceipt = true;
+    if (id === "advisory") result.reviews[1].receipt!.trigger = "review-created";
+  }
   return result;
+}
+
+export function fixtureReceipt(
+  status: ReceiptStatus,
+  trigger: ReceiptSummary["trigger"] = "review-created",
+): ReceiptSummary {
+  return {
+    status,
+    trigger,
+    digest: status === "running" ? null : DIGEST,
+    startedAt:
+      status === "running" ? new Date(Date.now() - 12000).toISOString() : "2026-10-12T00:00:00Z",
+    finishedAt: status === "running" ? null : "2026-10-12T00:00:41Z",
+    durationMs: status === "running" ? null : 41000,
+    checks: [
+      fixtureCheck(
+        "brand",
+        status,
+        status === "running" ? null : status === "timed-out" ? 110000 : 13000,
+      ),
+      fixtureCheck(
+        "types",
+        status === "running" ? "running" : "passed",
+        status === "running" ? null : 14000,
+      ),
+      fixtureCheck(
+        "tests",
+        status === "running" ? "running" : "passed",
+        status === "running" ? null : 14000,
+      ),
+    ],
+  };
+}
+export function fixtureOwnerReceipt(review: StateResponse["reviews"][number]): OwnerReceipt {
+  return {
+    digest: review.receipt!.digest!,
+    receipt: {
+      commit: review.sha,
+      checks: review.receipt!.checks.map((check) => ({
+        check: { name: check.name },
+        logs: {
+          stdout: Array.from(
+            { length: 220 },
+            (_, index) => `${check.name} fixture output ${index + 1}`,
+          ).join("\n"),
+          stderr: "Fixture stderr",
+          truncated: false,
+        },
+      })),
+    },
+  };
+}
+
+function fixtureCheck(name: string, outcome: ReceiptStatus, durationMs: number | null) {
+  return { name, tier: "full" as const, outcome, durationMs };
 }

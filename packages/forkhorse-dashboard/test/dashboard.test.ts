@@ -125,11 +125,11 @@ test("fixture DOM renders every packet view with fork-bound claims and evidence"
   const context = setup();
   try {
     await until(() => Boolean(context.root.querySelector("#reviews")));
-    for (const section of ["lanes", "packets", "blockers", "receipts", "activity"])
+    for (const section of ["lanes", "packets", "blockers", "activity"])
       assert.ok(context.root.querySelector(`#${section}`));
     assert.match(context.root.textContent!, /FIXTURE · OFFLINE/);
     assert.match(context.root.textContent!, /demo--builder-1/);
-    assert.match(context.root.textContent!, /Receipt ddddddd/);
+    assert.match(context.root.textContent!, /Passed/);
     assert.match(context.root.textContent!, /Fork moved/);
     assert.equal(button(context.root, "approve").disabled, false);
     assert.equal(button(context.root, "promote"), null);
@@ -138,7 +138,7 @@ test("fixture DOM renders every packet view with fork-bound claims and evidence"
     const blocked = Array.from(context.root.querySelectorAll(".review-card")).find((row) =>
       row.textContent!.includes("api-02"),
     )!;
-    assert.match(blocked.textContent!, /Waiting for a passing receipt/);
+    assert.match(blocked.textContent!, /Waiting for checks/);
   } finally {
     context.cleanup();
   }
@@ -146,7 +146,9 @@ test("fixture DOM renders every packet view with fork-bound claims and evidence"
 
 test("review rows explain blocker gates and activity is empty only after a successful snapshot", () => {
   const state = stateView(fixtureState());
-  state.reviews.find((review) => review.packet === "api-02")!.receiptDigest = DIGEST;
+  const blockedReview = state.reviews.find((review) => review.packet === "api-02")!;
+  blockedReview.receiptDigest = DIGEST;
+  blockedReview.receipt = state.reviews[0].receipt;
   const base = { brand, projects: [], project: "demo", fixture: true, activity: [], busy: false };
   for (const snapshot of [
     { ...base, state },
@@ -199,7 +201,7 @@ test("owner DOM Approve calls the review endpoint once; Promote refreshes head a
     context.dom.window.document
       .querySelector<HTMLButtonElement>('[data-action="confirm-promote"]')!
       .click();
-    await until(() => context.dom.window.document.body.textContent!.includes("Promoted bbbbbbb"));
+    await until(() => context.dom.window.document.body.textContent!.includes("Promoted to main"));
     assert.equal(context.fixture.state.ledger[0].after, NEXT_HEAD);
     assert.equal(context.fixture.state.ledger.length, 1);
     assert.ok(context.fixture.calls.some((entry) => entry.url.pathname.endsWith("/promote")));
