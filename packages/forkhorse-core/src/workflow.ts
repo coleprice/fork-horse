@@ -1,6 +1,7 @@
 import { publicEvents } from "./subscriptions";
 import { branchHead } from "./artifacts";
 import { body, digest, HttpError, isRecord, json, slug } from "./http";
+import type { ErrorContext } from "./http";
 import { claimPath, filePath, overlaps, requireCovered } from "./paths";
 import { staleBase } from "./git";
 import type { GitOperations } from "./git";
@@ -40,6 +41,7 @@ export class Workflow {
     private storage: DurableObjectStorage,
     private env: Env,
     private git: GitOperations,
+    private diagnostic: ErrorContext = { op: "request" },
   ) {}
 
   private owner(actor: Actor): void {
@@ -260,6 +262,7 @@ export class Workflow {
         throw new HttpError(409, "Promotion needs owner inspection.");
       if (review.promoted) throw staleBase();
       const { fork } = await this.binding(project, review.packet, review.repoName, review.agent);
+      if (reviewing[2] === "promote") this.diagnostic.stage = "heads";
       if (
         review.stale ||
         (await this.head(review.repoName, project.defaultBranch)) !== review.sha
@@ -280,6 +283,7 @@ export class Workflow {
         throw new HttpError(409, "Approval does not match the commit and receipt digest.");
       if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
         throw staleBase();
+      this.diagnostic.stage = "prepare";
       const prepared = await this.git.preparePromote(
         fork,
         project.defaultBranch,
@@ -287,6 +291,7 @@ export class Workflow {
         review.base,
       );
       // Re-read both heads after preparation. Transport also checks canonical's advertised old SHA.
+      this.diagnostic.stage = "heads";
       if ((await this.head(review.repoName, project.defaultBranch)) !== review.sha)
         throw new HttpError(409, "Approval is stale; request review again.");
       if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
@@ -302,11 +307,15 @@ export class Workflow {
         recordedAt: now(),
       };
       // Persist an intent before external I/O. An uncertain push never gets retried automatically.
+      this.diagnostic.stage = "pending";
       await this.storage.put("promotionPending", entry);
+      this.diagnostic.stage = "token";
       using canonical = await this.env.ARTIFACTS.get(project.repoName);
       const token = await canonical.createToken("write", 60);
       try {
+        this.diagnostic.stage = "push";
         await prepared.push(project.remote, token.plaintext, review.base);
+        this.diagnostic.stage = "ledger";
         await this.storage.transaction(async (txn) => {
           await txn.put({
             [`ledger:${entry.id}`]: entry,
@@ -322,7 +331,11 @@ export class Workflow {
           await this.storage.delete("promotionPending");
         throw error;
       } finally {
+        // Successful cleanup preserves the original failure stage; cleanup failures identify token.
+        const previousStage = this.diagnostic.stage;
+        this.diagnostic.stage = "token";
         await canonical.revokeToken(token.id);
+        this.diagnostic.stage = previousStage;
       }
       return json({ sha: review.sha });
     }

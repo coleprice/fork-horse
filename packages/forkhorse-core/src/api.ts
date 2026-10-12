@@ -1,4 +1,4 @@
-import { body, errorResponse, HttpError, json, slug } from "./http";
+import { body, errorResponse, HttpError, json, operation, slug } from "./http";
 import type { Env } from "./types";
 
 export async function dispatchApi(request: Request, env: Env, owner = false): Promise<Response> {
@@ -55,6 +55,6 @@ export async function dispatchApi(request: Request, env: Env, owner = false): Pr
       },
     });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, { op: operation(request) });
   }
 }

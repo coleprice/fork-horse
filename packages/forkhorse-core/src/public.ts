@@ -2,7 +2,7 @@ import { createCoreClient, createOAuthHandler, PublicError } from "forkhorse-mcp
 import type { OAuthEnv, OwnerIdentity } from "forkhorse-mcp";
 import { dispatchApi } from "./api";
 import { verifyOwner } from "./access";
-import { errorResponse, HttpError, json, slug } from "./http";
+import { errorResponse, HttpError, json, operation, slug } from "./http";
 import type { Env } from "./types";
 
 function settings(env: Env) {
@@ -156,6 +156,6 @@ export async function publicFetch(
     }
     return json({ error: "Not found." }, 404);
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, { op: operation(request) });
   }
 }

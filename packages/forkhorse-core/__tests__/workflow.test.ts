@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import type {
   Blocker,
@@ -117,6 +117,51 @@ function push(
 }
 
 describe("workflow in real Durable Objects, with explicitly offline Git/Artifacts fixtures", () => {
+  it.each(["heads", "prepare", "pending", "token", "push", "ledger"] as const)(
+    "correlates a sanitized promote failure at %s, preserving cleanup and fencing", async (stage) => {
+      const f = await fixture();
+      await packet(f.id);
+      await claim(f.id, f.alpha);
+      const r = await review(f.id, f.alpha, f.a);
+      const provider = Object.assign(new Error("Bearer api_fixture_secret https://provider.idiot.tax/private"), {
+        name: "GitError", code: "FixtureFailure", status: 503,
+      });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await mutate(f.id, (instance, objectState) => {
+          if (stage === "heads") vi.spyOn(instance.fixture, "get").mockRejectedValueOnce(provider);
+          if (stage === "prepare") vi.spyOn(instance.gitFixture, "preparePromote").mockRejectedValueOnce(provider);
+          if (stage === "pending") {
+            const original = objectState.storage.put.bind(objectState.storage);
+            vi.spyOn(objectState.storage, "put").mockImplementation(async (...args: unknown[]) => {
+              if (args[0] === "promotionPending") throw provider;
+              return (original as (...args: unknown[]) => Promise<void>)(...args);
+            });
+          }
+          if (stage === "token") instance.fixture.beforeTokenCreate = async () => { throw provider; };
+          if (stage === "push") vi.spyOn(instance.gitFixture, "preparePromote").mockResolvedValue({
+            sha: AFTER, push: async () => { throw provider; },
+          });
+          if (stage === "ledger") vi.spyOn(objectState.storage, "transaction").mockRejectedValueOnce(provider);
+        });
+        const response = await api(f.id, `/reviews/${r.id}/promote`, OWNER, {});
+        expect(response.status).toBe(502);
+        const payload = await response.json<{ error: string; diagnosticId: string }>();
+        expect(payload).toEqual({
+          error: "Repository operation failed; retry or ask the owner to inspect it.",
+          diagnosticId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        });
+        expect(log.mock.calls).toEqual([[JSON.stringify({
+          event: "core.error", id: payload.diagnosticId, op: "review.promote", stage,
+          name: "GitError", code: "FixtureFailure", status: 503,
+        })]]);
+        expect((await state(f.id)).promotionPending !== null).toBe(["token", "push", "ledger"].includes(stage));
+      } finally {
+        vi.restoreAllMocks();
+      }
+    },
+  );
+
   it("reads bare default branches for creation, caller heads and review through promotion", async () => {
     const branch = "release/candidate";
     const f = await fixture(branch);
