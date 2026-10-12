@@ -4,7 +4,7 @@ import { receiptJson, requirePassingReceipt, sha256 } from "../../forkhorse-runn
 import type { AuthorizedReview, ReviewAuthority, RunRequest, StoredReceipt } from "../../forkhorse-runner/src/types";
 import { HttpError } from "./http";
 import type { Env, Project } from "./types";
-import type { Claim, Fork, ReceiptSummary, Review } from "./workflow-types";
+import type { Claim, ClaimReleaseAudit, Fork, ReceiptSummary, Review } from "./workflow-types";
 
 export const settings = (project: Project) => project.settings ?? { requireReceipt: false };
 export const publicReview = ({ receiptGeneration: _generation, ...review }: Review) => ({
@@ -85,7 +85,14 @@ export class ReceiptAuthority extends RpcTarget implements ReviewAuthority {
       const review = await txn.get<Review>(`review:${run.reviewId}`);
       if (!same(review, run) || !review || review.receiptDigest !== null) return false;
       const claim = await txn.get<Claim>(`claim:${review.packet}`);
-      if (!claim || claim.repoName !== review.repoName || claim.agent !== review.agent) return false;
+      // A promoted advisory run may finish after its claim was atomically released,
+      // including after a new claim is made. Only its exact promotion audit restores
+      // that historical binding; same() still fences stale commits and generations.
+      const release = review.promoted && run.trigger === "review-created"
+        ? await txn.get<ClaimReleaseAudit>(`claimRelease:${review.id}`) : undefined;
+      const promotedBinding = release?.releasedBy === "promote" && release.review === review.id &&
+        release.packet === review.packet && release.agent === review.agent && release.repoName === review.repoName;
+      if (!promotedBinding && (!claim || claim.repoName !== review.repoName || claim.agent !== review.agent)) return false;
       const checks = record.receipt.checks;
       const status: ReceiptSummary["status"] = !checks.length ? "infrastructure-error"
         : checks.some(c => c.outcome === "infrastructure-error") ? "infrastructure-error"

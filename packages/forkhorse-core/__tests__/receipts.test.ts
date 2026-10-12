@@ -168,7 +168,7 @@ describe("receipt integration in workerd; all container execution is explicitly 
     });
   });
 
-  it("advisory promotion does not wait for a running receipt; its late result is still recorded", async () => {
+  it.each([false, true])("advisory promotion releases its claim without losing the late receipt (reclaimed: %s)", async (reclaim) => {
     const f = await fixture(false);
     let release!: () => void;
     await inspect(f.id, instance => {
@@ -178,6 +178,11 @@ describe("receipt integration in workerd; all container execution is explicitly 
     const review = await f.submit();
     expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(200);
     expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
+    expect((await state(f.id)).claims).toEqual([]);
+    if (reclaim) {
+      const joined = await (await api(f.id, "/join", { agent: "builder" }, f.token)).json<{ repoName: string }>();
+      expect((await api(f.id, "/packets/test/claim", { repoName: joined.repoName }, f.token)).status).toBe(201);
+    }
     await inspect(f.id, instance => {
       expect(instance.receiptRuns).toEqual(["review-created"]);
       expect(instance.receiptContainers).toHaveLength(0);
@@ -187,6 +192,25 @@ describe("receipt integration in workerd; all container execution is explicitly 
     expect(done).toMatchObject({ promoted: true, receipt: { status: "failed", trigger: "review-created" } });
     expect(done.receiptDigest).not.toBeNull();
     expect((await api(f.id, `/reviews/${review.id}/receipt`)).status).toBe(200);
+  });
+
+  it.each(["generation", "missing-audit"] as const)("fences late promoted receipts with %s mismatch", async (mismatch) => {
+    const f = await fixture(false);
+    let release!: () => void;
+    await inspect(f.id, instance => { instance.receiptBarrier = new Promise<void>(resolve => { release = resolve; }); });
+    const review = await f.submit();
+    expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(200);
+    expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
+    await inspect(f.id, async (_instance, ctx) => {
+      const current = (await ctx.storage.get<Review>(`review:${review.id}`))!;
+      if (mismatch === "generation")
+        await ctx.storage.put(`review:${review.id}`, { ...current, receiptGeneration: crypto.randomUUID() });
+      else await ctx.storage.delete(`claimRelease:${review.id}`);
+      release();
+      // Let the deliberately rejected background execution settle.
+      for (let i = 0; i < 30; i++) await new Promise(resolve => setTimeout(resolve, 1));
+      expect((await ctx.storage.get<Review>(`review:${review.id}`))?.receiptDigest).toBeNull();
+    });
   });
 
   it("advisory receipt changes after approval cannot block promotion", async () => {
