@@ -52,7 +52,8 @@ export function mountDashboard(
     try {
       window.history.replaceState(null, "", `#${value}`);
     } catch {
-      /* Opaque srcdoc keeps local selection. */
+      // Opaque srcdoc rejects History API URLs, but same-document fragments are allowed.
+      window.location.hash = value;
     }
     draw();
   }

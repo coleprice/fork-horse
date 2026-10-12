@@ -390,3 +390,20 @@ test("promotion confirmation stays bound to the displayed head when a fresh snap
     context.cleanup();
   }
 });
+
+test("tabs preserve fragment selection when the sandbox rejects History API URLs", async () => {
+  const context = setup();
+  try {
+    await until(() => Boolean(context.root.querySelector("#reviews")));
+    const window = context.root.ownerDocument.defaultView!;
+    window.history.replaceState = () => {
+      throw new window.DOMException("Opaque origin", "SecurityError");
+    };
+    context.root.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1].click();
+    assert.equal(window.location.hash, "#work");
+    await context.app.refresh();
+    assert.equal(context.root.querySelector<HTMLElement>("#view-work")!.hidden, false);
+  } finally {
+    context.cleanup();
+  }
+});
