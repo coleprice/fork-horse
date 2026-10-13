@@ -5,7 +5,7 @@ import { CallerCredentials } from "./caller-credentials";
 import { DurableObject } from "cloudflare:workers";
 import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, operation, slug } from "./http";
 import type { ErrorContext } from "./http";
-import { changedPaths } from "./trees";
+import { changedPaths, ZERO_SHA } from "./trees";
 import { branchHead } from "./artifacts";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import { WorkerGit } from "./git";
@@ -338,6 +338,15 @@ export class Supervisor extends DurableObject<Env> {
         if (await this.ctx.storage.get(key)) return;
         using repo = await this.env.ARTIFACTS.get(event.source.repoName);
         const paths = await changedPaths(repo, event.payload.before, event.payload.after);
+        let forkHead: string | undefined;
+        if (agent !== null && event.payload.ref === `refs/heads/${project.defaultBranch}`) {
+          try {
+            const head = await branchHead(repo, project.defaultBranch);
+            if (head !== ZERO_SHA) forkHead = head;
+          } catch {
+            // Keep event-based invalidation when Artifacts cannot resolve the head.
+          }
+        }
         await this.ctx.storage.transaction(async (txn) => {
           const sequence = ((await txn.get<number>("sequence")) ?? 0) + 1;
           const entry: Activity = {
@@ -352,7 +361,7 @@ export class Supervisor extends DurableObject<Env> {
             eventTimestamp: event.metadata.eventTimestamp,
             recordedAt: new Date().toISOString(),
           };
-          await recordWorkflowPush(txn, project, event, entry);
+          await recordWorkflowPush(txn, project, event, entry, forkHead);
           // Conflict detection above must see every path, including those beyond the cap.
           await txn.put({
             [key]: true,
