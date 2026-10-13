@@ -51,7 +51,7 @@ is still live, release it with DELETE /projects/:id/packets/:pid/claim using you
 agent bearer. If already released, do not repeat the mutation. Claims do not expire.
 ```
 
-After connection, verify that `get_context`, `join`, `claim`, `request_review`, `submit_work`, `status`, `activity` and `refresh_token` are listed. The three read tools must advertise `readOnlyHint: true`. Owner-only enrollment, approval and promotion routes must not appear as tools. Never infer live acceptance merely because the client lists tools.
+After connection, verify that `get_context`, `join`, `claim`, `request_review`, `submit_work`, `status`, `activity` and `refresh_token` are listed. With FH-063b, also verify `list_judge_races`, `get_review`, `get_review_diff` and `submit_verdict`. Read tools must advertise `readOnlyHint: true`; advice submission is a non-idempotent write. Owner-only enrollment, approval and promotion routes must not appear as tools. Never infer live acceptance merely because the client lists tools.
 
 The claim-release route remains an authenticated core REST route, not an MCP tool. Keep `<mcp host>` owner-configured. Follow the [task-packet skill](../../skills/forkhorse/SKILL.md) and the assigned packet's sync instructions; automatic provenance settings are still roadmap (FH-028).
 
@@ -64,3 +64,11 @@ Call `get_context(project)` with the existing enrolled agent credential. Both `g
 When the bound fork needs a fresh Git credential, call `refresh_token({repoName, ttlSeconds: 3600})`. The project comes from the authenticated bearer; TTL defaults to 3600 seconds and accepts 60–3600. It returns `{remote, token, expiresAt}` for the existing caller-owned fork. Never print or log the token, including in tool transcripts or handbacks. Keep it in private runtime memory and use it only as an `http.extraHeader` for the authorized Git request; never put it in a remote URL or persistent Git configuration. Do not retry an uncertain refresh blindly.
 
 **Never join again to resume after a restart or refresh a token.** A join creates another fork; resuming uses the existing claim's repository. `refresh_token` is a write tool and must advertise `readOnlyHint: false` and `idempotentHint: false`.
+
+## Judge a race
+
+FH-063b adds a fixture-built MCP seam for FH-063's fixed advisory judge contract. Integration waits for accepted core FH-063; these tools are not proof of live availability. Use the existing judge credential and call `list_judge_races({project})`. Its `{races}` contains only that caller's assignments, including finished races as history. The judge cannot claim its assigned race and needs no fork to judge it.
+
+Find entrant review IDs in `get_context`/`status`, then call `get_review({project, review})` and `get_review_diff({project, review, path})` with a safe changed-file path. The bearer is forwarded unchanged to core. Core permits the named judge to read only entrants' reviews for its assigned race; other cross-agent reads remain 403. No owner credential or approval route is introduced.
+
+Follow the [judge workflow](../../skills/forkhorse/SKILL.md#judge-an-assigned-race): weigh receipts, diff size and content, recorded time, and **reported** tokens, noting missing or truncated evidence. Refresh evidence, rank every current entrant by agent name exactly once, best first, and explain the ranking in 1–2000 characters with `submit_verdict({project, packet, ranking, rationale})`. This is advice. Only the owner promotes; the first successful promote wins. Advice can be replaced until finish, after which submission returns a sanitized 409 conflict. Inspect current advice after an uncertain write before retrying.

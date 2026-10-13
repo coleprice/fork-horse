@@ -35,6 +35,9 @@ export type CoreOperation =
   | { kind: "join"; project: string; agent: string; ttlSeconds?: number }
   | { kind: "claim"; project: string; packet: string; repoName?: string }
   | { kind: "review"; project: string; packet: string; repoName: string; sha: string }
+  | { kind: "review_detail"; project: string; review: string }
+  | { kind: "review_diff"; project: string; review: string; path: string }
+  | { kind: "verdict"; project: string; packet: string; ranking: string[]; rationale: string }
   | {
       kind: "commit";
       project: string;
@@ -173,6 +176,18 @@ export function coreRequest(token: string, operation: CoreOperation, signal: Abo
     case "review":
       path = `${base}/reviews`;
       data = { repoName: operation.repoName, sha: operation.sha, packet: operation.packet };
+      break;
+    case "review_detail":
+      path = `${base}/reviews/${component(operation.review)}`;
+      break;
+    case "review_diff": {
+      const query = new URLSearchParams({ path: operation.path });
+      path = `${base}/reviews/${component(operation.review)}/diff?${query}`;
+      break;
+    }
+    case "verdict":
+      path = `${base}/races/${component(operation.packet)}/verdict`;
+      data = { ranking: operation.ranking, rationale: operation.rationale };
       break;
     case "commit":
       path = `${base}/forks/${component(operation.repoName)}/commit`;
