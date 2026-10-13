@@ -79,6 +79,7 @@ describe("offline workerd regression", () => {
       "claim",
       "get_context",
       "join",
+      "refresh_token",
       "request_review",
       "status",
       "submit_work",

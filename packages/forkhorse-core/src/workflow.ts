@@ -43,6 +43,13 @@ const text = (value: unknown, max: number): value is string =>
 const list = async <T>(storage: DurableObjectStorage, prefix: string): Promise<T[]> => [
   ...(await storage.list<T>({ prefix })).values(),
 ];
+// Legacy observations stay in storage unchanged until resolved.
+type StoredBlocker = Omit<Blocker, "resolved" | "at" | "pushingPacket"> &
+  Partial<Pick<Blocker, "resolved" | "at" | "pushingPacket">>;
+const publicBlocker = (blocker: StoredBlocker): Blocker => ({
+  ...blocker, at: blocker.at ?? null, pushingPacket: blocker.pushingPacket ?? null,
+  resolved: blocker.resolved ?? null,
+});
 
 /** Called only inside the Supervisor's serialization gate, after project authentication. */
 export class Workflow {
@@ -96,18 +103,30 @@ export class Workflow {
     releasedBy: ClaimReleaseAudit["releasedBy"],
     review?: string,
   ): Promise<void> {
+    const at = now();
     const race = "closedAt" in claim;
     if (race) {
       // Race promotion stays open until FH-053 atomically finishes the race.
       if (releasedBy === "promote") throw new Error("Race finish must close promoted entrants");
       await txn.put(entrantKey(claim.packet, claim.agent), {
-        ...claim, closedAt: now(), closedBy: releasedBy === "owner" ? "owner" : "release",
+        ...claim, closedAt: at, closedBy: releasedBy === "owner" ? "owner" : "release",
       });
     } else await txn.delete(`claim:${claim.packet}`);
     for (const pending of (await txn.list<Review>({ prefix: "review:" })).values()) {
       if (pending.packet === claim.packet && !pending.promoted &&
           (!race || (pending.agent === claim.agent && pending.repoName === claim.repoName)))
         await txn.put(`review:${pending.id}`, { ...pending, stale: true });
+    }
+    for (const [key, blocker] of await txn.list<StoredBlocker>({ prefix: "blocker:" })) {
+      // A race packet has several independent claimants/pushers. Closing one entry
+      // must not resolve another entrant's collision or unblock that other fork.
+      const claimantEnded = blocker.packet === claim.packet && (!race || blocker.claimingAgent === claim.agent);
+      const pusherEnded = blocker.pushingPacket === claim.packet && (!race ||
+        (blocker.pushingAgent === claim.agent && blocker.repoName === claim.repoName));
+      if ((claimantEnded || pusherEnded) && !blocker.resolved)
+        await txn.put(key, { ...publicBlocker(blocker), resolved: {
+          at, by: releasedBy === "promote" ? "promote" : "release",
+        } } satisfies Blocker);
     }
     await txn.put(`claimRelease:${review ?? crypto.randomUUID()}`, {
       packet: claim.packet,
@@ -116,7 +135,7 @@ export class Workflow {
       claimedAt: claim.createdAt,
       releasedBy,
       ...(review ? { review } : {}),
-      recordedAt: now(),
+      recordedAt: at,
     } satisfies ClaimReleaseAudit);
   }
 
@@ -157,6 +176,18 @@ export class Workflow {
     // Supervisor serializes the cap check, overlap check and immutable binding.
     await this.storage.put(entrantKey(packet.id, agent), entrant);
     return json({ claim: entrant }, 201);
+  }
+
+  private async requireNoBlockers(
+    storage: DurableObjectStorage | DurableObjectTransaction,
+    review: Review,
+  ): Promise<void> {
+    for (const blocker of (await storage.list<StoredBlocker>({ prefix: "blocker:" })).values()) {
+      if (!blocker.resolved && blocker.repoName === review.repoName &&
+          (blocker.pushingPacket == null || blocker.pushingPacket === review.packet))
+        throw new HttpError(409, "This fork pushed into paths another agent has claimed. The owner must resolve the blocker first.");
+    }
+
   }
 
   async route(request: Request, project: Project, actor: Actor): Promise<Response | null> {
@@ -331,7 +362,26 @@ export class Workflow {
       return json({ repoName: fork.repoName, packet: claim.packet, sha: prepared.sha }, 201);
     }
     if (path === "/blockers" && method === "GET")
-      return json({ blockers: await list<Blocker>(this.storage, "blocker:") });
+      return json({ blockers: (await list<StoredBlocker>(this.storage, "blocker:")).map(publicBlocker) });
+    const resolving = /^\/blockers\/([^/]+)\/resolve$/.exec(path);
+    if (resolving && method === "POST") {
+      this.owner(actor);
+      const data = await body(request);
+      if (!text(data.reason, 200)) throw new HttpError(400, "reason must be 1 to 200 characters.");
+      const reason = data.reason;
+      const blocker = await this.storage.transaction(async txn => {
+        const key = `blocker:${resolving[1]}`;
+        const stored = await txn.get<StoredBlocker>(key);
+        if (!stored) throw new HttpError(404, "Blocker not found.");
+        if (stored.resolved) return publicBlocker(stored);
+        const at = now();
+        const resolved: Blocker = { ...publicBlocker(stored), resolved: { at, by: "owner", reason } };
+        // Resolution provenance stays on the permanent blocker record; activity is Git-only.
+        await txn.put(key, resolved);
+        return resolved;
+      });
+      return json({ blocker });
+    }
     if (path === "/reviews" && method === "POST") {
       const agent = this.agent(actor);
       const data = await body(request);
@@ -373,7 +423,7 @@ export class Workflow {
       if (!packet) throw new HttpError(404, "Packet not found.");
       // Historical stores can grow indefinitely; fail closed instead of scanning without a budget.
       const ledgerEntries = await this.storage.list<LedgerEntry>({ prefix: "ledger:", limit: 2049 });
-      const blockerEntries = await this.storage.list<Blocker>({ prefix: "blocker:", limit: 2049 });
+      const blockerEntries = await this.storage.list<StoredBlocker>({ prefix: "blocker:", limit: 2049 });
       if (ledgerEntries.size > 2048 || blockerEntries.size > 2048)
         throw new HttpError(413, "Review exceeds the bounded read limit.");
       const ledger = [...ledgerEntries.values()].find(entry => entry.review === review.id);
@@ -381,7 +431,7 @@ export class Workflow {
         packet: { id: packet.id, title: packet.title, goal: packet.goal, paths: packet.paths, acceptance: packet.acceptance },
         changes: changes.public, ...await reader.history(review.base, review.sha),
         promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest } : null,
-        blockers: [...blockerEntries.values()].filter(blocker => blocker.packet === review.packet),
+        blockers: [...blockerEntries.values()].filter(blocker => blocker.packet === review.packet).map(publicBlocker),
       });
     }
     const returning = /^\/reviews\/([^/]+)\/return$/.exec(path);
@@ -415,6 +465,7 @@ export class Workflow {
         throw new HttpError(409, "Promotion needs owner inspection.");
       if (review.promoted) throw staleBase();
       const { claim, fork } = await this.binding(project, review.packet, review.repoName, review.agent);
+      await this.requireNoBlockers(this.storage, review);
       if (reviewing[2] === "promote") this.diagnostic.stage = "heads";
       if (
         review.stale ||
@@ -436,6 +487,7 @@ export class Workflow {
             throw new HttpError(409, "Approval is stale; request review again.");
           if (requireReceipt && (current.receiptGeneration !== review.receiptGeneration || current.receiptDigest !== review.receiptDigest))
             throw new HttpError(409, "Receipt changed; approve again.");
+          await this.requireNoBlockers(txn, current);
           current.approval = { sha: current.sha, receiptDigest: current.receiptDigest };
           await txn.put(`review:${review.id}`, current);
           await markEntrant(txn, claim, "approvedAt", now());
@@ -494,6 +546,7 @@ export class Workflow {
         throw new HttpError(409, "Receipt changed before promote.");
       // A background advisory receipt may have completed during preparation.
       Object.assign(review, checked);
+      await this.requireNoBlockers(this.storage, review);
       const entry: LedgerEntry = {
         id: crypto.randomUUID(),
         review: review.id,
@@ -609,7 +662,7 @@ export class Workflow {
       packets,
       races: await raceStates(this.storage, packets),
       claims: await list<Claim>(this.storage, "claim:"),
-      blockers: await list<Blocker>(this.storage, "blocker:"),
+      blockers: (await list<StoredBlocker>(this.storage, "blocker:")).map(publicBlocker),
       reviews: reviews.map(publicReview),
       ledger: (await list<LedgerEntry>(this.storage, "ledger:")).toSorted((a, b) =>
         a.recordedAt.localeCompare(b.recordedAt),
@@ -635,7 +688,11 @@ export async function recordWorkflowPush(
 ): Promise<void> {
   if (entry.agent) {
     const raceEntrants = await openEntrants(txn);
-    for (const claim of await liveClaims(txn)) {
+    const claims = [...(await txn.list<Claim>({ prefix: "claim:" })).values(), ...raceEntrants];
+    const pushingClaims = claims.filter(claim => claim.agent === entry.agent && claim.repoName === entry.repoName);
+    // Raw push events name a fork, not a packet. Multiple bindings cannot be attributed safely.
+    const pushingPacket = pushingClaims.length === 1 ? pushingClaims[0]!.packet : null;
+    for (const claim of claims) {
       const paths = entry.changedPaths.filter((path) =>
         claim.paths.some((claimed) => overlaps(claimed, path)),
       );
@@ -651,6 +708,9 @@ export async function recordWorkflowPush(
           repoName: entry.repoName,
           sha: entry.after,
           paths,
+          at: entry.recordedAt,
+          pushingPacket,
+          resolved: null,
         };
         await txn.put(`blocker:${id}`, blocker);
       }
