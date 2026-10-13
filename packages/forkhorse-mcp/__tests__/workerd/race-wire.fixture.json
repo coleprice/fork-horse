@@ -1,0 +1,221 @@
+{
+  "open": {
+    "fixture": "Offline source-derived core race/resume mapper output; no live acceptance",
+    "state": {
+      "packets": [
+        {
+          "id": "FH-standard",
+          "mode": "standard",
+          "title": "Core wire fixture",
+          "goal": "Offline wire validation",
+          "paths": [
+            "src/"
+          ],
+          "acceptance": [
+            "Fixture only"
+          ]
+        },
+        {
+          "id": "FH-race",
+          "mode": "race",
+          "title": "Core wire fixture",
+          "goal": "Offline wire validation",
+          "paths": [
+            "src/"
+          ],
+          "acceptance": [
+            "Fixture only"
+          ]
+        }
+      ],
+      "claims": [],
+      "races": [
+        {
+          "packet": "FH-race",
+          "status": "open",
+          "finishedAt": null,
+          "winner": null,
+          "ledgerEntryId": null,
+          "places": [],
+          "entrants": [
+            {
+              "agent": "builder",
+              "repoName": "demo--builder-1",
+              "firstPushAt": "2026-01-01T00:00:00.000Z",
+              "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+              "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+              "approvedAt": "2026-01-01T00:00:00.000Z",
+              "promotedAt": null,
+              "place": null,
+              "closedAt": null,
+              "closedBy": null,
+              "claimedAt": "2026-01-01T00:00:00.000Z",
+              "promoteRejected": null
+            },
+            {
+              "agent": "second",
+              "repoName": "demo--second-1",
+              "firstPushAt": "2026-01-01T00:00:00.000Z",
+              "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+              "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+              "approvedAt": "2026-01-01T00:00:00.000Z",
+              "promotedAt": null,
+              "place": null,
+              "closedAt": null,
+              "closedBy": null,
+              "claimedAt": "2026-01-01T00:00:00.000Z",
+              "promoteRejected": null
+            },
+            {
+              "agent": "third",
+              "repoName": "demo--third-1",
+              "firstPushAt": "2026-01-01T00:00:00.000Z",
+              "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+              "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+              "approvedAt": "2026-01-01T00:00:00.000Z",
+              "promotedAt": null,
+              "place": null,
+              "closedAt": null,
+              "closedBy": null,
+              "claimedAt": "2026-01-01T00:00:00.000Z",
+              "promoteRejected": null
+            }
+          ]
+        }
+      ]
+    },
+    "me": {
+      "work": [
+        {
+          "packet": {
+            "id": "FH-race",
+            "title": "Core wire fixture"
+          },
+          "repoName": "demo--builder-1",
+          "claimedAt": "2026-01-01T00:00:00.000Z",
+          "forkHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "canonicalHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "review": {
+            "id": "review-wire-fixture",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "stale": false,
+            "returned": null,
+            "receipt": {
+              "status": "passed"
+            },
+            "approved": true,
+            "promoted": false
+          },
+          "next": "wait_for_owner",
+          "hint": "Wait for the owner to review and promote your work."
+        }
+      ]
+    }
+  },
+  "finished": {
+    "fixture": "Offline source-derived core race/resume mapper output; no live acceptance",
+    "state": {
+      "packets": [
+        {
+          "id": "FH-standard",
+          "mode": "standard",
+          "title": "Core wire fixture",
+          "goal": "Offline wire validation",
+          "paths": [
+            "src/"
+          ],
+          "acceptance": [
+            "Fixture only"
+          ]
+        },
+        {
+          "id": "FH-race",
+          "mode": "race",
+          "title": "Core wire fixture",
+          "goal": "Offline wire validation",
+          "paths": [
+            "src/"
+          ],
+          "acceptance": [
+            "Fixture only"
+          ]
+        }
+      ],
+      "claims": [],
+      "races": [
+        {
+          "packet": "FH-race",
+          "status": "finished",
+          "finishedAt": "2026-01-01T00:00:00.000Z",
+          "winner": "second",
+          "ledgerEntryId": "ledger-wire-fixture-id",
+          "places": [
+            {
+              "agent": "second",
+              "place": 1
+            },
+            {
+              "agent": "builder",
+              "place": 2
+            },
+            {
+              "agent": "third",
+              "place": 3
+            }
+          ],
+          "entrants": [
+            {
+              "agent": "builder",
+              "repoName": "demo--builder-1",
+              "firstPushAt": "2026-01-01T00:00:00.000Z",
+              "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+              "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+              "approvedAt": "2026-01-01T00:00:00.000Z",
+              "promotedAt": null,
+              "place": 2,
+              "closedAt": "2026-01-01T00:00:00.000Z",
+              "closedBy": "race-finished",
+              "promoteRejected": {
+                "at": "2026-01-01T00:00:00.000Z",
+                "expected": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "found": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "claimedAt": "2026-01-01T00:00:00.000Z"
+            },
+            {
+              "agent": "second",
+              "repoName": "demo--second-1",
+              "firstPushAt": "2026-01-01T00:00:00.000Z",
+              "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+              "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+              "approvedAt": "2026-01-01T00:00:00.000Z",
+              "promotedAt": "2026-01-01T00:00:00.000Z",
+              "place": 1,
+              "closedAt": "2026-01-01T00:00:00.000Z",
+              "closedBy": "race-finished",
+              "claimedAt": "2026-01-01T00:00:00.000Z",
+              "promoteRejected": null
+            },
+            {
+              "agent": "third",
+              "repoName": "demo--third-1",
+              "firstPushAt": "2026-01-01T00:00:00.000Z",
+              "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+              "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+              "approvedAt": "2026-01-01T00:00:00.000Z",
+              "promotedAt": null,
+              "place": 3,
+              "closedAt": "2026-01-01T00:00:00.000Z",
+              "closedBy": "release",
+              "claimedAt": "2026-01-01T00:00:00.000Z",
+              "promoteRejected": null
+            }
+          ]
+        }
+      ]
+    },
+    "me": {
+      "work": []
+    }
+  }
+}
