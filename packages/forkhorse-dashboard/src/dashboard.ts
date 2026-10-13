@@ -1,6 +1,6 @@
 import type { Brand, DashboardTransport, ProjectOption } from "./contracts.ts";
 import { ApiError } from "./transport.ts";
-import { assertState, reviewGate, reviewState, type ViewModel } from "./model.ts";
+import { assertState, canArchive, reviewGate, reviewState, type ViewModel } from "./model.ts";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -114,6 +114,12 @@ export function mountDashboard(
               : undefined,
             returnReview:
               options.owner !== false && options.transport.returnReview ? returnReview : undefined,
+            archivePacket:
+              options.owner !== false && options.transport.archivePacket
+                ? (id: string) => archivePacket("archive", id) : undefined,
+            unarchivePacket:
+              options.owner !== false && options.transport.unarchivePacket
+                ? (id: string) => archivePacket("unarchive", id) : undefined,
             setSection,
             selectProject,
             retry: refresh,
@@ -270,6 +276,29 @@ export function mountDashboard(
       invalidated = false;
       await refresh();
     }
+    return true;
+  }
+
+  async function archivePacket(kind: "archive" | "unarchive", id: string) {
+    const write = kind === "archive"
+      ? options.transport.archivePacket : options.transport.unarchivePacket;
+    if (options.owner === false || view.busy || !view.state || !write) return false;
+    const packet = view.state.packets.find((entry) => entry.id === id);
+    if (!packet || (kind === "archive" ? !canArchive(view.state, id) : !packet.archived)) return false;
+    view.busy = true;
+    view.notice = undefined;
+    view.noticeSha = undefined;
+    draw();
+    try {
+      await write(view.project, id);
+    } catch (error) {
+      // Re-fetch only. The panel owns sanitized action errors, including uncertain writes.
+      await load();
+      throw error;
+    }
+    await load();
+    view.notice = `${kind === "archive" ? "Archived" : "Unarchived"} ${id}`;
+    draw();
     return true;
   }
 

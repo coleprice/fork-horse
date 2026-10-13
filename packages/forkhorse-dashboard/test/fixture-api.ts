@@ -1,3 +1,4 @@
+import { archiveFixtureState, archiveScenarios } from "./archive-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
   reviewScenarios,
@@ -35,6 +36,37 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const archiveRoute = /^\/projects\/([^/]+)\/(state|activity|packets\/([^/]+)\/(archive|unarchive)|reviews\/([^/]+)(?:\/(receipt|diff))?)$/.exec(url.pathname);
+    if (archiveRoute && archiveScenarios.includes(archiveRoute[1])) {
+      const id = archiveRoute[1];
+      if (!states.has(id)) states.set(id, archiveFixtureState(id));
+      const state = states.get(id)!;
+      if (archiveRoute[2] === "state") send(state);
+      else if (archiveRoute[2] === "activity") send({ activity: state.activity, nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+      else if (archiveRoute[5]) {
+        const review = state.reviews.find((r) => r.id === archiveRoute[5]);
+        if (!review) send({ error: "Review not found." }, 404);
+        else if (archiveRoute[6] === "receipt") send(fixtureOwnerReceipt(review));
+        else if (archiveRoute[6] === "diff") send(reviewFixtureDiff(url.searchParams.get("path") ?? ""));
+        else send(reviewFixtureDetail(state));
+      } else if (request.method !== "POST") send({ error: "Method not allowed." }, 405);
+      else {
+        const packet = state.packets.find((p) => p.id === archiveRoute[3]);
+        if (id === "archive-missing") {
+          state.packets = state.packets.filter((p) => p.id !== archiveRoute[3]);
+          send({ error: "Fixture packet missing." }, 404);
+        } else if (!packet) send({ error: "Packet not found." }, 404);
+        else if (id === "archive-conflict") {
+          state.races = [{ packet: packet.id, entrants: [{ closedAt: null }] }];
+          send({ error: "Fixture raw conflict must not be displayed." }, 409);
+        } else if (id === "archive-error") send({ error: "Fixture raw failure must not be displayed." }, 503);
+        else {
+          packet.archived = archiveRoute[4] === "archive" ? { at: new Date().toISOString(), by: "owner" } : null;
+          send({ packet });
+        }
+      }
+      return;
     }
     const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
     if (needsRoute && needsScenarios.includes(needsRoute[1])) {

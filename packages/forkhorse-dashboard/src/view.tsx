@@ -26,6 +26,8 @@ import {
   ReceiptDetails,
 } from "./receipts.tsx";
 import {
+  isArchived,
+  workPackets,
   promotionReceipt,
   recentReceipts,
   receiptGateCaption,
@@ -34,6 +36,7 @@ import {
   reviewQueue,
   type ViewModel,
 } from "./model.ts";
+import { ArchiveControl, ArchivedBadge } from "./archive.tsx";
 import { ReviewView } from "./review.tsx";
 import { NeedsYou } from "./needs-you.tsx";
 import type { OwnerNeed } from "./needs-you-model.ts";
@@ -47,6 +50,8 @@ export interface ViewActions {
   getReview?(id: string): Promise<ReviewDetail>;
   getDiff?(id: string, path: string): Promise<ReviewDiff>;
   returnReview?(id: string, reason: string): Promise<boolean>;
+  archivePacket?(id: string): Promise<boolean>;
+  unarchivePacket?(id: string): Promise<boolean>;
   section: Section;
   setSection(section: Section): void;
   owner: boolean;
@@ -390,14 +395,28 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveAnnouncement, setArchiveAnnouncement] = useState("");
+  const [packetError, setPacketError] = useState<string>();
   const [packetId, setPacketId] = useState<string>();
+  useEffect(() => {
+    setShowArchived(false);
+    setArchiveAnnouncement("");
+    setPacketId(undefined);
+    setPacketError(undefined);
+  }, [view.project]);
   const [reviewId, setReviewId] = useState<string>();
   const [receiptPanel, setReceiptPanel] = useState(false);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string>();
   const toggleRef = useRef<HTMLButtonElement>(null);
   const state = view.state;
-  const blockers = state?.blockers.filter((b) => !b.resolved) ?? [];
+  const blockers = state?.blockers.filter(
+    (b) => !b.resolved && !isArchived(state, b.packet) &&
+      !(b.pushingPacket && isArchived(state, b.pushingPacket)),
+  ) ?? [];
+  const packets = state ? workPackets(state, showArchived) : [];
+  const archivedCount = state?.packets.filter((p) => p.archived).length ?? 0;
   const reviews = state ? reviewQueue(state) : [];
   const reviewCount = reviews.filter(
     (r) => !r.returned && (r.status === "pending" || r.status === "approved"),
@@ -405,7 +424,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const history = state ? recentReceipts(state) : [];
   const lastPromotion = state?.ledger.at(-1);
   const lastReceipt = state && lastPromotion ? promotionReceipt(state, lastPromotion) : undefined;
-  const claims = state?.claims.filter((c) => c.active) ?? [];
+  const claims = state?.claims.filter((c) => c.active && !isArchived(state, c.packet)) ?? [];
   const selected = state?.packets.find((p) => p.id === packetId);
   const selectedReview = state?.reviews.find((r) => r.id === reviewId);
   function toggle(value: boolean) {
@@ -418,6 +437,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     }
   }
   function showPacket(id: string) {
+    setPacketError(undefined);
     setReceiptPanel(false);
     setPacketId(id);
     setReviewId(undefined);
@@ -521,10 +541,35 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
         />
       ) : selected || selectedReview ? (
         <>
-          <h3>{selected?.title ?? selectedReview?.packet}</h3>
+          <div className="section-heading archive-heading">
+            <h3>
+              {selected?.title ?? selectedReview?.packet}{" "}
+              {selected?.archived && <ArchivedBadge at={selected.archived.at} />}
+            </h3>
+            {selected && state && (
+              <ArchiveControl
+                key={`${view.project}:${selected.id}`}
+                packet={selected}
+                state={state}
+                owner={actions.owner}
+                busy={view.busy}
+                archive={actions.archivePacket}
+                unarchive={actions.unarchivePacket}
+                missing={(message) => {
+                  setPacketId(undefined);
+                  setPacketError(message);
+                }}
+              />
+            )}
+          </div>
           {selected && (
             <>
               <p className="caption muted">{selected.id}</p>
+              {selected.archived && (
+                <p className="caption muted">
+                  Archived · {relative(selected.archived.at)} by {actions.owner ? "you" : "the owner"}
+                </p>
+              )}
               <p>{selected.goal}</p>
             </>
           )}
@@ -736,6 +781,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {askError && <p>{askError}</p>}
                 </div>
               )}
+              {packetError && <Banner variant="error" role="alert" description={packetError} />}
               {view.error && (
                 <Banner
                   variant="error"
@@ -846,7 +892,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       </LayerCard>
                       <section className="metrics" aria-label="Project summary">
                         {[
-                          ["Open packets", state.packets.length],
+                          ["Open packets", workPackets(state).length],
                           ["Active claims", claims.length],
                           ["In review", reviewCount],
                           ["Blockers", blockers.length],
@@ -909,12 +955,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       )}
                       <section id="packets">
                         <h2>Packets and claims</h2>
-                        {state.packets.length ? (
+                        {packets.length ? (
                           <DataTable
                             kind="work"
                             headings={["Packet", "State", "Claimed by", "Fork", "Paths", "Claimed"]}
                           >
-                            {state.packets.map((p) => {
+                            {packets.map((p) => {
                               const live = claims.filter((c) => c.packet === p.id);
                               return (
                                 <Table.Row
@@ -933,7 +979,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     <div className="caption muted">{p.id}</div>
                                   </Table.Cell>
                                   <Table.Cell>
-                                    <Status {...packetStatus(p.id, state)} />
+                                    {p.archived ? <ArchivedBadge at={p.archived.at} /> : <Status {...packetStatus(p.id, state)} />}
                                     <div className="caption muted folded">
                                       {live
                                         .filter((c) => c.createdAt)
@@ -979,8 +1025,26 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             })}
                           </DataTable>
                         ) : (
-                          empty("No packets created.")
+                          empty(archivedCount ? "No active packets." : "No packets created.")
                         )}
+                        {archivedCount > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            data-action="toggle-archived"
+                            aria-pressed={showArchived}
+                            onClick={() => {
+                              setShowArchived(!showArchived);
+                              setArchiveAnnouncement(showArchived
+                                ? "Archived packets hidden" : `${archivedCount} archived packets shown`);
+                            }}
+                          >
+                            {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+                          </Button>
+                        )}
+                        <span className="sr-only" role="status" aria-live="polite">
+                          {archiveAnnouncement}
+                        </span>
                       </section>
                     </>,
                   )}

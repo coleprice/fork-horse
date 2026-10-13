@@ -1,3 +1,4 @@
+import { ArchivedBadge } from "./archive.tsx";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Banner, Button, ClipboardText, Dialog, Tooltip, Textarea } from "@cloudflare/kumo";
 import { ArrowUUpLeft, Copy, Warning } from "@phosphor-icons/react";
@@ -494,7 +495,7 @@ export function ReviewView({
                     ...blocker,
                     agent: blocker.pushingAgent,
                     reason: `Push from ${blocker.pushingAgent} overlaps ${blocker.claimingAgent}'s live claim.`,
-                    resolved: false,
+                    resolved: blocker.resolved ?? null,
                   })),
                 ].map((blocker) => [blocker.id, blocker]),
               ).values(),
@@ -538,6 +539,7 @@ export function ReviewView({
   const receipt = review.receipt;
   const word = checksWord(review);
   const promotion = detail.promotion;
+  const packet = snapshot?.packets.find((entry) => entry.id === detail.packet.id) ?? detail.packet;
   return (
     <article className="review-detail">
       {back}
@@ -545,7 +547,8 @@ export function ReviewView({
         <div>
           <h2>{detail.packet.title}</h2>
           <p className="caption muted">
-            <code>{detail.packet.id}</code> · by {review.agent} · <code>{review.repoName}</code>
+            <code>{detail.packet.id}</code>{" "}
+            {packet.archived && <ArchivedBadge at={packet.archived.at} />} · by {review.agent} · <code>{review.repoName}</code>
             {review.requestedAt && ` · requested ${relativeTime(review.requestedAt)}`}
           </p>
         </div>

@@ -12,7 +12,8 @@ export interface ProjectState {
   recentActivity?: Activity[];
   agents: { name: string }[];
   forks: { agent: string; repoName: string; head: string; events?: "pending" | "active" }[];
-  packets: { id: string; title: string; goal: string; paths: string[]; acceptance: string[] }[];
+  packets: Packet[];
+  races?: { packet: string; entrants: { closedAt: string | null }[] }[];
   claims: {
     packet: string;
     agent: string;
@@ -27,7 +28,8 @@ export interface ProjectState {
     packet: string;
     paths: string[];
     reason: string;
-    resolved: boolean;
+    resolved: boolean | null | { at: string; by: string };
+    pushingPacket?: string | null;
     claimingAgent?: string;
     pushingAgent?: string;
     sha?: string;
@@ -47,6 +49,16 @@ export interface ProjectState {
   promotionPending?: LedgerEntry | null;
 }
 
+export interface Packet {
+  id: string;
+  title: string;
+  goal: string;
+  paths: string[];
+  acceptance: string[];
+  /** Absent legacy records are treated as null. */
+  archived?: null | { at: string; by: "owner" };
+}
+
 export interface Review {
   id: string;
   repoName: string;
@@ -57,6 +69,8 @@ export interface Review {
   requestedAt?: string;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
+  /** Raw core flag, independent of the derived display status. */
+  promoted?: boolean;
   stale?: boolean;
   returned?: null | { reason: string; at: string };
   approval?: { sha: string; receiptDigest: string | null } | null;
@@ -129,6 +143,8 @@ export interface DashboardTransport {
     review: string,
     reason: string,
   ): Promise<{ review: StateResponse["reviews"][number] }>;
+  archivePacket?(project: string, packet: string): Promise<{ packet: Packet }>;
+  unarchivePacket?(project: string, packet: string): Promise<{ packet: Packet }>;
   getState(project: string): Promise<ProjectState>;
   getActivity(project: string, after?: number): Promise<ActivityPage>;
   approve(project: string, review: string): Promise<unknown>;
@@ -143,7 +159,7 @@ export interface DashboardTransport {
   subscribe?(project: string, invalidate: () => void): () => void;
 }
 
-/** FH-005 JSON snapshot. Only live claims appear; blockers currently have no resolution field. */
+/** Public wire snapshot, with optional FH-048/050/052 fields for legacy records. */
 export interface StateResponse {
   project: {
     id: string;
@@ -164,12 +180,15 @@ export interface StateResponse {
     events?: "pending" | "active";
   }[];
   packets: ProjectState["packets"];
+  races?: ProjectState["races"];
   claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string }[];
   blockers: {
     id: string;
     packet: string;
     claimingAgent: string;
     pushingAgent: string;
+    pushingPacket?: string | null;
+    resolved?: null | { at: string; by: string };
     repoName: string;
     sha: string;
     paths: string[];

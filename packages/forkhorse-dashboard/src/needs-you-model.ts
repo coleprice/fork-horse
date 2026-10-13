@@ -1,5 +1,5 @@
 import type { Brand, ProjectState } from "./contracts.ts";
-import { reviewGate, reviewState } from "./model.ts";
+import { isArchived, reviewGate, reviewState } from "./model.ts";
 import { duration } from "./receipts.tsx";
 import { relativeTime } from "./time.ts";
 
@@ -75,7 +75,8 @@ export function ownerNeeds(state: ProjectState, brand: Brand, now = Date.now()):
     });
   }
   for (const blocker of state.blockers
-    .filter((b) => !b.resolved)
+    .filter((b) => !b.resolved && !isArchived(state, b.packet) &&
+      !(b.pushingPacket && isArchived(state, b.pushingPacket)))
     .toSorted((a, b) => sequence(a.id) - sequence(b.id))) {
     items.push({
       id: `blocker:${blocker.id}`,
@@ -100,6 +101,7 @@ export function ownerNeeds(state: ProjectState, brand: Brand, now = Date.now()):
   const reviews = state.reviews
     .filter(
       (review) =>
+        !isArchived(state, review.packet) &&
         reviewState(review, state).kind === "current" &&
         review.status !== "stale" &&
         state.forks.find((f) => f.repoName === review.repoName)?.head === review.sha,
