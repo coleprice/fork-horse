@@ -238,6 +238,8 @@ test("diffs are lazy, several expand, text escaped, binary and truncated and 404
       false,
     );
     assert.equal(c.root.querySelectorAll(".review-file-toggle").length, 200);
+    const paths = reviewFixtureDetail(c.wire).changes.files.map(f => f.path);
+    assert.deepEqual(paths, paths.toSorted((a, b) => a.localeCompare(b)));
     assert.match(c.root.textContent!, /Showing 200 of 400 files\./);
     const rows = c.root.querySelectorAll<HTMLButtonElement>(".review-file-toggle");
     for (const i of [0, 1, 2, 3]) rows[i].click();
@@ -249,7 +251,7 @@ test("diffs are lazy, several expand, text escaped, binary and truncated and 404
     );
     assert.equal(rows[0].getAttribute("aria-expanded"), "true");
     assert.match(
-      c.root.querySelector(".review-diff")!.textContent!,
+      c.root.querySelector(".diff-added")!.textContent!,
       /<script>plain text only<\/script>/,
     );
     assert.equal(c.root.querySelector(".review-diff script"), null);
@@ -429,7 +431,7 @@ test("detail retains queue SHA/digest gates and rejects a contract for a differe
   });
   try {
     await until(() => huge.root.querySelector(".review-file-toggle"));
-    huge.root.querySelector<HTMLButtonElement>(".review-file-toggle")!.click();
+    [...huge.root.querySelectorAll<HTMLButtonElement>(".review-file-toggle")].find(b => b.textContent!.includes("src/review.tsx"))!.click();
     await until(() => huge.root.textContent!.includes("Couldn't load this diff."));
     assert.equal(huge.root.querySelector(".review-diff pre"), null);
   } finally {

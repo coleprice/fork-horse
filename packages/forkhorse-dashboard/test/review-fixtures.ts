@@ -98,7 +98,7 @@ export function reviewFixtureDetail(state: StateResponse): ReviewDetail {
       head: review.sha,
       fileCount: large ? 400 : 4,
       truncated: large,
-      files: [
+      files: ([
         { path: "src/review.tsx", status: "modified" },
         { path: "assets/image.bin", status: "added" },
         { path: "docs/large.txt", status: "deleted" },
@@ -109,7 +109,7 @@ export function reviewFixtureDetail(state: StateResponse): ReviewDetail {
               status: "modified" as const,
             }))
           : []),
-      ],
+      ] satisfies ReviewDetail["changes"]["files"]).toSorted((a, b) => a.path.localeCompare(b.path)),
     },
     commits: [
       {
