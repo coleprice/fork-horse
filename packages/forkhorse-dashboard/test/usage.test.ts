@@ -196,9 +196,11 @@ test("race Compare is factual and read-only for both roles, with true ratio mete
       assert.match(c.root.textContent!, /Over budget/);
       assert.match(
         c.root.querySelector(".race-compare")!.textContent!,
-        /Time to Approved.*Time to Promoted.*Checks passed.*Files changed.*Recorded pushes.*Tokens/s,
+        /Time to Approved.*Time to Promoted.*Checks passed.*Files changed.*Tokens/s,
       );
-      assert.match(c.root.querySelector(".race-compare")!.textContent!, /in loaded history/);
+      // This fixture begins loading at first push, after every claim.
+      assert.doesNotMatch(c.root.querySelector(".race-compare")!.textContent!, /Recorded pushes/);
+      assert.equal(c.root.querySelector('.race-results [data-label="Pushes"]'), null);
       assert.doesNotMatch(
         c.root.querySelector(".race-compare")!.textContent!,
         /score|cost|rank|winner/i,

@@ -339,7 +339,9 @@ The accepted FH-055 race view includes Tokens before Result in its milestone tra
 and results table, with a facts-only Compare section directly below the track.
 Compare uses FH-055 claim order and its shared recorded race clock. Checks
 come from public receipts, files from exact review detail, and push counts from
-loaded activity within the entrant's binding window. No score, inferred line count,
+the shared FH-055b `packetPushes` interval helper. Results omits its Pushes column
+and Compare omits its Recorded pushes row when loaded history does not cover every
+entrant's claim. Counts end at entrant close, race finish, or now. No score, inferred line count,
 price, or automatic ranking is computed. Missing detail is Unavailable. The queue's
 Tokens column appears only when at least one queued review has a snapshot. Fork
 usage appears only in label tooltips and the table twin, never lane geometry.
@@ -358,6 +360,9 @@ checks and browser captures are synthetic. See
 Accepted FH-055 main is normally merged at `3d87cdca649740984524882a00408cb9780ae327`
 (second parent `ea577a1d96fc52528bd2854d58ee2a29d9ccf679`). Its glyphs, claim order,
 neutral unreached rings, centered hurdles, badges and silks remain in the shared track.
+Accepted FH-055b main `f924b7a40fa94bc457677dfa3898c940b1676e37` is normally
+merged at `97cf0650f6560a0d5d814a85c98d27cc6a342d53`, with parents
+`90cabe62afb723d0645e62d3c97976e3f8030fc5` and that accepted main commit.
 Final integration is held for accepted FH-060 and overlapping FH-049 if it lands. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
 serialized operator checks. Saddler PASS and owner review remain open. This local
 candidate has no live Cloudflare, deployment, or owner-acceptance evidence.

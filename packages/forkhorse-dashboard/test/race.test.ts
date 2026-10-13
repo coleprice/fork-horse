@@ -224,10 +224,18 @@ test("missing ledger and activity never invent before/after or push counts", () 
 });
 function resultsPushes(value: ViewModel) {
   const dom = new JSDOM(html(value));
-  return [...dom.window.document.querySelectorAll(".race-results tbody tr")].map((row) => [
+  const compare = dom.window.document.querySelector(".race-compare")!;
+  const agents = [...compare.querySelectorAll("thead th")].slice(1).map((cell) => cell.textContent);
+  const pushRow = [...compare.querySelectorAll("tbody tr")].find((row) =>
+    row.querySelector("th")?.textContent === "Recorded pushes",
+  )!;
+  const counts = [...pushRow.querySelectorAll("td")].map((cell) => cell.textContent);
+  const results = [...dom.window.document.querySelectorAll(".race-results tbody tr")].map((row) => [
     row.querySelector(".race-runner strong")!.textContent,
     row.querySelector('[data-label="Pushes"]')?.textContent,
   ]);
+  for (const [agent, count] of results) assert.equal(counts[agents.indexOf(agent)], count);
+  return results;
 }
 test("reused forks count only their race pushes, independently of loaded activity order", () => {
   const value = view("race-reused-forks");
@@ -272,9 +280,9 @@ test("incomplete loaded race history hides the entire Pushes column and its capt
     Date.parse(event.recordedAt) >= Date.parse(laterClaim),
   );
   value.activity.unshift({ ...value.activity[0], recordedAt: laterClaim, repoName: value.state!.project.repoName });
-  assert.doesNotMatch(html(value), /<th[^>]*>Pushes|data-label="Pushes"|Pushes from loaded activity/);
+  assert.doesNotMatch(html(value), /<th[^>]*>Pushes|data-label="Pushes"|Pushes from loaded activity|Recorded pushes|Push counts cover/);
   value.activity = [];
-  assert.doesNotMatch(html(value), /data-label="Pushes"|Pushes from loaded activity/);
+  assert.doesNotMatch(html(value), /data-label="Pushes"|Pushes from loaded activity|Recorded pushes|Push counts cover/);
 });
 test("advisory approval skips hollow check marker with a connector and remains truthful", () => {
   const value = view("race-advisory");

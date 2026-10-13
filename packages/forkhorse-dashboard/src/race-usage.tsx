@@ -2,6 +2,7 @@ import { assertDetail } from "./review.tsx";
 import { useEffect, useState } from "react";
 import type { Brand, ProjectState, Race, ReviewDetail } from "./contracts.ts";
 import { raceEntrants, raceStart, raceSplit } from "./race-model.ts";
+import { oldestLoadedActivity, packetPushes, timestamp } from "./fork-graph-model.ts";
 import { BudgetUsage } from "./usage.tsx";
 import { totalTokens } from "./usage.ts";
 
@@ -66,6 +67,13 @@ export function RaceCompare({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keys, getReview]);
   const start = raceStart(race);
+  const activity = state.recentActivity ?? [];
+  const oldestLoaded = oldestLoadedActivity(activity);
+  const pushesAvailable = oldestLoaded !== Infinity && race.entrants.every((entrant) => {
+    const claimed = timestamp(entrant.claimedAt);
+    return claimed !== undefined && oldestLoaded <= claimed;
+  });
+  const now = Date.now();
   const approved = race.entrants.map((e) => elapsed(start, e.approvedAt));
   const promoted = race.entrants.map((e) => elapsed(start, e.promotedAt));
   const changes = reviews.map((r) => (r ? details[r.id]?.changes.fileCount : undefined));
@@ -98,8 +106,8 @@ export function RaceCompare({
     <section className="race-usage" aria-labelledby="race-compare-title">
       <h3 id="race-compare-title">Compare</h3>
       <p className="caption muted">
-        Times since the first entrant claimed. Push counts cover loaded activity only. Files come
-        from the latest review detail.
+        Times since the first entrant claimed. Files come from the latest review detail.
+        {pushesAvailable && " Push counts cover each entrant's race interval in loaded activity."}
       </p>
       <div className="table-scroll">
         <table className="race-compare">
@@ -149,25 +157,18 @@ export function RaceCompare({
                 </td>
               ))}
             </tr>
-            <tr>
+            {pushesAvailable && <tr>
               <th scope="row">Recorded pushes</th>
               {race.entrants.map((e) => (
                 <td key={e.repoName}>
-                  {
-                    (state.recentActivity ?? []).filter(
-                      (a) =>
-                        a.repoName === e.repoName &&
-                        a.agent === e.agent &&
-                        a.ref === `refs/heads/${state.project.defaultBranch}` &&
-                        !/^0+$/.test(a.after) &&
-                        Date.parse(a.recordedAt) >= Date.parse(e.claimedAt) &&
-                        (!e.closedAt || Date.parse(a.recordedAt) <= Date.parse(e.closedAt)),
-                    ).length
-                  }{" "}
-                  <span className="caption muted">in loaded history</span>
+                  {packetPushes(
+                    activity, e.repoName, state.project.defaultBranch,
+                    timestamp(e.claimedAt) ?? Infinity,
+                    timestamp(e.closedAt) ?? timestamp(race.finishedAt) ?? now,
+                  ).length}
                 </td>
               ))}
-            </tr>
+            </tr>}
             <tr>
               <th scope="row">Tokens</th>
               {race.entrants.map((e, i) => (

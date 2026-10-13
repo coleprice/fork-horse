@@ -19,13 +19,14 @@ show their initial scroll position. Theme controls were hidden through the fixtu
 | unbudgeted-race.jpg | `?scenario=usage-unbudgeted#race/FH-040` | Core unchecked state with null budget shows Not reported without meter/warning |
 | unbudgeted-promote.jpg | `?scenario=usage-unbudgeted#review/usage-review-0` | Promote remains visible with no budget caption; no write performed |
 | photo-finish-integration.jpg | `?scenario=race-photo#race/race-01` | Accepted placings, photo-finish badge, rejected CAS evidence, shared glyphs and silks retained |
+| reused-forks-pushes.jpg | `?scenario=race-reused-forks#race/race-01` | Shared race-window counts: Compare and Results both show one push per reused fork |
 | fork-table.jpg | `?scenario=usage-race#overview` | Expanded table twin includes Tokens; graph labels contain no figures |
 
 The source fixture also covers legacy records, metered precedence, zero reports,
 80%/100%/over boundaries, snapshot deduplication, missing review-detail capability,
 immutable snapshots versus current budget state, and unchanged Needs you kinds.
 
-## Focused checks
+## Prior FH-055 integration checks
 
 Original branch base: `cc71fff99bf72434978ad297329a8a9f05ef6aea`.
 Fresh `origin/main` and explicitly accepted integration base both verified as
@@ -67,12 +68,44 @@ checks hurdles have zero horizontal center offset. Other glyph centers differ by
 at most 0.5 px due to their accepted border geometry. Read-only browser inspection
 also confirmed unbudgeted Promote is visible with zero budget captions.
 
-The latest source is tested against fixtures for the fixed FH-060 contract only.
+The source is tested against fixtures for the fixed FH-060 contract only.
 The FH-060 implementation has not been accepted or merged into this candidate.
+
+## FH-055b follow-up
+
+Fresh `origin/main` was `c3dec6e43994b49007b6ad06ab55d13c61607955`, which
+contains the explicitly authorized accepted FH-055b commit
+`f924b7a40fa94bc457677dfa3898c940b1676e37`. This follow-up merged that exact
+accepted commit, without taking the newer FH-057b merge pending separate acceptance
+authority. Normal merge: `97cf0650f6560a0d5d814a85c98d27cc6a342d53`; parents
+`90cabe62afb723d0645e62d3c97976e3f8030fc5` and
+`f924b7a40fa94bc457677dfa3898c940b1676e37`.
+
+Compare now uses shared `packetPushes` and `oldestLoadedActivity`. Its Recorded
+pushes row and caption are omitted whenever Results omits the Pushes column for
+incomplete history. Both count default-branch, non-delete pushes by receive time
+from claim through entrant close, race finish, or now. Existing accepted regressions
+now also assert that Compare agrees with Results for reused forks, unordered history,
+interval endpoints, unrelated Git events, and each end condition.
+
+| Latest follow-up command | Result |
+| --- | --- |
+| `CI=true pnpm --filter forkhorse-dashboard exec node --import ./test/jsx-runtime.ts --test test/race.test.ts test/usage.test.ts test/fork-graph.test.ts` | Exit 0; 40 passed, 0 failed |
+| `CI=true pnpm --filter forkhorse-dashboard types:check` | Exit 0 |
+| `CI=true pnpm exec vp lint packages/forkhorse-dashboard` | Exit 0; no findings |
+| `git -c core.fsmonitor=false diff --check` | Exit 0 |
+
+The 104-test suite and builds above describe the preceding FH-055 candidate.
+This small FH-055b follow-up ran the affected regressions, types, and scoped lint.
+Race light/dark, phone race, unbudgeted race, and photo-finish captures were refreshed.
+A new reused-forks capture confirms one push in both tables despite historical fork
+totals of twenty and three. The usage fixture starts loading after every claim, so
+its refreshed captures omit both push facts. Other captures retain their prior
+fixture evidence. No root/fresh-clone/D5, live, publication, or Board action occurred.
 
 ## Candidate changed paths
 
-Complete candidate delta against the accepted FH-055 base above:
+Complete candidate delta against accepted FH-055b main `f924b7a40fa94bc457677dfa3898c940b1676e37`:
 
 ```text
 packages/forkhorse-dashboard/README.md
@@ -97,6 +130,7 @@ packages/forkhorse-dashboard/test/captures/fh-062/phone-agent-totals.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/photo-finish-integration.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/race-dark.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/race-light.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/reused-forks-pushes.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/unbudgeted-promote.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/unbudgeted-race.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/unchecked-queue.jpg
