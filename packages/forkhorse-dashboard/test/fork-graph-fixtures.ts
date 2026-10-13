@@ -5,6 +5,7 @@ export const forkScenarios = [
   "fork-history",
   "fork-hour-edge",
   "fork-states",
+  "fork-in-progress",
   "fork-resolved",
   "fork-old",
   "fork-many",
@@ -130,6 +131,10 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
         receiptDigest: receipt.digest,
         recordedAt: at(30),
       });
+  }
+  if (id === "fork-in-progress") {
+    // A claimed fork with no review remains In progress.
+    state.reviews = state.reviews.filter((review) => review.packet !== "fixture-02");
   }
   if (id === "fork-hour-edge") {
     // Put an hour five seconds inside the recent window, independent of capture time.
