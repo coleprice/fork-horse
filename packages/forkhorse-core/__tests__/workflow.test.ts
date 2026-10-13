@@ -8,6 +8,9 @@ import type {
   ClaimReleaseAudit,
   Fork,
   LedgerEntry,
+  Packet,
+  PacketArchiveAudit,
+  RaceState,
   ReconcilerAlert,
   Review,
 } from "../src/workflow-types";
@@ -40,6 +43,8 @@ async function mutate(
   });
 }
 interface State {
+  packets: Packet[];
+  races: RaceState[];
   claims: Claim[];
   forks: (Fork & { head: string })[];
   reviews: Review[];
@@ -105,7 +110,7 @@ async function fixture(branch = "main") {
   }
   return { id, alpha, beta, a: `${id}--alpha-1`, b: `${id}--beta-1` };
 }
-async function packet(id: string, pid = "one", paths = ["src/**"]) {
+async function packet(id: string, pid = "one", paths = ["src/**"], mode: "standard" | "race" = "standard") {
   expect(
     (
       await api(id, "/packets", OWNER, {
@@ -114,6 +119,7 @@ async function packet(id: string, pid = "one", paths = ["src/**"]) {
         goal: "Fixture goal",
         paths,
         acceptance: ["Fixture check"],
+        ...(mode === "race" ? { mode } : {}),
       })
     ).status,
   ).toBe(201);
@@ -153,6 +159,222 @@ function push(
     metadata: { eventTimestamp: "2026-10-12T00:00:00Z" },
   };
 }
+
+describe("FH-050 packet visibility and claim guard in workerd with offline providers", () => {
+  it("counts real race entrants until both release, and keeps closed history when archived", async () => {
+    const f = await fixture();
+    await packet(f.id, "one", ["src/**"], "race");
+    for (const token of [f.alpha, f.beta]) expect((await claim(f.id, token)).status).toBe(201);
+    expect((await state(f.id)).claims).toEqual([]);
+    for (const token of [f.alpha, f.beta]) {
+      const denied = await api(f.id, "/packets/one/archive", OWNER, undefined, "POST");
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual({ error: "Packet has a live claim." });
+      expect((await api(f.id, "/packets/one/claim", token, undefined, "DELETE")).status).toBe(200);
+    }
+    const closed = (await state(f.id)).races;
+    expect(closed[0]!.entrants.every(entrant => entrant.closedAt !== null)).toBe(true);
+    expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(200);
+    expect((await state(f.id)).races).toEqual(closed);
+    for (const token of [f.alpha, f.beta]) {
+      const denied = await claim(f.id, token);
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual({ error: "Packet is archived." });
+    }
+    expect((await api(f.id, "/packets/one/claim", f.alpha, undefined, "DELETE")).status).toBe(200);
+    expect((await state(f.id)).races).toEqual(closed);
+  });
+
+  it("restores claims on an unstarted race after unarchive and preserves packet mode", async () => {
+    const f = await fixture();
+    await packet(f.id, "one", ["src/**"], "race");
+    expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(200);
+    const denied = await claim(f.id, f.alpha);
+    expect(denied.status).toBe(409);
+    expect(await denied.json()).toEqual({ error: "Packet is archived." });
+    expect((await claim(f.id, OWNER)).status).toBe(403);
+    const response = await api(f.id, "/packets/one/unarchive", OWNER, undefined, "POST");
+    expect(response.status).toBe(200);
+    expect((await response.json<{ packet: Packet }>()).packet).toMatchObject({ mode: "race", archived: null });
+    expect((await claim(f.id, f.alpha)).status).toBe(201);
+  });
+
+  it("archives a finished real race without changing results, entrants, reviews or ledger", async () => {
+    const f = await fixture();
+    await packet(f.id, "one", ["src/**"], "race");
+    for (const token of [f.alpha, f.beta]) expect((await claim(f.id, token)).status).toBe(201);
+    const winner = await review(f.id, f.alpha, f.a);
+    await review(f.id, f.beta, f.b);
+    expect((await api(f.id, `/reviews/${winner.id}/promote`, OWNER, {})).status).toBe(200);
+    const before = await state(f.id);
+    expect(before.races[0]).toMatchObject({ status: "finished", winner: "alpha" });
+    expect(before.races[0]!.entrants.every(entrant => entrant.closedAt !== null)).toBe(true);
+    for (const action of ["archive", "unarchive"]) {
+      expect((await api(f.id, `/packets/one/${action}`, OWNER, undefined, "POST")).status).toBe(200);
+      const after = await state(f.id);
+      for (const key of ["races", "reviews", "ledger", "activity", "blockers"] as const)
+        expect(after[key]).toEqual(before[key]);
+      const denied = await claim(f.id, f.beta);
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual({ error: action === "archive" ? "Packet is archived." : "Race finished." });
+    }
+  });
+
+  it("allows archive after actual owner blocker resolution and preserves permanent blocker audits", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await seedBlockers(f.id, f.b, "one");
+    for (const id of ["open", "legacy"]) {
+      expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(409);
+      expect((await api(f.id, `/blockers/${id}/resolve`, OWNER, { reason: "Collision reconciled" })).status).toBe(200);
+    }
+    const before = (await state(f.id)).blockers;
+    expect(before.find(b => b.id === "other")!.resolved).toBeNull();
+    expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(200);
+    expect((await state(f.id)).blockers).toEqual(before);
+  });
+
+  it("authorizes only owner transitions, refuses unknown packets and enforces POST", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    for (const action of ["archive", "unarchive"]) {
+      for (const token of [f.alpha, f.beta, "invalid"]) {
+        expect((await api(f.id, `/packets/one/${action}`, token, undefined, "POST")).status).toBe(403);
+        expect((await api(f.id, `/packets/missing/${action}`, token, undefined, "POST")).status).toBe(403);
+      }
+      expect((await api(f.id, `/packets/missing/${action}`, OWNER, undefined, "POST")).status).toBe(404);
+      for (const method of ["GET", "DELETE", "PATCH"])
+        expect((await api(f.id, `/packets/one/${action}`, OWNER, undefined, method)).status).toBe(405);
+    }
+    expect((await state(f.id)).packets[0]!.archived).toBeNull();
+  });
+
+  it.each([
+    ["claim:one", { packet: "one", agent: "alpha", repoName: "fixture", paths: ["src"], createdAt: "fixture" }],
+    ["review:open", { packet: "one", promoted: false, stale: false, returned: null }],
+    ["blocker:claimant", { packet: "one", pushingPacket: "other", resolved: null }],
+    ["blocker:pusher", { packet: "other", pushingPacket: "one", resolved: null }],
+    ["entrant:one:alpha", { packet: "one", agent: "alpha", closedAt: null }],
+  ])("returns HTTP 409 for %s and leaves storage unchanged", async (key, record) => {
+    const f = await fixture();
+    await packet(f.id);
+    let before: Map<string, unknown>;
+    await mutate(f.id, async (_instance, objectState) => {
+      await objectState.storage.put(key as string, record);
+      before = await objectState.storage.list();
+    });
+    expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(409);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.list()).toEqual(before!);
+    });
+  });
+
+  it("serializes idempotent owner archive/unarchive and restores agent claiming", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    const responses = await Promise.all([
+      api(f.id, "/packets/one/archive", OWNER, undefined, "POST"),
+      api(f.id, "/packets/one/archive", OWNER, undefined, "POST"),
+    ]);
+    expect(responses.map(r => r.status)).toEqual([200, 200]);
+    const results = await Promise.all(responses.map(r => r.json<{ packet: Packet }>()));
+    expect(results[0]).toEqual(results[1]);
+    const p = results[0]!.packet;
+    expect(p.archived).toEqual({ at: expect.any(String), by: "owner" });
+    expect((await state(f.id)).packets).toEqual([p]);
+    const denied = await claim(f.id, f.alpha);
+    expect(denied.status).toBe(409);
+    expect(await denied.json()).toEqual({ error: "Packet is archived." });
+    for (let i = 0; i < 2; i++) {
+      const response = await api(f.id, "/packets/one/unarchive", OWNER, undefined, "POST");
+      expect(response.status).toBe(200);
+      expect((await response.json<{ packet: Packet }>()).packet.archived).toBeNull();
+    }
+    await mutate(f.id, async (_instance, objectState) => {
+      const entries = [...(await objectState.storage.list<PacketArchiveAudit>({ prefix: "packetArchive:one:" })).entries()];
+      expect(entries).toHaveLength(2);
+      expect(entries[0]).toEqual([`packetArchive:one:${p.archived!.at}`, { packet: "one", action: "archive", by: "owner", recordedAt: p.archived!.at }]);
+      expect(entries[1]![1]).toMatchObject({ packet: "one", action: "unarchive", by: "owner" });
+    });
+    expect((await claim(f.id, f.alpha)).status).toBe(201);
+  });
+
+  it("archives promoted packet history and leaves all other stored records intact", async () => {
+    const f = await ready();
+    expect((await api(f.id, `/reviews/${f.review.id}/promote`, OWNER, {})).status).toBe(200);
+    let before: Map<string, unknown>;
+    await mutate(f.id, async (_instance, objectState) => { before = await objectState.storage.list(); });
+    for (const action of ["archive", "unarchive"])
+      expect((await api(f.id, `/packets/one/${action}`, OWNER, undefined, "POST")).status).toBe(200);
+    await mutate(f.id, async (_instance, objectState) => {
+      const after = await objectState.storage.list();
+      for (const [key, value] of before!) expect(after.get(key)).toEqual(value);
+      expect([...after.keys()].filter(key => !before!.has(key))).toHaveLength(2);
+      expect([...after.keys()].filter(key => !before!.has(key)).every(key => key.startsWith("packetArchive:one:"))).toBe(true);
+    });
+    expect((await state(f.id)).ledger).toHaveLength(1);
+    expect((await state(f.id)).reviews[0]!.promoted).toBe(true);
+  });
+
+  it("creates active packets and returns archive metadata without hiding packet history", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await packet(f.id, "two", ["docs"]);
+    expect((await state(f.id)).packets.every(p => p.archived === null)).toBe(true);
+    const archived = { at: "2026-10-13T14:11:00.000Z", by: "owner" as const };
+    await mutate(f.id, async (_instance, objectState) => {
+      const p = (await objectState.storage.get<Packet>("packet:one"))!;
+      await objectState.storage.put("packet:one", { ...p, archived });
+    });
+    for (const token of [OWNER, f.alpha]) {
+      const packets = (await (await api(f.id, "/packets", token)).json<{ packets: Packet[] }>()).packets;
+      expect(packets).toHaveLength(2);
+      expect(packets.find(p => p.id === "one")!.archived).toEqual(archived);
+      expect(packets.find(p => p.id === "two")!.archived).toBeNull();
+      const snapshot = await (await api(f.id, "/state", token)).json<State>();
+      expect(snapshot.packets).toEqual(packets);
+    }
+  });
+
+  it("reads legacy packets as active without rewriting them and permits a claim", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await mutate(f.id, async (_instance, objectState) => {
+      const p = { ...(await objectState.storage.get<Packet>("packet:one"))! } as Partial<Packet>;
+      delete p.archived;
+      await objectState.storage.put("packet:one", p);
+    });
+    const packets = (await (await api(f.id, "/packets")).json<{ packets: Packet[] }>()).packets;
+    expect(packets[0]!.archived).toBeNull();
+    expect((await state(f.id)).packets[0]!.archived).toBeNull();
+    expect((await claim(f.id, f.alpha)).status).toBe(201);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get("packet:one")).not.toHaveProperty("archived");
+    });
+  });
+
+  it.each([false, true])("refuses archived claims even with an existing claim: %s", async existing => {
+    const f = await fixture();
+    await packet(f.id);
+    if (existing) expect((await claim(f.id, f.alpha)).status).toBe(201);
+    const before = (await state(f.id)).claims;
+    await mutate(f.id, async (_instance, objectState) => {
+      const p = (await objectState.storage.get<Packet>("packet:one"))!;
+      await objectState.storage.put("packet:one", { ...p, archived: { at: "2026-10-13T14:11:00.000Z", by: "owner" } });
+    });
+    for (const token of [f.alpha, f.beta]) {
+      const response = await claim(f.id, token);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "Packet is archived." });
+    }
+    expect((await claim(f.id, OWNER)).status).toBe(403);
+    expect((await claim(f.id, "invalid")).status).toBe(403);
+    expect((await claim(f.id, f.alpha, "missing")).status).toBe(404);
+    expect((await state(f.id)).claims).toEqual(before);
+    expect((await api(f.id, "/packets/one/claim", f.alpha, undefined, "DELETE")).status).toBe(200);
+    expect((await state(f.id)).claims).toEqual([]);
+  });
+});
 
 describe("workflow in real Durable Objects, with explicitly offline Git/Artifacts fixtures", () => {
   it("normalizes legacy blockers on all reads without rewriting their records", async () => {
@@ -1151,7 +1373,16 @@ describe("FH-039 return and detail API in workerd with offline providers", () =>
     expect((await api(f.id, `/reviews/${f.review.id}/promote`, OWNER, {})).status).toBe(200);
     const detail = await (await api(f.id, route, f.alpha)).json<{ promotion: unknown }>();
     const ledger = (await state(f.id)).ledger[0]!;
-    expect(detail.promotion).toEqual({ before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest });
+    expect(detail.promotion).toEqual({ before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt,
+      receiptDigest: ledger.receiptDigest, requireReceipt: false });
+    await mutate(f.id, async (_instance, objectState) => {
+      const legacy = { ...ledger };
+      delete legacy.requireReceipt;
+      await objectState.storage.put(`ledger:${ledger.id}`, legacy);
+    });
+    const legacyDetail = await (await api(f.id, route, f.alpha)).json<{ promotion: unknown }>();
+    expect(legacyDetail.promotion).toEqual({ before: ledger.before, after: ledger.after,
+      recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest });
   });
 
   it("normalizes legacy returned state and sanitizes failed provider reads", async () => {

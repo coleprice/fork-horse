@@ -76,6 +76,8 @@ export function createHttpTransport(options: HttpTransportOptions): DashboardTra
       ),
     returnReview: (id, review, reason) =>
       call(`${projectPath(id)}/reviews/${encodeURIComponent(review)}/return`, "POST", { reason }),
+    resolveBlocker: (id, blocker, reason) =>
+      call(`${projectPath(id)}/blockers/${encodeURIComponent(blocker)}/resolve`, "POST", { reason }),
     getState: async (id) => stateView(await call<StateResponse>(`${projectPath(id)}/state`)),
     getActivity: (id, after = 0) =>
       call<ActivityPage>(`${projectPath(id)}/activity?after=${after}&limit=100`),

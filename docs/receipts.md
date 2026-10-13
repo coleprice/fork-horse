@@ -137,12 +137,17 @@ export default async (ctx) => {
 ```
 
 `ctx.read(path)` returns a regular file's UTF-8 text or null if absent.
+`ctx.stat(path)` returns `{size, binary}` or null if absent: `size` is the blob's
+byte size, and `binary` is true when its first 8 KiB contains a NUL byte. This
+heuristic does not validate UTF-8 or identify every binary format. Only that
+bounded sample is materialized; the file's contents are never returned by stat.
 `ctx.list(prefix)` returns sorted regular file paths starting with that literal
 prefix; `""` lists the snapshot and `"src/"` lists that directory's descendants.
 Executable regular files are included. Paths are repository-relative; absolute
 paths, traversal, empty components, backslashes, control bytes and `.git`
-components are rejected. Symlinks and submodules are never followed. Malformed
-UTF-8, missing provider objects and unsafe trees fail closed. Reads use only
+components are rejected. Symlinks and submodules are never followed. Text reads
+reject malformed UTF-8; missing provider objects and unsafe trees fail closed
+for stat as well as read/list. Snapshot access uses only
 Artifacts `readCommit`/`readTree`/`readBlob` at the reviewed SHA, never branch refs.
 
 Each check gets a fresh `LOADER.load()` isolate with `globalOutbound: null`, only
@@ -151,13 +156,15 @@ no secrets. A trusted main-module harness imports the unchanged check module;
 this adapts its default function to a Worker handler, like upstream's overseer
 harness. Importable environment access is disabled. The loopback names the
 execution's Durable Object and a random per-check capability ID. The ID is not
-a Git/API token; it authorizes only read/list of one snapshot. The runner retains
+a Git/API token; it authorizes only read/list/stat of one snapshot. The runner retains
 all state and budgets. No token is minted for quick execution.
 
-Aggregate limits per check are 2 MiB of UTF-8 reads (including module source),
-2,000 listed paths (including repeated listings), 10,000 visited tree entries
+Aggregate limits per check are 2 MiB of reads and stat samples (including module source),
+2,000 listed paths (including repeated listings), 10,000 fetched tree entries
 and file calls, and 64 path levels. Budget reservation happens before async blob
-materialization or return, including concurrent calls. Modules return
+materialization or return, including concurrent calls. Validated immutable tree
+metadata is cached per snapshot, so list/read/stat reuse it without refetching.
+Modules return
 `{ok: boolean, message?: string}`. Messages are limited to 4 KiB of UTF-8, with
 control/bidi escapes and stack-shaped suffixes removed. Thrown exceptions are
 replaced by static text; provider exception text and stacks never enter receipts.
@@ -201,8 +208,17 @@ Runtime internet remains disabled; only the selected fork's Git read protocol is
 intercepted. Dependencies must be baked into an owner-approved image.
 
 The root `.forkhorse/checks` first runs `.forkhorse/quick/brand.js`, checking that
-`brand.json` parses and has non-empty `name`, `slug` and `mark` strings. The existing
-full `brand` container check remains and needs no project dependencies. For a smoke repository, commit:
+`brand.json` parses and has non-empty `name`, `slug` and `mark` strings. Then the
+full `large-files` check runs one Node command in the `default` container image
+to scan checkout metadata, excluding `.git` entries and not following symlinks.
+It fails on any regular file of 10,000,000 bytes (10 MB) or more and never reads
+file contents. Repository-wide serial stat RPCs exceeded the quick tier's
+10-second deadline in the operator's live run; this check uses the full tier.
+`.forkhorse/quick/large-files.js` remains an unregistered stat API example for
+small snapshots, not the repository's acceptance check.
+See [large files and binaries](large-files.md) for limits and the storage roadmap.
+The existing full `brand` container check remains and needs no project
+dependencies. For a smoke repository, commit:
 
 ```json
 [{"name":"test","tier":"full","image":"default","run":"npm test"}]

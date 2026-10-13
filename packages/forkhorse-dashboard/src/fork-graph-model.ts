@@ -1,4 +1,4 @@
-import type { ProjectState, Review } from "./contracts.ts";
+import type { Activity, ProjectState, Review } from "./contracts.ts";
 import { agentIdentities, type AgentIdentity, type LaneMarkKind } from "./lane.tsx";
 
 export interface ForkEvent {
@@ -30,6 +30,19 @@ export const timestamp = (value?: string | null) => {
   const parsed = Date.parse(value ?? "");
   return Number.isFinite(parsed) ? parsed : undefined;
 };
+/** Default-branch pushes within one packet's inclusive claim/end interval. */
+export function packetPushes(
+  activity: Activity[], repoName: string, defaultBranch: string, start: number, end: number,
+): Activity[] {
+  return activity.filter((event) => {
+    const at = timestamp(event.recordedAt);
+    return event.repoName === repoName && event.ref === `refs/heads/${defaultBranch}` &&
+      !/^0+$/.test(event.after) && at !== undefined && at >= start && at <= end;
+  });
+}
+export function oldestLoadedActivity(activity: Activity[]): number {
+  return Math.min(Infinity, ...activity.map((event) => timestamp(event.recordedAt) ?? Infinity));
+}
 export const clockTime = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 /** Put the collision beside its pushing lane; unrelated lanes interrupt the connector. */
@@ -180,9 +193,13 @@ export function forkGraph(state: ProjectState, now = Date.now(), choice: WindowC
           ? "Checks running"
           : latest.status === "approved"
             ? "Approved"
-            : latest.receipt && latest.receipt.status !== "passed"
-              ? "Checks failed"
-              : "In review";
+            : latest.receipt?.status === "timed-out"
+              ? "Timed out"
+              : latest.receipt?.status === "infrastructure-error"
+                ? "Couldn't run"
+                : latest.receipt && latest.receipt.status !== "passed"
+                  ? "Checks failed"
+                  : "In review";
     // Activity is Git pushes only. A fork reused for a later packet must not inherit earlier pushes.
     const previousEnd = Math.max(
       0,
@@ -196,25 +213,15 @@ export function forkGraph(state: ProjectState, now = Date.now(), choice: WindowC
         )
         .map((e) => timestamp(e.promotedAt) ?? 0),
     );
-    for (const activity of state.recentActivity ?? []) {
-      const at = timestamp(activity.recordedAt);
-      if (
-        activity.repoName !== lane.repoName ||
-        activity.ref !== `refs/heads/${state.project.defaultBranch}` ||
-        /^0+$/.test(activity.after) ||
-        at === undefined ||
-        at < (lane.claimedAt ?? previousEnd) ||
-        at > (lane.end ?? now)
-      )
-        continue;
+    for (const activity of packetPushes(
+      state.recentActivity ?? [], lane.repoName, state.project.defaultBranch,
+      lane.claimedAt ?? previousEnd, lane.end ?? now,
+    )) {
       add(lane, "push", activity.recordedAt, String(activity.sequence));
     }
     lane.events.sort((a, b) => a.at - b.at);
     lane.start = lane.claimedAt ?? lane.events[0]?.at;
-    const oldestLoaded = Math.min(
-      Infinity,
-      ...(state.recentActivity ?? []).map((a) => timestamp(a.recordedAt) ?? Infinity),
-    );
+    const oldestLoaded = oldestLoadedActivity(state.recentActivity ?? []);
     lane.earlierPushes =
       lane.claimedAt !== undefined && (oldestLoaded === Infinity || lane.claimedAt < oldestLoaded);
   }
@@ -267,6 +274,27 @@ export function forkGraph(state: ProjectState, now = Date.now(), choice: WindowC
       return at !== undefined && at >= start && at <= now;
     }),
   };
+}
+
+/** Prefer the newest main label; older labels must fit without touching a chosen label. */
+export function mainShaLabels(marks: { id: string; at: number; x: number }[], width: number) {
+  const labels = new Map<string, number>();
+  const half = 30;
+  const nowSpace = 20;
+  if (width < 52 + nowSpace + half * 2) return labels;
+  for (const mark of marks.toSorted((a, b) => b.at - a.at)) {
+    const center = Math.max(12 + half, Math.min(width - 40 - nowSpace - half, mark.x));
+    if ([...labels.values()].every((x) => Math.abs(x - center) >= half * 2 + 12))
+      labels.set(mark.id, center);
+  }
+  return labels;
+}
+/** Visible cells retain the three newest events in chronological order. */
+export function tableEvents(events: ForkEvent[], kinds: string[]) {
+  const matching = events
+    .filter((event) => kinds.includes(event.kind))
+    .toSorted((a, b) => a.at - b.at);
+  return { shown: matching.slice(-3), earlier: matching.slice(0, -3) };
 }
 
 const significance: Record<LaneMarkKind, number> = {

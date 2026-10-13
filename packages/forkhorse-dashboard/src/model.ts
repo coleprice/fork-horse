@@ -1,5 +1,7 @@
 import type {
   Activity,
+  BlockerView,
+  WireBlocker,
   Brand,
   ProjectOption,
   ProjectState,
@@ -18,6 +20,7 @@ export interface ViewModel {
   error?: string;
   notice?: string;
   noticeSha?: string;
+  noticeReview?: string;
   updatedAt?: string;
   livePaused?: boolean;
 }
@@ -26,6 +29,7 @@ export interface ViewModel {
 export function reviewGate(
   review: Review,
   state: ProjectState,
+  owner = true,
 ): { approve: boolean; promote: boolean; reason: string } {
   const cause = reviewState(review, state);
   if (cause.kind !== "current")
@@ -55,11 +59,9 @@ export function reviewGate(
   ) {
     return { approve: false, promote: false, reason: receiptGateCaption(review, true) };
   }
-  const blocked = state.blockers.some(
-    (blocker) => !blocker.resolved && blocker.packet === review.packet,
-  );
+  const blocked = state.blockers.find((blocker) => !blocker.resolved && blockerGatesReview(blocker, review));
   if (blocked)
-    return { approve: false, promote: false, reason: "Resolve the packet's blockers first" };
+    return { approve: false, promote: false, reason: `Blocked: this fork pushed into ${blocked.packet}'s claimed paths. ${owner ? "Mark the collision resolved first." : "Waiting for the owner."}` };
   return {
     approve: review.status === "pending",
     promote: review.status === "approved",
@@ -161,12 +163,7 @@ export function stateView(wire: StateResponse): ProjectState {
     forks: wire.forks,
     packets: wire.packets.map((packet) => ({ ...packet, archived: packet.archived ?? null })),
     claims: wire.claims.map((claim) => ({ ...claim, active: true })),
-    blockers: wire.blockers.map((blocker) => ({
-      ...blocker,
-      agent: blocker.pushingAgent,
-      reason: `Push from ${blocker.pushingAgent} overlaps ${blocker.claimingAgent}'s live claim.`,
-      resolved: !!blocker.resolved,
-    })),
+    blockers: wire.blockers.map(blockerView),
     reviews: wire.reviews.map((review) =>
       reviewView(review, wire.project.settings?.requireReceipt),
     ),
@@ -177,6 +174,7 @@ export function stateView(wire: StateResponse): ProjectState {
       sha: entry.after,
       promotedAt: entry.recordedAt,
       receiptDigest: entry.receiptDigest,
+      race: entry.race,
     })),
     reconcilerAlerts: wire.reconcilerAlerts.map((alert) => ({
       ...alert,
@@ -312,11 +310,41 @@ export function canArchive(state: ProjectState, packet: string): boolean {
     ) &&
     !state.reviews.some(
       (review) => review.packet === packet &&
-        !(review.promoted ?? review.status === "promoted") && !review.stale && !review.returned,
+        !review.promoted && !review.stale && !review.returned,
     ) &&
     !state.blockers.some(
-      (blocker) => (blocker.resolved == null || blocker.resolved === false) &&
+      (blocker) => !blocker.resolved &&
         (blocker.packet === packet || blocker.pushingPacket === packet),
     )
   );
+}
+
+/** One projection for state and review detail; legacy missing resolution remains open. */
+export function blockerView(blocker: WireBlocker): BlockerView {
+  return {
+    ...blocker,
+    agent: blocker.pushingAgent,
+    reason: `Push from ${blocker.pushingAgent} overlaps ${blocker.claimingAgent}'s live claim.`,
+    resolved: blocker.resolved != null,
+    resolution: blocker.resolved ?? null,
+    at: blocker.at ?? null,
+    pushingPacket: blocker.pushingPacket ?? null,
+  };
+}
+
+/** Match core's pushing-fork gate, including legacy/unattributed pushes. */
+export function blockerGatesReview(blocker: BlockerView, review: Review): boolean {
+  return blocker.repoName === review.repoName &&
+    (blocker.pushingPacket == null || blocker.pushingPacket === review.packet);
+}
+export function blockedLabel(blocker: BlockerView): string {
+  return blocker.pushingPacket ?? `reviews from ${blocker.repoName ?? "the pushing fork"}`;
+}
+export function blockerPacket(blocker: BlockerView): string {
+  return blocker.pushingPacket ?? blocker.packet;
+}
+export function collisionHistory(blockers: BlockerView[]): BlockerView[] {
+  return blockers.toSorted((a, b) => Number(a.resolved) - Number(b.resolved) ||
+    (Date.parse(b.resolved ? b.resolution?.at ?? "" : b.at ?? "") || 0) -
+    (Date.parse(a.resolved ? a.resolution?.at ?? "" : a.at ?? "") || 0));
 }

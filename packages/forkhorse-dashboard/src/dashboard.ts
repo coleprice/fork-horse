@@ -1,6 +1,6 @@
 import type { Brand, DashboardTransport, ProjectOption } from "./contracts.ts";
 import { ApiError } from "./transport.ts";
-import { assertState, canArchive, reviewGate, reviewState, type ViewModel } from "./model.ts";
+import { assertState, canArchive, blockerGatesReview, blockedLabel, reviewGate, reviewState, type ViewModel } from "./model.ts";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -44,6 +44,7 @@ export function mountDashboard(
   const window = root.ownerDocument.defaultView!;
   const sectionFromHash = (): Section => {
     const hash = window.location.hash.slice(1).split("/")[0];
+    if (hash === "race") return "work";
     return ["overview", "work", "review", "agents"].includes(hash) ? (hash as Section) : "overview";
   };
   const reviewFromHash = () => {
@@ -63,12 +64,22 @@ export function mountDashboard(
       return undefined;
     }
   };
+  const raceFromHash = () => {
+    const match = /^#race\/(.+)$/.exec(window.location.hash);
+    try {
+      return match ? decodeURIComponent(match[1]) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  let selectedRaceId = raceFromHash();
   let section = sectionFromHash();
   let selectedReviewId = reviewFromHash();
   function openReview(id?: string) {
     if (id && !options.transport.getReview) return;
     section = "review";
     selectedReviewId = id;
+    selectedRaceId = undefined;
     const hash = id ? `review/${encodeURIComponent(id)}` : "review";
     try {
       window.history.pushState(null, "", `#${hash}`);
@@ -77,8 +88,29 @@ export function mountDashboard(
     }
     draw();
   }
+  function openRace(id?: string) {
+    const previous = selectedRaceId;
+    section = "work";
+    selectedRaceId = id;
+    selectedReviewId = undefined;
+    const hash = id ? `race/${encodeURIComponent(id)}` : "work";
+    try {
+      window.history.pushState(null, "", `#${hash}`);
+    } catch {
+      window.location.hash = hash;
+    }
+    draw();
+    if (!id && previous)
+      requestAnimationFrame(() => {
+        [...root.querySelectorAll<HTMLElement>("[data-packet-id]")]
+          .find((row) => row.dataset.packetId === previous)
+          ?.querySelector<HTMLElement>(".packet-link")
+          ?.focus();
+      });
+  }
   function setSection(value: Section) {
     section = value;
+    selectedRaceId = undefined;
     selectedReviewId = undefined;
     // srcdoc inherits the OS URL; never let native anchors navigate its frame.
     try {
@@ -92,6 +124,7 @@ export function mountDashboard(
   function onHash() {
     section = sectionFromHash();
     selectedReviewId = reviewFromHash();
+    selectedRaceId = raceFromHash();
     draw();
   }
   window.addEventListener("hashchange", onHash);
@@ -104,6 +137,8 @@ export function mountDashboard(
           view: { ...view },
           actions: {
             section,
+            raceId: selectedRaceId,
+            openRace,
             reviewId: selectedReviewId,
             openReview,
             getReview: options.transport.getReview
@@ -120,6 +155,8 @@ export function mountDashboard(
             unarchivePacket:
               options.owner !== false && options.transport.unarchivePacket
                 ? (id: string) => archivePacket("unarchive", id) : undefined,
+            resolveBlocker:
+              options.owner !== false && options.transport.resolveBlocker ? resolveBlocker : undefined,
             setSection,
             selectProject,
             retry: refresh,
@@ -193,6 +230,7 @@ export function mountDashboard(
   async function refresh() {
     if (disposed || !view.project || view.busy) return;
     view.notice = undefined;
+    view.noticeReview = undefined;
     await load();
     if (invalidated) {
       invalidated = false;
@@ -215,6 +253,7 @@ export function mountDashboard(
     view.state = undefined;
     view.activity = [];
     view.notice = undefined;
+    view.noticeReview = undefined;
     invalidated = false;
     await load();
     if (disposed) return;
@@ -239,6 +278,7 @@ export function mountDashboard(
     view.busy = true;
     view.error = undefined;
     view.notice = undefined;
+    view.noticeReview = undefined;
     draw();
     let message: string;
     try {
@@ -319,6 +359,7 @@ export function mountDashboard(
       return false;
     view.busy = true;
     view.notice = undefined;
+    view.noticeReview = undefined;
     draw();
     try {
       await options.transport.returnReview(view.project, id, reason);
@@ -334,12 +375,50 @@ export function mountDashboard(
     return true;
   }
 
+  async function resolveBlocker(id: string, reason: string) {
+    if (options.owner === false || view.busy || !view.state || !options.transport.resolveBlocker ||
+        reason.trim().length < 1 || reason.length > 200)
+      throw new Error("Collision action unavailable.");
+    // The server is idempotent: keep an opened dialog usable if a claim ends meanwhile.
+    const blocker = view.state.blockers.find((b) => b.id === id);
+    const project = view.project;
+    if (!blocker) throw new ApiError(404, "Collision unavailable.");
+    view.busy = true;
+    view.notice = undefined;
+    view.noticeReview = undefined;
+    view.noticeSha = undefined;
+    draw();
+    let result;
+    try {
+      result = await options.transport.resolveBlocker(project, id, reason);
+      if (!result.blocker.resolved) throw new Error("Resolution missing from response.");
+    } catch (error) {
+      // Reads only after uncertain writes. The dialog owns safe error copy.
+      if (!disposed && project === view.project) await load();
+      throw error;
+    }
+    if (disposed || project !== view.project) return result.blocker;
+    await load();
+    if (disposed || project !== view.project) return result.blocker;
+    const resolution = result.blocker.resolved!;
+    const blocked = blockedLabel(blocker);
+    view.noticeReview = view.state?.reviews.find((r) => blockerGatesReview(blocker, r) &&
+      reviewState(r, view.state!).kind === "current" && r.status !== "stale" &&
+      view.state!.forks.some((f) => f.repoName === r.repoName && f.head === r.sha))?.id;
+    view.notice = resolution.by === "owner"
+      ? `Marked resolved: ${blocked} is unblocked`
+      : `${blocked} was already unblocked when a claim was ${resolution.by === "promote" ? "promoted" : "released"}.`;
+    draw();
+    return result.blocker;
+  }
+
   async function setSettings(requireReceipt: boolean) {
     if (options.owner === false || view.busy || !options.transport.setSettings || !view.state)
       return;
     view.busy = true;
     view.error = undefined;
     view.notice = undefined;
+    view.noticeReview = undefined;
     draw();
     try {
       await options.transport.setSettings(view.project, { requireReceipt });

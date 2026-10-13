@@ -1,8 +1,9 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import type { ForkRepository } from "./types";
+import type { ForkRepository, QuickFileStat } from "./types";
 
 export const QUICK_READ_BYTES = 2 * 1024 * 1024;
 export const QUICK_LIST_PATHS = 2000;
+export const QUICK_STAT_BYTES = 8 * 1024;
 const MAX_ENTRIES = 10_000;
 
 /** Literal repository paths only. Reject aliases instead of normalizing into another file. */
@@ -25,6 +26,7 @@ export class Snapshot {
   private entries = 0;
   private calls = 0;
   private root?: Promise<string>;
+  private trees = new Map<string, Promise<ArtifactsTreeEntry[]>>();
   constructor(private repo: Pick<ForkRepository, "readCommit" | "readTree" | "readBlob">,
     private commit: string, private expiresAt = Infinity) {}
   close(): void { this.active = false; }
@@ -34,6 +36,18 @@ export class Snapshot {
   private async tree(hash: string): Promise<ArtifactsTreeEntry[]> {
     this.guard();
     if (!/^[a-f0-9]{40}$/.test(hash)) throw new Error("Invalid tree hash");
+    // Immutable, validated metadata is shared by list/read/stat within this capability.
+    // Cache the promise before awaiting so concurrent calls cannot duplicate traversal.
+    let pending = this.trees.get(hash);
+    if (!pending) {
+      pending = this.loadTree(hash);
+      this.trees.set(hash, pending);
+    }
+    const tree = await pending;
+    this.guard();
+    return tree;
+  }
+  private async loadTree(hash: string): Promise<ArtifactsTreeEntry[]> {
     const tree = await this.repo.readTree(hash);
     this.guard();
     if (!tree || (this.entries += tree.length) > MAX_ENTRIES) throw new Error("Snapshot tree limit");
@@ -86,6 +100,26 @@ export class Snapshot {
       throw new Error("Snapshot read unavailable or limit exceeded.");
     }
   }
+  async stat(path: unknown): Promise<QuickFileStat | null> {
+    try {
+      this.guard();
+      if (++this.calls > MAX_ENTRIES) throw new Error("Snapshot call limit");
+      const entry = await this.entry(pathParts(path));
+      if (!entry) return null;
+      if (!((entry.type === "blob" && entry.mode === "100644") || (entry.type === "exec" && entry.mode === "100755"))) throw new Error("Not a regular file");
+      this.guard();
+      const blob = await this.repo.readBlob(entry.hash);
+      this.guard();
+      if (!blob) throw new Error("Missing blob");
+      const sampleSize = Math.min(blob.size, QUICK_STAT_BYTES);
+      // Reserve before awaiting, sharing the read budget even across concurrent calls.
+      if ((this.bytes += sampleSize) > QUICK_READ_BYTES) throw new Error("Snapshot read limit");
+      const sample = await blob.slice(0, sampleSize).arrayBuffer();
+      this.guard();
+      if (sample.byteLength !== sampleSize) throw new Error("Invalid blob");
+      return { size: blob.size, binary: new Uint8Array(sample).includes(0) };
+    } catch { throw new Error("Snapshot stat unavailable or limit exceeded."); }
+  }
   async list(prefix: unknown): Promise<string[]> {
     try {
       this.guard();
@@ -114,13 +148,17 @@ export class Snapshot {
 }
 
 /** Token-free loopback: the nonce selects host-owned state on the execution's Durable Object.
- * Arbitrary RPC objects cannot be serialized into loopback props. The nonce grants only read/list. */
+ * Arbitrary RPC objects cannot be serialized into loopback props. The nonce grants only read/list/stat. */
 export class QuickFiles extends WorkerEntrypoint<{
   RECEIPT_RUNNER: DurableObjectNamespace<import("./index").ReceiptRunner>;
 }, { runnerId: string; snapshotId: string }> {
   read(path: string): Promise<string | null> {
     const { runnerId, snapshotId } = this.ctx.props;
     return this.env.RECEIPT_RUNNER.get(this.env.RECEIPT_RUNNER.idFromString(runnerId)).readSnapshot(snapshotId, path);
+  }
+  stat(path: string): Promise<QuickFileStat | null> {
+    const { runnerId, snapshotId } = this.ctx.props;
+    return this.env.RECEIPT_RUNNER.get(this.env.RECEIPT_RUNNER.idFromString(runnerId)).statSnapshot(snapshotId, path);
   }
   list(prefix: string): Promise<string[]> {
     const { runnerId, snapshotId } = this.ctx.props;

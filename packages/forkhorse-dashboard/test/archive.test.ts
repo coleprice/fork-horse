@@ -91,6 +91,10 @@ test("archive predicate mirrors raw core review, claim, race and both blocker id
   }
   const wire = archiveFixtureState();
   const r = wire.reviews[0];
+  const projected = stateView(wire);
+  delete projected.reviews[0].promoted;
+  assert.equal(projected.reviews[0].status, "promoted");
+  assert.equal(canArchive(projected, "FH-040"), false, "display promoted cannot close a raw-open review");
   r.promoted = false;
   r.approval = { sha: "9".repeat(40), receiptDigest: null };
   assert.equal(stateView(wire).reviews[0].status, "stale");
@@ -311,4 +315,28 @@ test("uncertain unarchive failure stays in the panel with sanitized copy and no 
   } finally {
     c.close();
   }
+});
+
+
+test("finished race keeps its track and opens packet details for archive and undo", async () => {
+  const c = setup("archive-finished-race", true, 0, "#race/FH-040");
+  try {
+    await until(() => [...c.root.querySelectorAll("button")]
+      .some((button) => button.textContent === "Packet details"));
+    const details = [...c.root.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Packet details")!;
+    assert.ok(details);
+    details.click();
+    await until(() => !!c.button("archive"));
+    assert.equal(c.dom.window.location.hash, "#work");
+    c.button("archive")!.click();
+    await until(() => !!c.button("unarchive"));
+    c.button("toggle-archived")!.click();
+    await until(() => c.root.querySelectorAll("#packets tbody tr").length === 2);
+    [...c.root.querySelectorAll<HTMLButtonElement>("#packets .packet-link")].at(-1)!.click();
+    assert.ok(c.button("unarchive"), "archived race row opens details directly");
+    assert.equal(c.root.querySelector(".race-page"), null);
+    c.button("unarchive")!.click();
+    await until(() => !!c.button("archive"));
+  } finally { c.close(); }
 });

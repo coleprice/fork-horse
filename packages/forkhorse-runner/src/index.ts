@@ -3,7 +3,7 @@ import { Snapshot } from "./snapshot";
 import type { QuickPorts } from "./quick";
 import { forwardGitRead } from "./git";
 import { runReviewChecks } from "./runner";
-import type { ContainerPort, ForkRepository, Receipt, ReviewAuthority, RunRequest, StoredReceipt } from "./types";
+import type { ContainerPort, ForkRepository, QuickFileStat, Receipt, ReviewAuthority, RunRequest, StoredReceipt } from "./types";
 
 export { QuickFiles } from "./snapshot";
 export { requirePassingReceipt } from "./runner";
@@ -51,6 +51,11 @@ export class ReceiptRunner extends DurableObject<RunnerEnv> {
     const snapshot = this.#snapshots.get(id);
     if (!snapshot) throw new Error("Snapshot unavailable.");
     return snapshot.list(prefix);
+  }
+  async statSnapshot(id: string, path: string): Promise<QuickFileStat | null> {
+    const snapshot = this.#snapshots.get(id);
+    if (!snapshot) throw new Error("Snapshot unavailable.");
+    return snapshot.stat(path);
   }
 
   constructor(ctx: DurableObjectState, env: RunnerEnv) {

@@ -98,8 +98,7 @@ host adapter implements that interface from its authorized `ui` capability.
   reviews, ledger, recent activity, reconciler alerts and `promotionPending`.
 - Approval state comes from `{sha, receiptDigest}` or `null`; `stale` and `promoted`
   are explicit flags. A changed approval SHA is treated as stale. Digest binding applies to required review-created receipts; a fresh before-promote run or advisory receipt movement does not mean the fork moved.
-- Blockers show the pushing and claiming agents. There is no resolution field in
-  the current wire contract, so returned blockers are shown as open.
+- FH-048 blockers retain `resolved: null | {at, by, reason?}` history. Missing legacy resolution reads as open; missing `at` and `pushingPacket` read as unknown. Open blockers gate the pushing fork and attributed packet (all reviews on that fork when attribution is null), never the claimant.
 - FH-032 adds `project.settings.requireReceipt` and the five-state `reviews[].receipt` summary: status, trigger, digest, timestamps, duration and check outcomes. No logs enter `/state`.
 - Owner-only `GET /projects/:id/reviews/:rid/receipt` returns the stored `{digest, receipt}` runner record. The panel shows the last 200 log lines and can expand all bounded output. A changed receipt/selection discards late responses. Agents have no log control or request.
 - Owner-only `PATCH /projects/:id/settings` sends only `{requireReceipt}` and reloads authoritative state. An absent setting is unavailable, never synthesized as On or Off.
@@ -253,7 +252,7 @@ non-stale reconciler/pending-promotion variants. Open their detail at
 `#review/review-1` or queue at `#review`. These fixtures establish offline rendering
 only. Design PASS and independent code acceptance remain external handback gates.
 
-## FH-051 archive (FH-050 integration pending)
+## FH-051 archive (FH-050 integrated; final acceptance pending)
 
 The owner sees Archive in the packet details header only when the public core
 fields allow it: no live standard claim or open race entrant, no raw open review
@@ -276,12 +275,57 @@ all historical evidence. Activity remains Git-push-only: FH-050's private keyed
 archive audit is not exposed by `/state`, and this UI adds no feed events. The
 archived panel caption and badge tooltip read `archived.at` from the packet.
 
-`archive-*` scenarios are labeled offline FH-050/FH-052 wire fixtures, including
+`archive-*` scenarios are labeled offline fixtures checked against the merged FH-050/FH-052 public contract, including
 standard claim, race entrant, raw open review, non-stale Main moved, pushing
 blocker and archive 409/404/error. Package tests and local captures establish
-fixture behavior only. Integration after FH-049/FH-050 by plain merge, reserved
-root/fresh-clone/D5 acceptance, Saddler's design PASS and Superprime's code review
+fixture behavior only. The normal merge retains FH-049 collision history and the
+accepted race, graph and token projections. Active race rows still open the track;
+Packet details opens the existing panel for archiving, and archived race rows
+open the panel directly for Unarchive. Reserved root/fresh-clone/D5 acceptance,
+Saddler's design PASS and Superprime's code review
 remain separate handback gates.
+## FH-049 collision resolution (FH-048 integrated; final acceptance pending)
+
+Owner-only `POST /projects/:id/blockers/:bid/resolve` sends `{reason}` (1–200 characters, with non-whitespace content) through the same-origin session. Agents have no control or request. The dialog shows paths and editable secondary quick-reason buttons in a wrapping row, supports Cmd/Ctrl+Enter, and refreshes authoritative state after success or uncertainty without retrying a write. A repeat uses the returned resolution cause. The resolution record supplies the audit history; no activity event is assumed.
+
+Resolved collisions remain as quiet rows in packet details and matching pushing-fork review details, excluded from counts, gates and Needs you. FH-048 review detail retains its claimant-packet filter; pushing-fork gates and history derive from all `/state.blockers`. Snapshot blockers survive an omitted detail list; a refreshed snapshot wins over stale detail resolution. Needs you opens and focuses the collision; success returns focus to Collisions and offers Open review in a 10-second toast and once on the newest resolved history row while the pushing packet has a current review. Legacy push times are never synthesized.
+
+The `collision-*` scenarios are local contract fixtures, including history, 404, generic failure and claim-release/promote races. They provide no live core or Cloudflare acceptance.
+
+## Recorded races (FH-055)
+
+Race packets open a read-only full-width page at `#race/<packet>` in either host.
+The track is a semantic table and becomes stacked lanes below 640px. It shows only
+recorded milestones in claim order (equal timestamps sort by agent): Claimed, First push, Review requested, Checks
+passed, Approved, Promoted. The shared race clock starts at the earliest claim;
+there is no running timer or estimated progress. Results use core's recorded places.
+
+The optional FH-052/053 projection carries `races`, agent enrollment `createdAt`,
+and `ledgerEntryId` (the exact string `ledger[].id`). Legacy agents are numbered
+alphabetically first, then enrolled agents by `createdAt`; response order never
+assigns identity. Fixture race, enrollment, ledger and review slices are checked
+against the core public types, including recorded `places` and quick receipts.
+The reviewed `race-silk-*`, `race-cloth-ink`, and
+`race-hurdle-ink` values live in `src/host-tokens.json`, with identity always carried
+by the number. Missing ledger evidence or activity counts are omitted.
+
+Results counts only default-branch pushes recorded on each entrant's fork from its
+claim through its closure, the race finish, or the current time. It shares
+the fork graph's packet interval filter. If the oldest loaded activity is later
+than any entrant's claim, Results omits Pushes rather than showing a partial count.
+`race-reused-forks` exercises historical fork totals of 20 and 3 with one push each
+inside the race; the Results counts are 1 and 1.
+
+The race view uses the accepted FH-057 `LaneRunner`, `LaneMarker`, `LaneConnector`
+and enrollment identity helpers from `src/lane.tsx`. Marker shapes and silk styling
+are shared with the fork graph; race-specific CSS only places them in the track.
+
+The offline fixture harness includes `race-open`, `race-finished`, `race-photo`,
+`race-empty`, `race-loading`, `race-error`, `race-unknown`, `race-standard`, and
+`race-advisory`. Open `fixtures.html?scenario=race-photo#race/race-01` for the recorded
+rejection panel, or `?scenario=race-open#work`, `#review`, and `#overview` for its
+Work badge, Promote warning, and Needs you copy. These snapshots are synthetic;
+they do not establish live race, deployment, or owner acceptance.
 
 ### Forks on Overview (FH-057)
 
@@ -318,3 +362,22 @@ snapshot through the normal read path. These routes and controls never ship in
 production assets. Captures prove fixture rendering only; reserved root tests,
 worker-host integration, fresh-clone/D5 checks, and design/code sign-off remain
 separate acceptance gates.
+
+### Fork graph bundle fixes (FH-057b)
+
+The shared graph carries its closed-table hiding styles in the component as well as
+in CSS, so an older host stylesheet cannot reveal the accessibility twin. Closed
+cell controls leave keyboard tab order; opening the disclosure restores them.
+Unloaded starts use a dashed lead-in with a recorded-start tooltip. Main SHA labels
+reserve space for the newest promotion first, then fit older labels into the remaining
+space. Every event cell shows its three newest events, with `+n earlier` exposing the
+omitted facts on focus or hover.
+
+For offline bundle verification, build the dashboard and gatekeeper sidebar assets,
+then open `gatekeeper-fixtures.html?bundle=owner&scenario=fork-hero` or
+`gatekeeper-fixtures.html?scenario=fork-hero` on the dashboard fixture server.
+The owner route uses the built production entry and CSS against the local fixture API;
+the gatekeeper route loads its built self-contained sidebar in an opaque-origin frame
+with a synthetic host capability. Light/dark controls use the app theme path.
+`fork-history` exercises dense main labels and capped cells. These harnesses are excluded
+from production assets and prove offline bundle behavior only.

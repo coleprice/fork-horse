@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import brand from "../../../brand.json";
 import { markIconUrl } from "../../forkhorse-dashboard/src/mark";
-import type { WorkItem } from "../src/workflow-types";
+import type { StateSnapshot, WorkItem } from "../src/workflow-types";
 import { BEFORE } from "./fixtures";
 
 const origin = "https://api.idiot.tax";
@@ -142,6 +142,28 @@ describe("public core integration with offline signed JWTs, KV, DO and built das
       env,
     );
     expect(spoof.status).toBe(403);
+  });
+  it("attributes settings changes to verified Access and refuses client-selected owner sources", async () => {
+    const path = "/projects/mcp-fixture/settings";
+    const headers = { origin, "content-type": "application/json", "cf-access-jwt-assertion": await jwt() };
+    expect((await call(path, {
+      method: "PATCH", headers: { origin, "content-type": "application/json", "x-owner": "true" },
+      body: JSON.stringify({ requireReceipt: false }),
+    })).status).toBe(401);
+    expect((await call(path, {
+      method: "PATCH", headers, body: JSON.stringify({ requireReceipt: false, via: "owner-api" }),
+    })).status).toBe(400);
+    const response = await call(path, { method: "PATCH", headers, body: JSON.stringify({ requireReceipt: false }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ settings: { requireReceipt: false } });
+    const snapshot = await (await call("/projects/mcp-fixture/state", { headers })).json<StateSnapshot>();
+    expect(snapshot.project.settings).toEqual({ requireReceipt: false });
+    expect(snapshot.settingsChanges).toEqual([{
+      setting: "requireReceipt", before: true, after: false, by: "owner", via: "access",
+      recordedAt: expect.any(String),
+    }]);
+    // Restore this shared offline project for the remaining OAuth tests.
+    expect((await call(path, { method: "PATCH", headers, body: JSON.stringify({ requireReceipt: true }) })).status).toBe(200);
   });
   it("wraps tools/list in OAuth discovery/authentication and binds calls to enrolled identity", async () => {
     const anonymous = await call("/mcp");
