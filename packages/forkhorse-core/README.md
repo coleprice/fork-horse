@@ -348,9 +348,25 @@ no-store`; plaintext Git tokens appear only in the successful issuance response.
 
 | Route | Authority | Result |
 | --- | --- | --- |
-| `GET /projects/:id/me` | Agent or owner | `{role, agent?, forks:[{repoName, remote, head, createdAt}]}`. Agents see only their registered forks; owners see all registered forks. Canonical and inconsistent/unregistered records are excluded. Heads come from the repository's default-branch log. |
+| `GET /projects/:id/me` | Agent or owner | `{role, agent?, forks:[{repoName, remote, head, createdAt}], work:WorkItem[]}`. Agents see only their registered forks and live claimed work; owners see all registered forks and `work:[]`. Canonical and inconsistent/unregistered records are excluded. Heads come from the repository's default-branch log. |
 | `POST /projects/:id/forks/:repo/token` | Owning agent only | Body `{scope:"read"\|"write", ttlSeconds?}`; TTL is an integer 60–3600, default 900. Returns status 201 with `{repoName, remote, token, scope, expiresAt}`. Owner credentials cannot mint through this route. |
 | `DELETE /projects/:id/forks/:repo/tokens` | Owning agent or owner | Revokes active provider tokens, including join-issued tokens, then returns `{repoName, revoked}`. A completed repeat returns zero. |
+
+Each `WorkItem` contains `packet:{id,title}`, `repoName`, `claimedAt`, `forkHead`,
+`canonicalHead`, `review`, `next`, and a plain-text `hint` of at most 200 characters.
+`review` is null or `{id,sha,stale,returned,receipt,approved,promoted}`; it includes
+only the receipt summary, never execution identities or full logs. Core selects
+the latest stored non-stale review matching the caller, packet and claimed fork.
+If a raw Git push has changed the head before its event arrives, the summary marks
+that review stale without changing its durable record.
+
+The first matching rule determines `next`: promoted reviews are `done`; a return
+at the reviewed head is `address_return`; absent, stale or head-mismatched reviews
+are `request_review` (or `push` when there is no review and both heads match);
+running receipts are `wait_for_checks`; missing or non-passing required receipts
+are `fix_checks`; everything else is `wait_for_owner`. Advisory failures do not
+block owner review. Released claims disappear from `work`, even when their review
+history remains.
 
 Canonical token operations return 403, unknown forks 404, and foreign ownership 403.
 An agent credential still cannot approve or promote reviews. A supplied Git token is
