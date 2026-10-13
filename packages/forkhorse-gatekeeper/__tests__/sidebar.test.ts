@@ -5,6 +5,7 @@ import type { SidebarBatch } from "../src/ui-types.ts";
 import type { FixtureHarness } from "./worker.ts";
 import brand from "../../../brand.json";
 import { markIconUrl } from "../../forkhorse-dashboard/src/mark.ts";
+import { railIconUrl } from "../src/rail-icon.ts";
 
 declare global {
   namespace Cloudflare {
@@ -51,7 +52,7 @@ describe("Worker-native sidebar capability (local fixtures)", () => {
       "HTTPS",
     );
   });
-  it("runs under workerd and derives sidebar metadata from branding", () => {
+  it("runs under workerd and keeps the emoji avatar separate from the regular Horse rail icon", async () => {
     expect(navigator.userAgent).toBe("Cloudflare-Workers");
     expect(sidebarAccountDescription()).toMatchObject({
       displayName: brand.name,
@@ -59,7 +60,18 @@ describe("Worker-native sidebar capability (local fixtures)", () => {
     });
     expect(sidebarAccountDescription().singleton).toBeUndefined();
     const icon = { url: markIconUrl(brand.mark) };
-    expect(sidebarAccountDescription()).toMatchObject({ avatar: icon, providesUi: { icon } });
+    const description = sidebarAccountDescription();
+    expect(description.avatar).toEqual(icon);
+    expect(description.providesUi!.icon).toEqual({ url: railIconUrl(brand.railIcon) });
+    expect(description.providesUi!.icon).not.toEqual(icon);
+    const svg = decodeURIComponent(description.providesUi!.icon!.url.split(",").slice(1).join(","));
+    expect(svg).toContain('viewBox="0 0 256 256" fill="currentColor"');
+    expect(svg.match(/<path /g)).toHaveLength(1);
+    const path = /<path d="([^"]+)"/.exec(svg)![1]!;
+    // Independently recorded from Phosphor 2.1.10's regular definition, not another weight.
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path));
+    expect(Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join(""))
+      .toBe("0003357977cd1a2ac5cf9cf1606a93830a72be0069dcb9434428c18e3c8a1232");
   });
 
   it("authorizes before returning a capability", async () => {
