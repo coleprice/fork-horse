@@ -316,18 +316,8 @@ export class Workflow {
         if (stored.resolved) return publicBlocker(stored);
         const at = now();
         const resolved: Blocker = { ...publicBlocker(stored), resolved: { at, by: "owner", reason } };
-        const sequence = ((await txn.get<number>("sequence")) ?? 0) + 1;
-        const activity: Activity = {
-          sequence, namespace: project.namespace, repoName: stored.repoName, agent: null,
-          ref: "", before: stored.sha, after: stored.sha, changedPaths: [],
-          changedPathCount: 0, changedPathsTruncated: false,
-          eventTimestamp: at, recordedAt: at, blockerResolution: { id: stored.id, reason },
-        };
-        await txn.put({
-          [key]: resolved,
-          sequence,
-          [`activity:${String(sequence).padStart(16, "0")}`]: activity,
-        });
+        // Resolution provenance stays on the permanent blocker record; activity is Git-only.
+        await txn.put(key, resolved);
         return resolved;
       });
       return json({ blocker });

@@ -173,12 +173,12 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     });
   });
 
-  it.each(["open", "legacy"])("owner resolves %s once, preserving history and claim with one activity audit", async bid => {
+  it.each(["open", "legacy"])("owner resolves %s once, preserving history, claim and Git-push-only activity", async bid => {
     const f = await fixture();
     await packet(f.id);
     await claim(f.id, f.alpha);
     const blockers = await seedBlockers(f.id, f.b);
-    // Real push activity precedes the owner audit in the same receive sequence.
+    // Owner resolution must leave the real push activity and receive sequence unchanged.
     expect(await stub(f.id).recordPush(push(f.a))).toBe(true);
     const initial = await state(f.id);
     const route = `/blockers/${bid}/resolve`;
@@ -198,18 +198,15 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     const snapshot = await state(f.id);
     expect(snapshot.claims).toEqual(initial.claims);
     expect(snapshot.blockers).toEqual(initial.blockers.map(b => b.id === bid ? blocker : b));
-    expect(snapshot.activity).toHaveLength(2);
-    expect(snapshot.activity[0]).toEqual(initial.activity[0]);
-    const audit = snapshot.activity[1]!;
-    expect(audit).toEqual({
-      sequence: 2, namespace: "fixture", repoName: f.b, agent: null,
-      ref: "", before: blocker.sha, after: blocker.sha,
-      changedPaths: [], changedPathCount: 0, changedPathsTruncated: false,
-      eventTimestamp: blocker.resolved!.at, recordedAt: blocker.resolved!.at,
-      blockerResolution: { id: bid, reason: "Conflict reconciled" },
-    });
+    expect(snapshot.activity).toEqual(initial.activity);
     const page = await (await api(f.id, "/activity?after=1", f.alpha)).json<{ activity: Activity[]; nextAfter: number }>();
-    expect(page).toEqual({ activity: [audit], nextAfter: 2 });
+    expect(page).toEqual({ activity: [], nextAfter: 1 });
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get(`blocker:${bid}`)).toEqual(blocker);
+      expect(await objectState.storage.get("sequence")).toBe(1);
+    });
+    expect(await stub(f.id).recordPush(push(f.a, AFTER, BEFORE))).toBe(true);
+    expect((await state(f.id)).activity.map(entry => entry.sequence)).toEqual([1, 2]);
     expect((await api(f.id, "/packets/one/claim", f.alpha, undefined, "DELETE")).status).toBe(200);
     expect((await state(f.id)).blockers.find(b => b.id === bid)).toEqual(blocker);
   });
@@ -239,10 +236,10 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     expect((await api(f.id, "/blockers/legacy/resolve", OWNER, { reason: "x" })).status).toBe(200);
     const resolved = (await state(f.id)).blockers.find(b => b.id === "resolved")!;
     expect(await (await api(f.id, "/blockers/resolved/resolve", OWNER, { reason: "Already done" })).json()).toEqual({ blocker: resolved });
-    expect((await state(f.id)).activity).toHaveLength(2);
+    expect((await state(f.id)).activity).toEqual([]);
   });
 
-  it("rolls back owner resolution and activity together when audit persistence fails", async () => {
+  it("rolls back owner resolution when blocker audit persistence fails", async () => {
     const f = await fixture();
     const blockers = await seedBlockers(f.id, f.b);
     await mutate(f.id, (_instance, objectState) => {
@@ -251,7 +248,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
         const put = txn.put.bind(txn);
         vi.spyOn(txn, "put").mockImplementation(async (...args: unknown[]) => {
           await (put as (...args: unknown[]) => Promise<void>)(...args);
-          throw new Error("offline activity persistence failure");
+          throw new Error("offline blocker persistence failure");
         });
         return callback(txn);
       }));
@@ -266,7 +263,13 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
       });
     } finally { vi.restoreAllMocks(); }
     expect((await api(f.id, "/blockers/legacy/resolve", OWNER, { reason: "Reconciled" })).status).toBe(200);
-    expect((await state(f.id)).activity[0]?.sequence).toBe(1);
+    expect((await state(f.id)).activity).toEqual([]);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get("sequence")).toBeUndefined();
+      expect(await objectState.storage.get("blocker:legacy")).toMatchObject({
+        resolved: { at: expect.any(String), by: "owner", reason: "Reconciled" },
+      });
+    });
   });
 
   it.each(["owner", "agent"] as const)("audits %s release, invalidates reviews and keeps repeated release idempotent", async (role) => {

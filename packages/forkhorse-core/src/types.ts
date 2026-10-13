@@ -59,6 +59,4 @@ export interface Activity {
   changedPathsTruncated: boolean;
   eventTimestamp: string;
   recordedAt: string;
-  /** Owner resolution audit; no Git ref or repository contents changed. */
-  blockerResolution?: { id: string; reason: string };
 }

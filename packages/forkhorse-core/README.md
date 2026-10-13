@@ -478,9 +478,9 @@ Owner-only `POST /projects/:id/blockers/:bid/resolve` accepts `{reason}` (nonbla
 1–200 characters) and returns `200 {blocker}` with `by: "owner"`. A valid repeated
 request returns the original blocker unchanged, including its timestamp and reason.
 Agents receive 403, unknown blockers 404 and invalid reasons 400. The transaction
-appends one activity entry with `agent: null`, `blockerResolution: {id, reason}`,
-an empty `ref`, identical `before`/`after` observed SHA and no changed paths; no Git
-write occurs. Repeats append no activity. These workerd tests use offline providers;
+persists the resolution timestamp, owner provenance and reason on the permanent
+blocker record as its audit. Activity remains Git-push-only; resolution leaves
+the activity log and receive sequence unchanged. These workerd tests use offline providers;
 live collision and resolution acceptance remains an operator check.
 
 Approve and promote return 409 with `"This fork pushed into paths another agent
