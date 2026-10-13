@@ -1,5 +1,25 @@
 # FH-062 synthetic browser captures
 
+## Evidence location
+
+JPGs are kept outside Git. Local evidence bundle: `fh-062-token-usage-evidence-6ce9674.tar.gz`.
+It contains `fh-062/` with the original fifteen captures and `return-1/` with the
+six rechecks, plus the source-head READMEs and `SHA256SUMS`. The operator handback
+provides its local location; tracked documentation records only the bundle name.
+Source snapshot: `6ce9674c3fb9fd815f673ed63084970498228d5e`.
+Archive SHA-256: `0f6bdf460da3269eb49765e1302aa9762921132925392c711ffd731ed07ae34c`.
+
+From the directory containing the bundle, unpack and verify:
+
+```sh
+tar -xzf fh-062-token-usage-evidence-6ce9674.tar.gz
+cd fh-062-token-usage-evidence-6ce9674
+shasum -a 256 -c SHA256SUMS
+```
+
+The listed capture filenames below refer to the external bundle. Preserve future
+captures outside the checkout; do not recommit JPG evidence.
+
 These screenshots use the loopback fixture API and the real dashboard components.
 They are local browser evidence, not live account, Cloudflare, workerd, D5,
 Saddler, or owner acceptance. Desktop viewport: 1280 by 720; phone: 390 by 844.
@@ -195,9 +215,20 @@ See [return-1/README.md](return-1/README.md) for the eight changes, six new offl
 captures, measured table/phone bounds, and latest 80-test commands/exits.
 The preceding fifteen captures remain unchanged and describe earlier stages.
 
+## Evidence cleanup
+
+Per the operator return, all twenty-one tracked JPGs were copied to the external
+bundle above before removal from the current tree. Both the expanded copies and
+archive members matched the source-head bytes and SHA-256 manifest. Original
+fifteen and new six-scene evidence are retained. No source, fixture, or test logic
+changed, so UI checks were not repeated; the latest source checks remain those
+at `6ce9674`. Cleanup checks verify the archive and staged scope. No history rewrite,
+publication, live action, or unaccepted FH-060 integration occurred. FH-060 acceptance
+remains required before the next plain-main integration. Other packet gates remain.
+
 ## Candidate changed paths
 
-Complete candidate delta against accepted FH-057d main `1749a394caa4f78b7fbf6a1645659e89e78e9b99`:
+Complete current-tree candidate delta against accepted FH-057d main `1749a394caa4f78b7fbf6a1645659e89e78e9b99`:
 
 ```text
 packages/forkhorse-dashboard/README.md
@@ -213,29 +244,9 @@ packages/forkhorse-dashboard/src/styles.css
 packages/forkhorse-dashboard/src/usage.ts
 packages/forkhorse-dashboard/src/usage.tsx
 packages/forkhorse-dashboard/src/view.tsx
+packages/forkhorse-dashboard/test/captures/fh-062/.gitignore
 packages/forkhorse-dashboard/test/captures/fh-062/README.md
-packages/forkhorse-dashboard/test/captures/fh-062/agent-over-review.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/agents-both-sources.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/fork-history-integration.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/fork-table-collapsed.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/fork-table.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/over-review.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/phone-agent-race.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/phone-agent-totals.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/photo-finish-integration.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/race-dark.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/race-light.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/return-1/README.md
-packages/forkhorse-dashboard/test/captures/fh-062/return-1/fork-table.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/return-1/over-review.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/return-1/phone-agent-race.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/return-1/race-dark.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/return-1/race-light.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/return-1/unchecked-queue.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/reused-forks-pushes.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/unbudgeted-promote.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/unbudgeted-race.jpg
-packages/forkhorse-dashboard/test/captures/fh-062/unchecked-queue.jpg
 packages/forkhorse-dashboard/test/fixture-api.ts
 packages/forkhorse-dashboard/test/race.test.ts
 packages/forkhorse-dashboard/test/usage-fixtures.ts

@@ -1,5 +1,9 @@
 # FH-062 design return: eight fixes, local fixture evidence
 
+The six capture filenames below are external evidence in `fh-062-token-usage-evidence-6ce9674.tar.gz`,
+under `fh-062/return-1/`. See [the bundle instructions](../README.md#evidence-location).
+They are retained outside Git along with the preceding fifteen captures.
+
 This follow-up starts at `08bbe827c5cb66f0edd8531a8a4d7c1ca697a690` on
 `fh/FH-062-usage-ui`. Accepted-main ancestry remains
 `1749a394caa4f78b7fbf6a1645659e89e78e9b99`; no merge was needed. The FH-060
@@ -41,12 +45,12 @@ The preceding fifteen JPG captures remain untouched as historical evidence.
 
 | Capture | Route and host state | Recheck |
 | --- | --- | --- |
-| [race-light.jpg](race-light.jpg) | `?scenario=usage-race#race/FH-040`, light | One ratio figure; meter/state/freshness; both tables show `1 of 1`; files `4/4/4` have no best caption |
-| [race-dark.jpg](race-dark.jpg) | Same route, dark | Same source labels and boundary words with host semantic colors |
-| [unchecked-queue.jpg](unchecked-queue.jpg) | `?scenario=usage-unchecked#review`, light, activity panel open | One refusal per affected row in Actions, compact figures and fully visible Promote |
-| [over-review.jpg](over-review.jpg) | `?scenario=usage-over#review/usage-review-2`, light, activity panel open | Split segments stay together; separate freshness; core caption retained and Promote absent |
-| [fork-table.jpg](fork-table.jpg) | `?scenario=usage-race#overview`, light, activity panel open, table expanded | Compact source figures fit within the card; full details remain in the Tooltip/accessibility label |
-| [phone-agent-race.jpg](phone-agent-race.jpg) | `?scenario=usage-unchecked&role=agent#race/FH-040`, light, 390 px | Fact blocks contain three entrant lines, without horizontal scrolling or owner actions |
+| `race-light.jpg` | `?scenario=usage-race#race/FH-040`, light | One ratio figure; meter/state/freshness; both tables show `1 of 1`; files `4/4/4` have no best caption |
+| `race-dark.jpg` | Same route, dark | Same source labels and boundary words with host semantic colors |
+| `unchecked-queue.jpg` | `?scenario=usage-unchecked#review`, light, activity panel open | One refusal per affected row in Actions, compact figures and fully visible Promote |
+| `over-review.jpg` | `?scenario=usage-over#review/usage-review-2`, light, activity panel open | Split segments stay together; separate freshness; core caption retained and Promote absent |
+| `fork-table.jpg` | `?scenario=usage-race#overview`, light, activity panel open, table expanded | Compact source figures fit within the card; full details remain in the Tooltip/accessibility label |
+| `phone-agent-race.jpg` | `?scenario=usage-unchecked&role=agent#race/FH-040`, light, 390 px | Fact blocks contain three entrant lines, without horizontal scrolling or owner actions |
 
 Read-only browser measurements:
 
