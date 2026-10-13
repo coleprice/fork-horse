@@ -5,6 +5,11 @@
     "module": ".forkhorse/quick/brand.js"
   },
   {
+    "name": "large-files",
+    "tier": "quick",
+    "module": ".forkhorse/quick/large-files.js"
+  },
+  {
     "name": "brand",
     "tier": "full",
     "image": "default",

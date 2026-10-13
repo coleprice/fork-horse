@@ -8,6 +8,9 @@ import { Snapshot, QUICK_READ_BYTES, QUICK_LIST_PATHS } from "../src/snapshot";
 import { runReviewChecks, requirePassingReceipt, receiptJson, sha256 } from "../src/runner";
 import type { Check, QuickCheck } from "../src/types";
 import { check, COMMIT, fixture, request, review } from "./fixtures";
+// Vite loads the actual repo check unchanged into the real Dynamic Worker.
+// @ts-expect-error raw source is provided by Vite, not the Worker type library.
+import largeFilesSource from "../../../.forkhorse/quick/large-files.js?raw";
 
 const quick: QuickCheck = { name: "quick", tier: "quick", module: ".forkhorse/quick/check.js" };
 const ROOT = "c".repeat(40), DIR = "d".repeat(40), CHECKS = "e".repeat(40), QUICK = "f".repeat(40), MODULE = "1".repeat(40), FILE = "2".repeat(40);
@@ -170,6 +173,109 @@ describe("snapshot bounds with fixture Artifacts under workerd", () => {
     expect(parseChecks(JSON.stringify([quick]))).toEqual([quick]);
     for (const bad of [{...quick,run:"x"}, {...quick,image:"x"}, {...quick,module:".forkhorse/quick/../bad.js"}, {...quick,module:"other.js"}])
       expect(() => parseChecks(JSON.stringify([bad]))).toThrow();
+  });
+});
+
+describe("stat metadata in local workerd with fixture Artifacts", () => {
+  it("exposes stat through the real FILES loopback", async () => {
+    const f = quickFixture(`export default async ctx => {
+      const stat = await ctx.stat("brand.json");
+      return {ok:stat.size === 7 && stat.binary === false && await ctx.stat("missing") === null};
+    };`);
+    expect((await run(f)).receipt.checks[0]?.outcome).toBe("passed");
+    expect(f.repo.createToken).not.toHaveBeenCalled();
+  });
+  it.each([0, 8191, 8192])("detects NUL only within the first 8 KiB (offset %s)", async offset => {
+    const f = quickFixture();
+    const bytes = new Uint8Array(9000).fill(255); // Invalid UTF-8 is valid stat input.
+    bytes[offset] = 0;
+    const blob = new Blob([bytes]);
+    const slice = vi.spyOn(blob, "slice");
+    const wholeRead = vi.spyOn(blob, "arrayBuffer");
+    f.repo.readBlob.mockResolvedValue(blob);
+    expect(await new Snapshot(f.repo, COMMIT).stat("brand.json")).toEqual({size:9000,binary:offset < 8192});
+    expect(slice).toHaveBeenCalledExactlyOnceWith(0, 8192);
+    expect(wholeRead).not.toHaveBeenCalled();
+  });
+  it("handles empty and executable files and absent paths", async () => {
+    const f = quickFixture();
+    expect(await new Snapshot(f.repo, COMMIT).stat("missing")).toBeNull();
+    f.repo.readTree.mockResolvedValue([{name:"brand.json",type:"exec",mode:"100755",hash:FILE}]);
+    f.repo.readBlob.mockResolvedValue(new Blob([]));
+    expect(await new Snapshot(f.repo, COMMIT).stat("brand.json")).toEqual({size:0,binary:false});
+  });
+  it.each(["../brand.json", "/brand.json", "a//b", "a/./b", "a/../b", "a\\b", ".git/config", "a\0b", "", "a/", "a/.GIT/b", "a\u007fb"])("rejects unsafe stat path %s", async path => {
+    const f = quickFixture();
+    await expect(new Snapshot(f.repo, COMMIT).stat(path)).rejects.toThrow(/^Snapshot stat unavailable or limit exceeded\.$/);
+    expect(f.repo.readCommit).not.toHaveBeenCalled();
+  });
+  it.each(["symlink", "gitlink", "tree"] as const)("rejects non-regular %s entries", async type => {
+    const f = quickFixture();
+    f.repo.readTree.mockResolvedValue([{name:"brand.json",type,mode:type === "symlink" ? "120000" : type === "gitlink" ? "160000" : "40000",hash:FILE}]);
+    await expect(new Snapshot(f.repo, COMMIT).stat("brand.json")).rejects.toThrow();
+    expect(f.repo.readBlob).not.toHaveBeenCalled();
+  });
+  it("fails closed on missing objects and sanitizes provider exceptions", async () => {
+    const f = quickFixture();
+    f.repo.readBlob.mockResolvedValue(null as unknown as Blob);
+    await expect(new Snapshot(f.repo, COMMIT).stat("brand.json")).rejects.toThrow(/^Snapshot stat unavailable or limit exceeded\.$/);
+    f.repo.readBlob.mockRejectedValue(new Error("private-provider-body"));
+    await expect(new Snapshot(f.repo, COMMIT).stat("brand.json")).rejects.toThrow(/^Snapshot stat unavailable or limit exceeded\.$/);
+  });
+  it("shares the read budget with concurrent stat samples", async () => {
+    const f = quickFixture();
+    f.repo.readBlob.mockResolvedValue(new Blob(["x".repeat(QUICK_READ_BYTES - 8192)]));
+    const snapshot = new Snapshot(f.repo, COMMIT);
+    await snapshot.read("brand.json");
+    const results = await Promise.allSettled([snapshot.stat("brand.json"), snapshot.stat("brand.json")]);
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(r => r.status === "rejected")).toHaveLength(1);
+  });
+  it("reuses validated immutable tree metadata for a repository-wide scan", async () => {
+    const f = quickFixture();
+    f.repo.readTree.mockResolvedValue(Array.from({length:300}, (_, i) => ({name:`f${i}`,type:"blob",mode:"100644",hash:FILE})));
+    f.repo.readBlob.mockResolvedValue(new Blob(["x"]));
+    const snapshot = new Snapshot(f.repo, COMMIT);
+    const paths = await snapshot.list("");
+    const stats = await Promise.all(paths.map(path => snapshot.stat(path)));
+    expect(stats).toHaveLength(300);
+    expect(stats.every(stat => stat?.size === 1 && !stat.binary)).toBe(true);
+    expect(f.repo.readTree).toHaveBeenCalledOnce();
+  });
+  it("rejects fetched trees beyond the entry budget", async () => {
+    const f = quickFixture();
+    f.repo.readTree.mockResolvedValue(Array.from({length:10_001}, (_, i) => ({name:`f${i}`,type:"blob",mode:"100644",hash:FILE})));
+    await expect(new Snapshot(f.repo, COMMIT).stat("f0")).rejects.toThrow();
+    expect(f.repo.readBlob).not.toHaveBeenCalled();
+  });
+  it("revokes pending stat calls and fences closed capabilities", async () => {
+    const f = quickFixture();
+    let resolve!: (blob: Blob) => void;
+    let started!: () => void;
+    const reading = new Promise<void>(r => { started = r; });
+    f.repo.readBlob.mockImplementation(() => new Promise(r => { resolve = r; started(); }));
+    const snapshot = new Snapshot(f.repo, COMMIT);
+    const pending = snapshot.stat("brand.json");
+    await reading;
+    snapshot.close(); resolve(new Blob(["private"]));
+    await expect(pending).rejects.toThrow();
+    await expect(snapshot.stat("brand.json")).rejects.toThrow();
+  });
+  it.each([9_999_999, 10_000_000, 10_000_001])("runs the actual large-files check at %s bytes without materializing the file", async size => {
+    const f = quickFixture(largeFilesSource);
+    const original = f.repo.readBlob.getMockImplementation()!;
+    const blob = new Blob([new Uint8Array(size)]);
+    const wholeRead = vi.spyOn(blob, "arrayBuffer");
+    f.repo.readBlob.mockImplementation(async hash => hash === FILE ? blob : original(hash));
+    const result = (await run(f)).receipt.checks[0]!;
+    expect(result.outcome).toBe(size < 10_000_000 ? "passed" : "failed");
+    if (size >= 10_000_000) {
+      expect(result.message).toContain(`brand.json: ${size} bytes`);
+      expect(result.message).toContain("32 MB");
+      expect(result.message).toContain("docs/large-files.md");
+    }
+    expect(wholeRead).not.toHaveBeenCalled();
+    expect(f.container.start).not.toHaveBeenCalled();
   });
 });
 

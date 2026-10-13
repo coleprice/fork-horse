@@ -23,7 +23,8 @@ export default {
     }
     try {
       const result = await check(Object.freeze({
-        read: path => env.FILES.read(path), list: prefix => env.FILES.list(prefix)
+        read: path => env.FILES.read(path), list: prefix => env.FILES.list(prefix),
+        stat: path => env.FILES.stat(path)
       }));
       if (!result || typeof result.ok !== "boolean" ||
           (result.message !== undefined && typeof result.message !== "string")) throw new Error();

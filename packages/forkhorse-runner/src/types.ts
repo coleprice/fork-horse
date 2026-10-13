@@ -17,6 +17,11 @@ export interface QuickCheck {
   tier: "quick";
   module: string;
 }
+/** Metadata only; binary is the NUL heuristic over the first 8 KiB. */
+export interface QuickFileStat {
+  size: number;
+  binary: boolean;
+}
 export type Check = FullCheck | QuickCheck;
 export interface RunRequest {
   reviewId: string;
