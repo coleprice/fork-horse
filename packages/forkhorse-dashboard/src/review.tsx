@@ -373,7 +373,23 @@ export function ReviewView({
     review && snapshot
       ? {
           ...view,
-          state: { ...snapshot, reviews: snapshot.reviews.map((r) => (r.id === id ? review : r)) },
+          state: {
+            ...snapshot,
+            reviews: snapshot.reviews.map((r) => (r.id === id ? review : r)),
+            blockers: [
+              ...new Map(
+                [
+                  ...snapshot.blockers,
+                  ...(detail?.blockers ?? []).map((blocker) => ({
+                    ...blocker,
+                    agent: blocker.pushingAgent,
+                    reason: `Push from ${blocker.pushingAgent} overlaps ${blocker.claimingAgent}'s live claim.`,
+                    resolved: false,
+                  })),
+                ].map((blocker) => [blocker.id, blocker]),
+              ).values(),
+            ],
+          },
         }
       : view;
   const back = (

@@ -238,8 +238,11 @@ test("diffs are lazy, several expand, text escaped, binary and truncated and 404
       false,
     );
     assert.equal(c.root.querySelectorAll(".review-file-toggle").length, 200);
-    const paths = reviewFixtureDetail(c.wire).changes.files.map(f => f.path);
-    assert.deepEqual(paths, paths.toSorted((a, b) => a.localeCompare(b)));
+    const paths = reviewFixtureDetail(c.wire).changes.files.map((f) => f.path);
+    assert.deepEqual(
+      paths,
+      paths.toSorted((a, b) => a.localeCompare(b)),
+    );
     assert.match(c.root.textContent!, /Showing 200 of 400 files\./);
     const rows = c.root.querySelectorAll<HTMLButtonElement>(".review-file-toggle");
     for (const i of [0, 1, 2, 3]) rows[i].click();
@@ -431,10 +434,42 @@ test("detail retains queue SHA/digest gates and rejects a contract for a differe
   });
   try {
     await until(() => huge.root.querySelector(".review-file-toggle"));
-    [...huge.root.querySelectorAll<HTMLButtonElement>(".review-file-toggle")].find(b => b.textContent!.includes("src/review.tsx"))!.click();
+    [...huge.root.querySelectorAll<HTMLButtonElement>(".review-file-toggle")]
+      .find((b) => b.textContent!.includes("src/review.tsx"))!
+      .click();
     await until(() => huge.root.textContent!.includes("Couldn't load this diff."));
     assert.equal(huge.root.querySelector(".review-diff pre"), null);
   } finally {
     huge.close();
+  }
+});
+
+test("detail blockers hide owner decisions even when the earlier snapshot had no blocker", async () => {
+  const c = setup("review-current", true, "#review/review-1", {
+    detail: async () => {
+      const value = reviewFixtureDetail(reviewFixtureState("review-current"));
+      value.blockers = [
+        {
+          id: "detail-blocker",
+          packet: "FH-040",
+          claimingAgent: "fixture-agent",
+          pushingAgent: "fixture-peer",
+          repoName: "fixture-repo",
+          sha: "7".repeat(40),
+          paths: ["src/review.tsx"],
+        },
+      ];
+      return Response.json(value);
+    },
+  });
+  try {
+    await until(() => c.root.querySelector(".review-milestones"));
+    assert.match(c.root.textContent!, /Push from fixture-peer overlaps fixture-agent's live claim/);
+    assert.equal(c.root.querySelector('[data-action="approve"]'), null);
+    assert.ok(c.root.querySelector('[data-action="return"]'));
+    const titles = [...c.root.querySelectorAll(".review-detail h2")].map((h) => h.textContent);
+    assert.ok(titles.indexOf("Blockers") < titles.indexOf("Request"));
+  } finally {
+    c.close();
   }
 });
