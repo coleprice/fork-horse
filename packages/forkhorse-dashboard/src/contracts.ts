@@ -47,6 +47,8 @@ export interface Review {
   requestedAt?: string;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
+  returned?: null | { reason: string; at: string };
+  approval?: { sha: string; receiptDigest: string | null } | null;
   receipt?: ReceiptSummary | null;
 }
 
@@ -109,6 +111,13 @@ export interface DashboardTransport {
     subscribe(listener: (paused: boolean) => void): () => void;
     reconnect(): Promise<void>;
   };
+  getReview?(project: string, review: string): Promise<ReviewDetail>;
+  getDiff?(project: string, review: string, path: string): Promise<ReviewDiff>;
+  returnReview?(
+    project: string,
+    review: string,
+    reason: string,
+  ): Promise<{ review: StateResponse["reviews"][number] }>;
   getState(project: string): Promise<ProjectState>;
   getActivity(project: string, after?: number): Promise<ActivityPage>;
   approve(project: string, review: string): Promise<unknown>;
@@ -163,6 +172,7 @@ export interface StateResponse {
     base: string;
     receiptDigest: string | null;
     receipt?: ReceiptSummary | null;
+    returned?: null | { reason: string; at: string };
     approval: { sha: string; receiptDigest: string | null } | null;
     stale: boolean;
     promoted: boolean;
@@ -189,4 +199,39 @@ export interface LedgerEntry {
   after: string;
   receiptDigest: string | null;
   recordedAt: string;
+}
+
+/** FH-039 fixed bounded detail contract. Public reads never contain logs or tokens. */
+export interface ReviewDetail {
+  review: StateResponse["reviews"][number];
+  packet: ProjectState["packets"][number];
+  changes: {
+    base: string;
+    head: string;
+    fileCount: number;
+    truncated: boolean;
+    files: { path: string; status: "added" | "modified" | "deleted" }[];
+  };
+  commits: {
+    sha: string;
+    subject: string;
+    authorName: string;
+    packetTrailer: string | null;
+    agentTrailer: string | null;
+  }[];
+  commitsTruncated: boolean;
+  promotion: null | {
+    before: string;
+    after: string;
+    recordedAt: string;
+    receiptDigest: string | null;
+  };
+  blockers: StateResponse["blockers"];
+}
+export interface ReviewDiff {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  binary: boolean;
+  patch: string;
+  truncated: boolean;
 }

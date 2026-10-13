@@ -33,11 +33,17 @@ import {
   reviewQueue,
   type ViewModel,
 } from "./model.ts";
-import type { Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
+import { ReviewView } from "./review.tsx";
+import type { ReviewDetail, ReviewDiff, Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
 import { relativeTime as relative } from "./time.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
 export interface ViewActions {
+  reviewId?: string;
+  openReview(id?: string): void;
+  getReview?(id: string): Promise<ReviewDetail>;
+  getDiff?(id: string, path: string): Promise<ReviewDiff>;
+  returnReview?(id: string, reason: string): Promise<boolean>;
   section: Section;
   setSection(section: Section): void;
   owner: boolean;
@@ -182,7 +188,7 @@ function Notice({ message, sha }: { message?: string; sha?: string }) {
   }, [message, sha, toasts]);
   return null;
 }
-function ReviewActions({
+export function ReviewActions({
   review,
   view,
   actions,
@@ -389,7 +395,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const blockers = state?.blockers.filter((b) => !b.resolved) ?? [];
   const reviews = state ? reviewQueue(state) : [];
   const reviewCount = reviews.filter(
-    (r) => r.status === "pending" || r.status === "approved",
+    (r) => !r.returned && (r.status === "pending" || r.status === "approved"),
   ).length;
   const history = state ? recentReceipts(state) : [];
   const lastPromotion = state?.ledger.at(-1);
@@ -696,7 +702,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   size="sm"
                   className="fixture-banner"
                   title="FIXTURE · OFFLINE"
-                  description="Local synthetic snapshots only. No live deployment or account connection."
+                  description="Local synthetic snapshots only. No account connection."
                 />
               )}
               {(view.busy || askError) && (
@@ -949,7 +955,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   )}
                   {section(
                     "review",
-                    <>
+                    actions.reviewId ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={actions} openReceipt={showReceipt} /> : <>
                       <section id="reviews">
                         <h2>Review queue</h2>
                         {reviews.length ? (
@@ -971,15 +977,14 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                 r.status === "stale" ||
                                 state.forks.find((f) => f.repoName === r.repoName)?.head !== r.sha;
                               return (
-                                <Table.Row key={r.id} className="review-card">
+                                <Table.Row key={r.id} className="review-card" onClick={(event) => {
+                                  if (!(event.target as HTMLElement).closest("button, a")) actions.openReview(r.id);
+                                }}>
                                   <Table.Cell>
                                     <button
                                       className="claim-link"
                                       onClick={() => {
-                                        setReceiptPanel(false);
-                                        setReviewId(r.id);
-                                        setPacketId(undefined);
-                                        toggle(true);
+                                        actions.openReview(r.id);
                                       }}
                                     >
                                       {r.packet}
@@ -1000,14 +1005,18 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell>
                                     <Status
                                       label={
-                                        stale
+                                        r.returned
+                                          ? "Returned"
+                                          : stale
                                           ? "Fork moved"
                                           : r.status === "approved"
                                             ? "Approved"
                                             : "In review"
                                       }
                                       tone={
-                                        stale
+                                        r.returned
+                                          ? "danger"
+                                          : stale
                                           ? "warning"
                                           : r.status === "approved"
                                             ? "success"
@@ -1024,12 +1033,13 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                         <div>Requested {relative(r.requestedAt)}</div>
                                       )}
                                     </div>
+                                    {r.returned && <p className="caption muted returned-preview">{r.returned.reason.split(/\r?\n/)[0]}</p>}
                                     {stale && (
                                       <div className="caption muted state-reason">
                                         The agent must request review again.
                                       </div>
                                     )}
-                                    {!stale &&
+                                    {!stale && !r.returned &&
                                       (receiptGateCaption(
                                         r,
                                         state.project.settings?.requireReceipt === true,

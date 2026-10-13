@@ -27,6 +27,7 @@ export function reviewGate(
   review: Review,
   state: ProjectState,
 ): { approve: boolean; promote: boolean; reason: string } {
+  if (review.returned) return { approve: false, promote: false, reason: "Returned to agent" };
   const fork = state.forks.find((entry) => entry.repoName === review.repoName);
   if (!fork || fork.head !== review.sha || review.status === "stale") {
     return { approve: false, promote: false, reason: "Fork moved · request a fresh review" };
@@ -121,22 +122,9 @@ export function stateView(wire: StateResponse): ProjectState {
       reason: `Push from ${blocker.pushingAgent} overlaps ${blocker.claimingAgent}'s live claim.`,
       resolved: false,
     })),
-    reviews: wire.reviews.map((review) => ({
-      ...review,
-      requestedAt: review.createdAt,
-      status: review.promoted
-        ? "promoted"
-        : review.stale ||
-            (review.approval !== null &&
-              (review.approval.sha !== review.sha ||
-                (wire.project.settings?.requireReceipt !== false &&
-                  review.receipt?.trigger !== "before-promote" &&
-                  review.approval.receiptDigest !== review.receiptDigest)))
-          ? "stale"
-          : review.approval
-            ? "approved"
-            : "pending",
-    })),
+    reviews: wire.reviews.map((review) =>
+      reviewView(review, wire.project.settings?.requireReceipt),
+    ),
     ledger: wire.ledger.map((entry) => ({
       review: entry.review,
       sha: entry.after,
@@ -233,4 +221,27 @@ export function promotionReceipt(
       review.receipt?.digest === entry.receiptDigest &&
       review.receipt?.status !== "running",
   );
+}
+
+/** Shared public review projection keeps detail and queue approval bindings identical. */
+export function reviewView(
+  review: StateResponse["reviews"][number],
+  requireReceipt?: boolean,
+): Review {
+  return {
+    ...review,
+    requestedAt: review.createdAt,
+    status: review.promoted
+      ? "promoted"
+      : review.stale ||
+          (review.approval !== null &&
+            (review.approval.sha !== review.sha ||
+              (requireReceipt !== false &&
+                review.receipt?.trigger !== "before-promote" &&
+                review.approval.receiptDigest !== review.receiptDigest)))
+        ? "stale"
+        : review.approval
+          ? "approved"
+          : "pending",
+  };
 }

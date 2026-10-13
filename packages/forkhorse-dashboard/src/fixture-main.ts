@@ -1,3 +1,4 @@
+import { reviewScenarios } from "../test/review-fixtures.ts";
 import { applyAppTheme, followSystemTheme } from "./theme.ts";
 import { mountDashboard } from "./dashboard.ts";
 import { createHttpTransport } from "./transport.ts";
@@ -35,6 +36,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
     ...[
+      ...reviewScenarios,
       "large",
       "first",
       "partial",

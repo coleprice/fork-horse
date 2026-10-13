@@ -134,7 +134,7 @@ target branch and exact head in a Kumo Dialog, then the existing server gate run
 again. Agent connections disable these actions and refuse them in the controller
 and transport. Ask an agent opens the host composer without sending the prompt.
 
-Contract gaps remain visible: no Return-to-agent method; no older-history cursor
+Contract gaps remain visible: no older-history cursor
 on the snapshot capability; no packet update time,
 or connected-agent identity. Those fields/actions are labeled
 unavailable or pending rather than synthesized. Activity preference storage is
@@ -171,3 +171,34 @@ The `history-required` and `history-advisory` fixtures include shuffled promoted
 reviews, more than five receipts, both triggers and an advisory failure. These
 are offline fixture evidence; design review, owner acceptance and live checks
 remain separate.
+
+
+## FH-040 review detail (FH-039 contract integration pending)
+
+The queue opens a full-width detail at `#review/<rid>`; Back returns to the queue.
+Recent receipt rows still open the receipt panel. Checks, Approval and Main each
+have their own status and evidence control. The final milestone is Promoted to
+main. Promotion evidence comes only from this review's ledger entry.
+
+The optional host transport methods `getReview`, `getDiff` and `returnReview` follow
+FH-039's fixed contract. The HTTP transport uses the existing same-origin session
+for `GET /projects/:id/reviews/:rid`, `GET …/diff?path=…`, and owner-only
+`POST …/return` with `{reason}`. Reads and writes never carry browser tokens.
+A host without these methods shows an explicit unavailable state; it does not
+invent detail from packet claims or push history. FH-039 core integration and
+capability-host support must be checked separately after FH-039 lands.
+
+Diffs fetch only when expanded, accept at most 64 KiB, retain added/removed
+prefixes, and render as escaped plain text. Returned reasons retain line breaks
+for owners and agents. Return requires a visible labelled textarea with 1–2000
+characters and a counter. The controller refuses agent writes, stale/promoted/
+returned reviews and duplicate writes; an uncertain owner write is never retried.
+The dialog alone owns Return errors, including the promoted 409.
+
+`review-*` scenarios in `test/review-fixtures.ts` are labeled offline FH-039
+contract fixtures: current, approved, promoted, returned, stale, advisory failed,
+400-file changes (200 visible), detail loading/error/not-found, and return 409.
+These fixtures do not establish Cloudflare or owner acceptance. Dashboard tests
+exercise routes/back navigation, independent evidence, escaping, lazy diffs,
+return bounds, agent restrictions, owner conflicts and existing receipt gates.
+Farrier design PASS and the superprime's code review remain separate gates.
