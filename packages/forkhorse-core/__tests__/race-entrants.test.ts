@@ -320,6 +320,112 @@ describe("FH-052 race entrants", () => {
     expect((await state(f.id)).blockers.some(b => b.repoName === `${f.id}--alpha-2` && b.claimingAgent === "beta")).toBe(true);
   });
 
+  it("keeps race collision keys distinct from standard packets containing the entrant's name", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    await packet(f.id, "one-alpha", ["src"], "standard");
+    expect((await claim(f.id, f.alpha, "one-alpha")).status).toBe(201);
+    await mutate(f.id, instance => { instance.fixture.changedPaths = ["src/index.ts"]; });
+    await stub(f.id).recordPush(push(f.b));
+    const blockers = (await state(f.id)).blockers;
+    expect(blockers.map(b => b.packet).toSorted()).toEqual(["one", "one-alpha"]);
+    expect(new Set(blockers.map(b => b.id)).size).toBe(2);
+    expect(blockers.find(b => b.packet === "one-alpha")?.id).toBe("1-one-alpha");
+  });
+
+  it.each([0, 1, 2])("includes race entries in unique pushing-packet attribution (%s bindings)", async count => {
+    const f = await fixture();
+    await packet(f.id, "target", ["src"], "standard");
+    await claim(f.id, f.tokens[2]!, "target");
+    await packet(f.id, "one", ["docs"]);
+    if (count >= 1) await claim(f.id, f.alpha);
+    if (count >= 2) {
+      await packet(f.id, "another", ["config"], "standard");
+      await claim(f.id, f.alpha, "another");
+    }
+    await mutate(f.id, instance => { instance.fixture.changedPaths = ["src/index.ts"]; });
+    await stub(f.id).recordPush(push(f.a));
+    expect((await state(f.id)).blockers).toMatchObject([{
+      packet: "target", claimingAgent: "gamma", pushingAgent: "alpha", repoName: f.a,
+      pushingPacket: count === 1 ? "one" : null, resolved: null,
+    }]);
+  });
+
+  it("gates only the race entrant that trespasses and resolves only that pusher's collisions on close", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    await claim(f.id, f.beta);
+    await packet(f.id, "target", ["docs"], "standard");
+    await claim(f.id, f.tokens[2]!, "target");
+    await mutate(f.id, instance => { instance.fixture.changedPaths = ["src/index.ts", "docs/file.md"]; });
+    await stub(f.id).recordPush(push(f.a));
+    const a = await review(f.id, f.alpha, f.a, "one", AFTER, false);
+    const b = await review(f.id, f.beta, f.b);
+    const claimant = await review(f.id, f.tokens[2]!, `${f.id}--gamma-1`, "target");
+    const original = (await state(f.id)).blockers[0]!;
+    expect(original).toMatchObject({ packet: "target", pushingPacket: "one", repoName: f.a, resolved: null });
+    for (const operation of ["approve", "promote"])
+      expect((await api(f.id, `/reviews/${a.id}/${operation}`, OWNER, {})).status).toBe(409);
+    expect((await api(f.id, `/reviews/${b.id}/approve`, OWNER, {})).status).toBe(200);
+    expect((await api(f.id, `/reviews/${claimant.id}/approve`, OWNER, {})).status).toBe(200);
+    await api(f.id, "/packets/one/claim", OWNER, { agent: "beta" }, "DELETE");
+    expect((await state(f.id)).blockers[0]).toEqual(original);
+    expect((await api(f.id, `/reviews/${a.id}/approve`, OWNER, {})).status).toBe(409);
+    await api(f.id, "/packets/one/claim", OWNER, { agent: "alpha" }, "DELETE");
+    const snapshot = await state(f.id);
+    const closed = snapshot.races[0]!.entrants.find(e => e.agent === "alpha")!;
+    expect(snapshot.blockers[0]).toMatchObject({ ...original, resolved: { by: "release", at: closed.closedAt } });
+  });
+
+  it("keeps all three claimant collisions distinct and the outsider gated until the last claimant closes", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    for (const token of f.tokens.slice(0, 3)) await claim(f.id, token);
+    await packet(f.id, "outside", ["docs"], "standard");
+    await claim(f.id, f.tokens[3]!, "outside");
+    await mutate(f.id, instance => { instance.fixture.changedPaths = ["src/index.ts"]; });
+    await stub(f.id).recordPush(push(`${f.id}--delta-1`));
+    const outsider = await review(f.id, f.tokens[3]!, `${f.id}--delta-1`, "outside", AFTER, false);
+    const original = (await state(f.id)).blockers;
+    expect(original).toHaveLength(3);
+    expect(new Set(original.map(b => b.id)).size).toBe(3);
+    expect(original.every(b => b.pushingPacket === "outside")).toBe(true);
+    for (const [index, agent] of ["alpha", "beta", "gamma"].entries()) {
+      expect((await api(f.id, `/reviews/${outsider.id}/approve`, OWNER, {})).status).toBe(409);
+      expect((await api(f.id, "/packets/one/claim", f.tokens[index]!, undefined, "DELETE")).status).toBe(200);
+      const blockers = (await state(f.id)).blockers;
+      expect(blockers.find(b => b.claimingAgent === agent)?.resolved?.by).toBe("release");
+      expect(blockers.filter(b => !b.resolved)).toHaveLength(2 - index);
+    }
+    expect((await api(f.id, `/reviews/${outsider.id}/approve`, OWNER, {})).status).toBe(200);
+  });
+
+  it("preserves FH-048's fork-wide gate for ambiguous race plus standard bindings until owner resolution", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    await claim(f.id, f.beta);
+    await packet(f.id, "another", ["config"], "standard");
+    await claim(f.id, f.alpha, "another");
+    await packet(f.id, "target", ["docs"], "standard");
+    await claim(f.id, f.tokens[2]!, "target");
+    await mutate(f.id, instance => { instance.fixture.changedPaths = ["docs/file.md"]; });
+    await stub(f.id).recordPush(push(f.a));
+    const a = await review(f.id, f.alpha, f.a, "one", AFTER, false);
+    const another = await review(f.id, f.alpha, f.a, "another", AFTER, false);
+    const blocker = (await state(f.id)).blockers[0]!;
+    expect(blocker.pushingPacket).toBeNull();
+    for (const requested of [a, another])
+      expect((await api(f.id, `/reviews/${requested.id}/approve`, OWNER, {})).status).toBe(409);
+    await api(f.id, "/packets/one/claim", f.alpha, undefined, "DELETE");
+    expect((await state(f.id)).blockers[0]?.resolved).toBeNull();
+    expect((await api(f.id, `/reviews/${another.id}/approve`, OWNER, {})).status).toBe(409);
+    expect((await api(f.id, `/blockers/${blocker.id}/resolve`, OWNER, { reason: "Coordinated the collision." })).status).toBe(200);
+    expect((await api(f.id, `/reviews/${another.id}/approve`, OWNER, {})).status).toBe(200);
+  });
+
   it("rolls back entrant closure with its review and audit, and fences uncertain promotions", async () => {
     const f = await fixture();
     await packet(f.id);
@@ -417,6 +523,7 @@ describe("FH-052 race entrants", () => {
     const initial = (await state(f.id)).agents;
     expect(initial).toHaveLength(4);
     for (const agent of initial) expect(agent.createdAt).toEqual(expect.any(String));
+    expect(new Set(initial.map(agent => agent.createdAt)).size).toBe(1);
     await api(f.id, "/agents/alpha/rotate", OWNER, {});
     expect((await state(f.id)).agents).toEqual(initial);
     expect((await api(f.id, "/agents", OWNER, { agent: "new-agent" })).status).toBe(201);

@@ -512,14 +512,18 @@ A race supports at most **three distinct entrants ever**, each with one immutabl
 caller-owned fork binding. Repeating an open claim is idempotent. Race entrants
 may overlap each other's paths, while claims on other packets retain the existing
 overlap rules. The same-race push exemption applies only to the entrant's bound
-fork; other packet collisions remain blockers.
+fork; other packet collisions remain blockers. Push attribution counts both standard
+claims and open race entries; more than one binding on the pushing fork keeps
+`pushingPacket: null`, preserving the gate for every review from that fork.
 
 Entrants live at `entrant:<packet>:<agent>`. Records are never deleted or reused;
 `closedAt === null` means open. Agent `DELETE /packets/:pid/claim` closes only that
 agent's entry. An owner's DELETE requires JSON `{ "agent": "builder" }` for a race.
 A closed entrant cannot re-enter, and still counts toward the cap. Release stales
-only that entrant's reviews. `openEntrants(storage, packet?)` exports the shared
-open-entry rule for other core consumers.
+only that entrant's reviews and resolves only collisions where that entry was the
+claimant or the uniquely identified pusher. Peer collisions remain open.
+`openEntrants(storage, packet?)` exports the shared open-entry rule for other core
+consumers.
 
 `/state.races` exposes entrants in claim order with `claimedAt`, `firstPushAt`,
 `reviewRequestedAt`, `receiptPassedAt`, `approvedAt`, `promotedAt`, `place`,
@@ -562,5 +566,7 @@ ledger, finish, placement or release writes. These fixture tests are offline
 workerd evidence only; live race acceptance is separate.
 
 Agent enrollment, including OAuth's owner-authorized enrollment route, stores
-`createdAt`. Token rotation preserves it. `/state.agents` exposes only `name` and
-`createdAt`; legacy agents report null and are not backfilled. No sequence is stored.
+`createdAt`; agents in one project bootstrap share a timestamp (alphabetical
+tie-breaking is a dashboard concern). Token rotation preserves it. `/state.agents`
+exposes only `name` and `createdAt`; legacy agents report null and are not
+backfilled. No sequence is stored.
