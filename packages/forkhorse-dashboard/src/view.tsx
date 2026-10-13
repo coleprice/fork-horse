@@ -948,13 +948,15 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   }}
                                 >
                                   <Table.Cell>
+                                    <span className="packet-label">
                                     <button
                                       className="packet-link"
                                       title={p.title}
                                       onClick={() => showPacket(p.id)}
                                     >
                                       {p.title}
-                                    </button>{p.mode === "race" && <Badge variant="neutral">Race</Badge>}
+                                    </button>{p.mode === "race" && <Badge variant="secondary" className="packet-race-badge">Race</Badge>}
+                                    </span>
                                     <div className="caption muted">{p.id}</div>
                                   </Table.Cell>
                                   <Table.Cell>
@@ -1037,6 +1039,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   if (!(event.target as HTMLElement).closest("button, a")) actions.openReview(r.id);
                                 } : undefined}>
                                   <Table.Cell>
+                                    <span className="packet-label">
                                     {actions.getReview ? <button
                                       className="claim-link"
                                       onClick={() => {
@@ -1044,7 +1047,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       }}
                                     >
                                       {r.packet}
-                                    </button> : <span>{r.packet}</span>}{state.packets.find((p) => p.id === r.packet)?.mode === "race" && <Badge variant="neutral">Race</Badge>}
+                                    </button> : <span>{r.packet}</span>}{state.packets.find((p) => p.id === r.packet)?.mode === "race" && <Badge variant="secondary" className="packet-race-badge">Race</Badge>}
+                                    </span>
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Tooltip

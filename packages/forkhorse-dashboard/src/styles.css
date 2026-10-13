@@ -360,6 +360,10 @@ footer {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.packet-label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.packet-label > button { min-width: 0; }
+.packet-race-badge { flex-shrink: 0; }
+.column-claimed > .caption { display: block; line-height: inherit; }
 .packet-link:hover {
   text-decoration: underline;
 }
@@ -1214,7 +1218,16 @@ footer {
   position: relative;
   z-index: 1;
   vertical-align: middle;
-  margin-block: 3px;
+  margin: 0;
+}
+.race-step .lane-marker-unreached { color: transparent; }
+.race-mark-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-inline: auto;
 }
 .race-step .lane-marker.reached { animation: race-arrival 150ms ease-out; }
 .race-step {
@@ -1229,7 +1242,7 @@ footer {
   background: var(--entrant-silk);
   right: 50%;
   left: auto;
-  top: 28px;
+  top: 31px;
   width: calc(var(--race-gap) * 100%);
   pointer-events: none;
 }
@@ -1270,7 +1283,7 @@ footer {
   z-index: 1;
   display: inline-flex;
   width: 24px;
-  height: 18px;
+  height: 24px;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -1395,11 +1408,11 @@ footer {
     padding: 12px 0;
     min-height: 48px;
   }
-  .race-step .race-marker,
-  .race-step .race-hurdle-button {
+  .race-mark-box {
     grid-row: 1;
     grid-column: 1;
     justify-self: center;
+    margin: 0;
   }
   .race-phone-label {
     display: block;
@@ -1444,6 +1457,9 @@ footer {
   .race-results tbody th {
     width: auto;
   }
+  .race-results tbody th:nth-child(2) { width: auto; }
+  .race-results .race-runner { width: 100%; }
+  .race-results .race-runner-copy { flex: 1; }
   .race-results td {
     display: flex;
     justify-content: space-between;

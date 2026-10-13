@@ -23,7 +23,7 @@ function Place({ entrant }: { entrant: RaceEntrant }) {
   return (
     entrant.place !== null && (
       <Badge
-        variant="neutral"
+        variant={entrant.place === 1 ? "neutral" : "secondary"}
         appearance={entrant.place === 1 ? "dot" : undefined}
         className={entrant.place === 1 ? "race-place status-dot status-success" : "race-place"}
       >
@@ -125,6 +125,7 @@ function Lane({
             </span>
             <span className="sr-only">{description}</span>
             <LaneConnector reached={gap > 0} />
+            <span className="race-mark-box">
             {hurdle && tooltip ? (
               <Tooltip
                 content={tooltip}
@@ -141,9 +142,10 @@ function Lane({
             ) : (
               marker
             )}
+            </span>
             <span className="race-split caption" aria-hidden="true">
-              {failure && <span>{label}</span>}
               {split && <time dateTime={eventAt!}>+{split}</time>}
+              {failure && <span>{label}</span>}
             </span>
           </td>
         );
@@ -302,7 +304,7 @@ export function RaceView({
       </header>
       {photo >= 2 && (
         <p className="race-photo-caption">
-          <Badge variant="neutral">Photo finish</Badge> {photo} entrants were approved; the first
+          <Badge variant="secondary">Photo finish</Badge> {photo} entrants were approved; the first
           promote to <code>main</code> won. The others' reviews closed when the race finished.
         </p>
       )}
