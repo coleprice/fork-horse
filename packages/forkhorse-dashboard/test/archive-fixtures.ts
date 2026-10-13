@@ -44,11 +44,36 @@ export function archiveFixtureState(id = "archive-ready"): StateResponse {
         createdAt: "2026-10-13T14:00:00Z",
       },
     ];
-  if (id === "archive-race") state.races = [archiveRace()];
+  if (id === "archive-race") {
+    state.packets[0].mode = "race";
+    const race = archiveRace();
+    const entrant = race.entrants[0];
+    state.races = [race];
+    state.claims = [{ packet: race.packet, agent: entrant.agent, repoName: entrant.repoName,
+      paths: state.packets[0].paths, createdAt: entrant.claimedAt, usage: entrant.usage }];
+    state.reviews = [];
+    state.ledger = [];
+  }
   if (id === "archive-finished-race") {
     state.packets[0].mode = "race";
-    state.races = [{ ...archiveRace("2026-10-13T14:10:00Z"), status: "finished",
-      finishedAt: "2026-10-13T14:10:00Z", winner: "builder" }];
+    const finishedAt = "2026-10-13T14:10:00Z";
+    const race = archiveRace(finishedAt);
+    const review = state.reviews[0];
+    // The promoted review and exact ledger reference identify the winning entrant.
+    const winner = { ...race.entrants[0], agent: review.agent, repoName: review.repoName,
+      firstPushAt: "2026-10-13T14:01:00Z", reviewRequestedAt: "2026-10-13T14:02:00Z",
+      receiptPassedAt: "2026-10-13T14:03:00Z", approvedAt: "2026-10-13T14:04:00Z",
+      promotedAt: finishedAt, place: 1, closedBy: null };
+    const other = { ...race.entrants[0], place: 2, closedBy: "race-finished" as const };
+    if (!state.agents.some((agent) => agent.name === winner.agent))
+      state.agents.push({ name: winner.agent, createdAt: "2026-10-13T13:59:00Z" });
+    review.createdAt = winner.reviewRequestedAt;
+    review.approvedAt = winner.approvedAt;
+    state.ledger[0].recordedAt = finishedAt;
+    state.ledger[0].race = race.packet;
+    state.races = [{ ...race, status: "finished", finishedAt, winner: winner.agent,
+      ledgerEntryId: state.ledger[0].id, places: [{ agent: winner.agent, place: 1 },
+        { agent: other.agent, place: 2 }], entrants: [winner, other] }];
   }
   if (id === "archive-review" || id === "archive-main-moved") {
     state.reviews[0].promoted = false;
@@ -76,7 +101,7 @@ export function archiveRace(closedAt: string | null = null): RaceFixture["races"
   return {
     packet: "FH-040", tokenBudget: null, places: [], status: "open", finishedAt: null, winner: null, ledgerEntryId: null,
     entrants: [{
-      agent: "builder", repoName: "fixture--builder-1", claimedAt: "2026-10-13T14:00:00Z",
+      agent: "builder", repoName: "demo--builder-1", claimedAt: "2026-10-13T14:00:00Z",
       firstPushAt: null, reviewRequestedAt: null, receiptPassedAt: null, approvedAt: null,
       promotedAt: null, place: null, closedAt, closedBy: closedAt ? "release" : null,
       usage: { reported: null, metered: null }, budget: "unchecked",

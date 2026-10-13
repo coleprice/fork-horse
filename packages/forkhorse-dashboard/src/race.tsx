@@ -262,9 +262,11 @@ export function RaceView({
   const now = Date.now();
   return (
     <article className="race-page" aria-labelledby="race-title">
-      {back}
-      {work && actions.showPacket && <Button variant="secondary" size="sm"
-        onClick={() => actions.showPacket!(packet)}>Packet details</Button>}
+      <div className="race-navigation flex items-center gap-3">
+        {back}
+        {work && actions.showPacket && <Button variant="ghost" size="sm"
+          onClick={() => actions.showPacket!(packet)}>Packet details</Button>}
+      </div>
       <header className="race-header">
         <div>
           <h2 ref={title} tabIndex={-1} id="race-title" className="heading-1">
@@ -310,7 +312,7 @@ export function RaceView({
                 hour12: false,
               })}
             </strong>
-            {race.finishedAt && (
+            {race.finishedAt && race.winner && (
               <>
                 <span className="caption muted">Won in</span>
                 <strong>{raceSplit(race.finishedAt, start)}</strong>

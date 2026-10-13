@@ -59,6 +59,12 @@ function setup(id = "archive-ready", owner = true, failure = 0, hash = "#work") 
   async function open() {
     await until(() => !!root.querySelector("#packets .packet-link"));
     root.querySelector<HTMLButtonElement>("#packets .packet-link")!.click();
+    if (state.packets[0].mode === "race" && !state.packets[0].archived) {
+      await until(() => [...root.querySelectorAll("button")]
+        .some((entry) => entry.textContent === "Packet details"));
+      [...root.querySelectorAll<HTMLButtonElement>("button")]
+        .find((entry) => entry.textContent === "Packet details")!.click();
+    }
     await until(() => !!root.querySelector(".archive-heading"));
   }
   return {
@@ -339,4 +345,47 @@ test("finished race keeps its track and opens packet details for archive and und
     c.button("unarchive")!.click();
     await until(() => !!c.button("archive"));
   } finally { c.close(); }
+});
+
+
+test("open race Work row routes both roles through the track to read-only live packet details", async () => {
+  for (const owner of [true, false]) {
+    const c = setup("archive-race", owner);
+    try {
+      await until(() => !!c.root.querySelector('#packets [data-packet-id="FH-040"]'));
+      const row = c.root.querySelector('#packets [data-packet-id="FH-040"]')!;
+      assert.match(row.textContent!, /Race/);
+      assert.match(row.textContent!, /Racing/);
+      assert.match(row.textContent!, /1 entrant/);
+      row.querySelector<HTMLButtonElement>(".packet-link")!.click();
+      await until(() => !!c.root.querySelector(".race-navigation"));
+      assert.equal(c.dom.window.location.hash, "#race/FH-040");
+      const buttons = c.root.querySelectorAll<HTMLButtonElement>(".race-navigation button");
+      assert.equal(buttons.length, 2);
+      assert.match(buttons[0].textContent!, /Work/);
+      assert.equal(buttons[1].textContent, "Packet details");
+      buttons[1].click();
+      await until(() => !!c.root.querySelector(".archive-heading"));
+      assert.equal(c.button("archive"), null);
+      assert.equal(c.button("unarchive"), null);
+      assert.equal(c.calls.filter((call) => call.startsWith("POST")).length, 0);
+    } finally { c.close(); }
+  }
+});
+
+test("finished archive race fixture records a promoted winner and closed other entrants", () => {
+  const wire = archiveFixtureState("archive-finished-race");
+  const race = wire.races![0];
+  const winner = race.entrants.find((entrant) => entrant.agent === race.winner)!;
+  assert.equal(wire.packets[0].mode, "race");
+  assert.equal(winner.promotedAt, race.finishedAt);
+  assert.equal(winner.place, 1);
+  assert.equal(winner.closedAt, race.finishedAt);
+  assert.equal(winner.closedBy, null);
+  assert.equal(race.ledgerEntryId, wire.ledger[0].id);
+  assert.equal(wire.reviews[0].agent, winner.agent);
+  assert.ok(wire.agents.some((agent) => agent.name === winner.agent));
+  assert.ok(race.entrants.filter((entrant) => entrant !== winner)
+    .every((entrant) => entrant.closedBy === "race-finished" && entrant.closedAt === race.finishedAt));
+  assert.equal(canArchive(stateView(wire), "FH-040"), true);
 });

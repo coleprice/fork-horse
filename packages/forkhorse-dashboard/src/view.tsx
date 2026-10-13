@@ -1058,7 +1058,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       content={p.mode === "race" ? race?.entrants.map((entrant) => entrant.agent).join(", ") || "No entrants yet" : live.map((c) => c.agent).join(", ") || "Unclaimed"}
                                       render={<span className="truncated-name" />}
                                     >
-                                      {p.mode === "race" ? (race?.entrants.length ? `${race.entrants.length} entrants` : "No entrants yet") : live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                      {p.mode === "race" ? (race?.entrants.length ? `${race.entrants.length} ${race.entrants.length === 1 ? "entrant" : "entrants"}` : "No entrants yet") : live.map((c) => c.agent).join(", ") || "Unclaimed"}
                                     </Tooltip>
                                     <div className="caption muted folded">
                                       {live.map((c) => (
