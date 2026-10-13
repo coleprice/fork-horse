@@ -285,6 +285,6 @@ describe("real OAuth provider with labeled in-memory fixtures", () => {
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as { result: { tools: unknown[] } };
-    expect(body.result.tools).toHaveLength(7);
+    expect(body.result.tools).toHaveLength(8);
   });
 });

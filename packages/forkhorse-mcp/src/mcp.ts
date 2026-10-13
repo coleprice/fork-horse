@@ -23,6 +23,33 @@ const packet = z
   .max(128)
   .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
 const project = { project: slug };
+// FH-041 owns the summary and next-step rules. Preserve its work items, never
+// reconstruct them from the project-wide state or silently treat absence as empty.
+const resumeSummary = z.object({
+  work: z.array(
+    z
+      .object({
+        packet: z.object({ id: packet, title: z.string() }),
+        repoName,
+        next: z.enum([
+          "push",
+          "request_review",
+          "wait_for_checks",
+          "fix_checks",
+          "address_return",
+          "wait_for_owner",
+          "done",
+        ]),
+        hint: z.string().max(200),
+      })
+      .passthrough(),
+  ),
+});
+const refreshedToken = z.object({
+  remote: z.string().min(1),
+  token: z.string().min(1),
+  expiresAt: z.string().min(1),
+});
 const file = z
   .object({
     path: z
@@ -43,6 +70,12 @@ const file = z
 const schemas = {
   get_context: z.object(project).strict(),
   status: z.object(project).strict(),
+  refresh_token: z
+    .object({
+      repoName,
+      ttlSeconds: z.number().int().min(60).max(3600).default(3600),
+    })
+    .strict(),
   activity: z
     .object({
       ...project,
@@ -74,8 +107,12 @@ const schemas = {
     .strict(),
 };
 const descriptions: Record<keyof typeof schemas, string> = {
-  get_context: "Read the current project snapshot, packet scope, claims, blockers and reviews.",
-  status: "Read the current project state and review status.",
+  get_context:
+    "Read the project snapshot and caller's myWork resume summary. Follow each item's next; never join again to resume.",
+  status:
+    "Read the project state and caller's myWork resume summary with one next-step line per item.",
+  refresh_token:
+    "Issue a write token for an existing caller-owned fork in the authenticated project (default TTL 3600 seconds). Never print or log the token; use it only as an http.extraHeader. Never join again to refresh a token. Do not retry blindly.",
   activity: "Read recorded activity after a cursor (up to 100 entries).",
   join: "Create a new caller-owned fork. Pass its repoName explicitly to claim. Do not retry blindly.",
   claim:
@@ -186,13 +223,51 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
               async (raw: unknown) => {
                 try {
                   const args = schemas[name].parse(raw);
-                  if (args.project !== identity.project)
+                  if ("project" in args && args.project !== identity.project)
                     throw new PublicError(403, "Credential belongs to another project.");
                   let operation: CoreOperation;
                   switch (name) {
                     case "get_context":
-                    case "status":
-                      operation = { kind: "state", project: args.project };
+                    case "status": {
+                      const snapshot = z
+                        .record(z.string(), z.unknown())
+                        .parse(
+                          await options.core.execute(
+                            token,
+                            { kind: "state", project: identity.project },
+                            signal,
+                          ),
+                        );
+                      signal.throwIfAborted();
+                      const summary = resumeSummary.safeParse(
+                        await options.core.execute(
+                          token,
+                          { kind: "me", project: identity.project },
+                          signal,
+                        ),
+                      );
+                      if (!summary.success)
+                        throw new PublicError(
+                          502,
+                          "Core resume summary unavailable; FH-041 is required.",
+                        );
+                      const myWork = summary.data.work;
+                      return {
+                        content: [
+                          { type: "text" as const, text: JSON.stringify({ ...snapshot, myWork }) },
+                          ...myWork.map((item) => ({
+                            type: "text" as const,
+                            text: `${item.packet.id} on ${item.repoName} → next: ${item.next} — ${item.hint.replace(/[\r\n\u2028\u2029]/g, " ")}`,
+                          })),
+                        ],
+                      };
+                    }
+                    case "refresh_token":
+                      operation = {
+                        kind: "refresh_token",
+                        project: identity.project,
+                        ...schemas.refresh_token.parse(args),
+                      };
                       break;
                     case "activity":
                       operation = { kind: "activity", ...schemas.activity.parse(args) };
@@ -234,7 +309,10 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
                     }
                   }
                   signal.throwIfAborted();
-                  const result = await options.core.execute(token, operation, signal);
+                  const response = await options.core.execute(token, operation, signal);
+                  // Expose only the contracted credential fields, never core/provider metadata.
+                  const result =
+                    name === "refresh_token" ? refreshedToken.parse(response) : response;
                   return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
                 } catch (error) {
                   return {
