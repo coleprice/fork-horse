@@ -288,6 +288,13 @@ test("fork graph keeps tokens in tooltip and table, without figures on lane labe
       /Tokens/,
     );
     assert.match(c.root.querySelector(".fork-card")!.textContent!, /420k tokens · reported/);
+    const table = c.root.querySelector<HTMLElement>(".fork-table")!;
+    assert.equal(table.style.clipPath, "inset(50%)");
+    assert.ok([...table.querySelectorAll("button")].every((button) => button.tabIndex === -1));
+    c.root.querySelector<HTMLButtonElement>(".fork-disclosure")!.click();
+    await until(() => table.style.clipPath === "");
+    assert.ok([...table.querySelectorAll("button")].every((button) => button.tabIndex === 0));
+    assert.match(table.textContent!, /420k tokens · reported/);
   } finally {
     c.close();
   }

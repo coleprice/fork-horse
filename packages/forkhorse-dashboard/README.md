@@ -324,6 +324,25 @@ production assets. Captures prove fixture rendering only; reserved root tests,
 worker-host integration, fresh-clone/D5 checks, and design/code sign-off remain
 separate acceptance gates.
 
+### Fork graph bundle fixes (FH-057b)
+
+The shared graph carries its closed-table hiding styles in the component as well as
+in CSS, so an older host stylesheet cannot reveal the accessibility twin. Closed
+cell controls leave keyboard tab order; opening the disclosure restores them.
+Unloaded starts use a dashed lead-in with a recorded-start tooltip. Main SHA labels
+reserve space for the newest promotion first, then fit older labels into the remaining
+space. Every event cell shows its three newest events, with `+n earlier` exposing the
+omitted facts on focus or hover.
+
+For offline bundle verification, build the dashboard and gatekeeper sidebar assets,
+then open `gatekeeper-fixtures.html?bundle=owner&scenario=fork-hero` or
+`gatekeeper-fixtures.html?scenario=fork-hero` on the dashboard fixture server.
+The owner route uses the built production entry and CSS against the local fixture API;
+the gatekeeper route loads its built self-contained sidebar in an opaque-origin frame
+with a synthetic host capability. Light/dark controls use the app theme path.
+`fork-history` exercises dense main labels and capped cells. These harnesses are excluded
+from production assets and prove offline bundle behavior only.
+
 ## Reported usage and race Compare (FH-062 local candidate)
 
 The optional FH-060 wire projection keeps reported and metered cumulative snapshots
@@ -363,6 +382,10 @@ neutral unreached rings, centered hurdles, badges and silks remain in the shared
 Accepted FH-055b main `f924b7a40fa94bc457677dfa3898c940b1676e37` is normally
 merged at `97cf0650f6560a0d5d814a85c98d27cc6a342d53`, with parents
 `90cabe62afb723d0645e62d3c97976e3f8030fc5` and that accepted main commit.
+Accepted FH-057b main `c3dec6e43994b49007b6ad06ab55d13c61607955` is normally
+merged onto the local FH-062 head `edb9903c9829a4871b0814fc5bb978a2395ed1d4`.
+Its table clipping, focus behavior, compact visible event cells, and full accessible
+event labels compose with the usage tooltip and Tokens column.
 Final integration is held for accepted FH-060 and overlapping FH-049 if it lands. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
 serialized operator checks. Saddler PASS and owner review remain open. This local
 candidate has no live Cloudflare, deployment, or owner-acceptance evidence.

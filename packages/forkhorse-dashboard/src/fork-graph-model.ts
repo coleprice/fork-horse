@@ -272,6 +272,27 @@ export function forkGraph(state: ProjectState, now = Date.now(), choice: WindowC
   };
 }
 
+/** Prefer the newest main label; older labels must fit without touching a chosen label. */
+export function mainShaLabels(marks: { id: string; at: number; x: number }[], width: number) {
+  const labels = new Map<string, number>();
+  const half = 30;
+  const nowSpace = 20;
+  if (width < 52 + nowSpace + half * 2) return labels;
+  for (const mark of marks.toSorted((a, b) => b.at - a.at)) {
+    const center = Math.max(12 + half, Math.min(width - 40 - nowSpace - half, mark.x));
+    if ([...labels.values()].every((x) => Math.abs(x - center) >= half * 2 + 12))
+      labels.set(mark.id, center);
+  }
+  return labels;
+}
+/** Visible cells retain the three newest events in chronological order. */
+export function tableEvents(events: ForkEvent[], kinds: string[]) {
+  const matching = events
+    .filter((event) => kinds.includes(event.kind))
+    .toSorted((a, b) => a.at - b.at);
+  return { shown: matching.slice(-3), earlier: matching.slice(0, -3) };
+}
+
 const significance: Record<LaneMarkKind, number> = {
   claim: 0,
   push: 1,

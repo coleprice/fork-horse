@@ -20,6 +20,8 @@ show their initial scroll position. Theme controls were hidden through the fixtu
 | unbudgeted-promote.jpg | `?scenario=usage-unbudgeted#review/usage-review-0` | Promote remains visible with no budget caption; no write performed |
 | photo-finish-integration.jpg | `?scenario=race-photo#race/race-01` | Accepted placings, photo-finish badge, rejected CAS evidence, shared glyphs and silks retained |
 | reused-forks-pushes.jpg | `?scenario=race-reused-forks#race/race-01` | Shared race-window counts: Compare and Results both show one push per reused fork |
+| fork-table-collapsed.jpg | `?scenario=usage-race#overview` | State-owned clipping keeps Tokens in the accessibility twin and closed controls out of tab order |
+| fork-history-integration.jpg | `?scenario=fork-history#overview` | Accepted compact event cells and earlier-event disclosure retained |
 | fork-table.jpg | `?scenario=usage-race#overview` | Expanded table twin includes Tokens; graph labels contain no figures |
 
 The source fixture also covers legacy records, metered precedence, zero reports,
@@ -103,9 +105,43 @@ totals of twenty and three. The usage fixture starts loading after every claim, 
 its refreshed captures omit both push facts. Other captures retain their prior
 fixture evidence. No root/fresh-clone/D5, live, publication, or Board action occurred.
 
+## FH-057b follow-up
+
+After explicit acceptance authority, fresh `origin/main` verified exactly
+`c3dec6e43994b49007b6ad06ab55d13c61607955`. The normal merge has parents
+`edb9903c9829a4871b0814fc5bb978a2395ed1d4` and that accepted main commit.
+README sections and fixture imports required conflicts to be combined. The graph
+source and styles merged automatically, retaining both the accepted bundle fixes
+and FH-062's usage tooltip/Tokens table cell. No FH-057c feature branch was copied.
+
+| Latest follow-up command | Result |
+| --- | --- |
+| `CI=true pnpm --filter forkhorse-dashboard exec node --import ./test/jsx-runtime.ts --test test/race.test.ts test/usage.test.ts test/fork-graph.test.ts` | Exit 0; 42 passed, 0 failed |
+| `CI=true pnpm --filter forkhorse-dashboard types:check` | Initial exit 1: accepted gatekeeper fixture referenced an uninstalled local dependency; retry exit 0 after the locked install below |
+| `CI=true pnpm install --frozen-lockfile --filter forkhorse-gatekeeper...` | Exit 0; eight cached packages, no tracked changes |
+| `CI=true pnpm exec vp lint packages/forkhorse-dashboard` | Exit 0; no findings |
+| `git -c core.fsmonitor=false diff --check` | Exit 0 |
+
+The usage DOM regression now checks state-owned clipping and tab-order exclusion
+with real token figures present, and verifies opening the table restores controls
+and retains those figures. Accepted graph tests cover compact cells, accessible
+full text, earlier-event facts, starts, and main labels. Shared race-window Pushes
+regressions still pass. The browser independently confirmed the closed table has
+absolute positioning, 1 px width, `inset(50%)` clipping, and tab indexes of -1.
+Opening restores table controls to 0. Visible cells retain times and concise check
+status; full accessible labels retain event names. Dense earlier-event labels retain
+all omitted event text and become focusable only when the table is open.
+
+The fork-table capture was refreshed; collapsed-table and dense-history captures
+were added. Other captures remain evidence from the preceding integration stages.
+The latest checks are focused only; prior full-package tests/builds above describe
+older candidate stages. Operator root/fresh-clone/D5/workerd checks, accepted FH-060
+integration, FH-049 or FH-057c if accepted, Saddler PASS, and owner review remain open.
+No publication, live account action, or Board edit occurred.
+
 ## Candidate changed paths
 
-Complete candidate delta against accepted FH-055b main `f924b7a40fa94bc457677dfa3898c940b1676e37`:
+Complete candidate delta against accepted FH-057b main `c3dec6e43994b49007b6ad06ab55d13c61607955`:
 
 ```text
 packages/forkhorse-dashboard/README.md
@@ -123,6 +159,8 @@ packages/forkhorse-dashboard/src/view.tsx
 packages/forkhorse-dashboard/test/captures/fh-062/README.md
 packages/forkhorse-dashboard/test/captures/fh-062/agent-over-review.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/agents-both-sources.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/fork-history-integration.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/fork-table-collapsed.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/fork-table.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/over-review.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/phone-agent-race.jpg
