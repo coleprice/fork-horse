@@ -7,6 +7,14 @@ export interface Packet {
   goal: string;
   paths: string[];
   acceptance: string[];
+  archived: null | { at: string; by: "owner" };
+}
+/** Durable owner audit; Git-push Activity records retain their existing schema. */
+export interface PacketArchiveAudit {
+  packet: string;
+  action: "archive" | "unarchive";
+  by: "owner";
+  recordedAt: string;
 }
 export interface Fork {
   repoName: string;

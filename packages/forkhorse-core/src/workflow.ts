@@ -1,4 +1,4 @@
-import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, publicPacket, raceStates, recordPromoteRejected } from "./race-entrants";
+import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, raceStates, recordPromoteRejected } from "./race-entrants";
 import { ReviewReader } from "./review-detail";
 import { publicReview, readReceipt, settings } from "./receipts";
 import type { Receipts } from "./receipts";
@@ -11,6 +11,8 @@ import { staleBase } from "./git";
 import type { GitOperations } from "./git";
 import { ZERO_SHA } from "./trees";
 import { capActivity } from "./activity";
+import { publicPacket } from "./packets";
+import { archivePacket } from "./packet-archive";
 import type { StoredActivity } from "./activity";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import type {
@@ -300,11 +302,18 @@ export class Workflow {
         goal: data.goal,
         paths: [...new Set(data.paths)],
         acceptance: data.acceptance as string[],
+        archived: null,
       };
       if (await this.storage.get(`packet:${packet.id}`))
         throw new HttpError(409, "Packet already exists.");
       await this.storage.put(`packet:${packet.id}`, packet);
       return json({ packet }, 201);
+    }
+    const archiving = /^\/packets\/([^/]+)\/(archive|unarchive)$/.exec(path);
+    if (archiving && method === "POST") {
+      this.owner(actor);
+      const action = archiving[2] === "archive" ? "archive" : "unarchive";
+      return json({ packet: await archivePacket(this.storage, archiving[1]!, action) });
     }
     const claiming = /^\/packets\/([^/]+)\/claim$/.exec(path);
     if (claiming && (method === "POST" || method === "DELETE")) {
@@ -312,6 +321,7 @@ export class Workflow {
       const packetId = claiming[1]!;
       const packet = await this.storage.get<Packet>(`packet:${packetId}`);
       if (!packet) throw new HttpError(404, "Packet not found.");
+      if (method === "POST" && packet.archived) throw new HttpError(409, "Packet is archived.");
       if (packet.mode === "race") return this.raceClaim(request, project, packet, actor);
       const current = await this.storage.get<Claim>(`claim:${packetId}`);
       if (method === "DELETE") {
