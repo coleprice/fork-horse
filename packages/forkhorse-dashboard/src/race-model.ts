@@ -24,18 +24,6 @@ export function raceEntrants(race: Race): RaceEntrant[] {
 export function raceStart(race: Race): number | undefined {
   return timestamp(raceEntrants(race)[0]?.claimedAt);
 }
-/** Enrollment order is project identity; legacy agents precede timestamped agents. */
-export function saddlecloth(state: ProjectState, agent: string): number | undefined {
-  const agents = state.agents.toSorted((a, b) => {
-    const first = timestamp(a.createdAt),
-      second = timestamp(b.createdAt);
-    if (first === undefined && second !== undefined) return -1;
-    if (first !== undefined && second === undefined) return 1;
-    return (first ?? 0) - (second ?? 0) || a.name.localeCompare(b.name);
-  });
-  const index = agents.findIndex((entry) => entry.name === agent);
-  return index < 0 ? undefined : index + 1;
-}
 export function ordinal(value: number): string {
   const suffix =
     value % 100 >= 11 && value % 100 <= 13

@@ -39,6 +39,8 @@ export interface ProjectState {
     pushingAgent?: string;
     sha?: string;
     repoName?: string;
+    at?: string | null;
+    pushingPacket?: string | null;
   }[];
   races?: Race[];
   reviews: Review[];
@@ -71,6 +73,7 @@ export interface Review {
   sha: string;
   receiptDigest: string | null;
   requestedAt?: string;
+  approvedAt?: string | null;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
   stale?: boolean;
@@ -196,8 +199,13 @@ export interface StateResponse {
     repoName: string;
     sha: string;
     paths: string[];
+    at?: string | null;
+    pushingPacket?: string | null;
+    resolved?: { at: string; by: "release" | "promote" | "owner"; reason?: string } | null;
   }[];
+  races?: Race[];
   reviews: {
+    approvedAt?: string | null;
     id: string;
     packet: string;
     agent: string;
@@ -212,7 +220,6 @@ export interface StateResponse {
     promoted: boolean;
     createdAt: string;
   }[];
-  races?: Race[];
   ledger: LedgerEntry[];
   activity: Activity[];
   reconcilerAlerts: {

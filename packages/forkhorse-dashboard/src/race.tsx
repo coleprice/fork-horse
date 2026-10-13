@@ -1,4 +1,4 @@
-import { LaneRunner, laneSilkStyle, LaneMarker } from "./lane.tsx";
+import { LaneRunner, laneSilkStyle, LaneMarker, LaneConnector } from "./lane.tsx";
 import { Badge, Button, Tooltip } from "@cloudflare/kumo";
 import { useEffect, useRef, type CSSProperties } from "react";
 import type { ProjectState, Race, RaceEntrant } from "./contracts.ts";
@@ -100,7 +100,15 @@ function Lane({
                   : hurdle && reached && receipt?.status === "passed"
                     ? "passed"
                     : reached
-                      ? "reached"
+                      ? milestone.key === "claimedAt"
+                        ? "claim"
+                        : milestone.key === "firstPushAt"
+                          ? "push"
+                          : milestone.key === "reviewRequestedAt"
+                            ? "review"
+                            : milestone.key === "approvedAt"
+                              ? "approved"
+                              : "reached"
                       : "unreached"
             }
           />
@@ -110,18 +118,13 @@ function Lane({
             key={milestone.key}
             className={`race-step ${milestone.key === "promotedAt" ? "race-finish" : ""}`}
             data-milestone={milestone.key}
+            style={{ "--race-gap": gap } as CSSProperties}
           >
             <span className="race-phone-label" aria-hidden="true">
               {milestone.label}
             </span>
             <span className="sr-only">{description}</span>
-            {gap > 0 && (
-              <span
-                className="race-connector"
-                style={{ "--race-gap": gap } as CSSProperties}
-                aria-hidden="true"
-              />
-            )}
+            <LaneConnector reached={gap > 0} />
             {hurdle && tooltip ? (
               <Tooltip
                 content={tooltip}

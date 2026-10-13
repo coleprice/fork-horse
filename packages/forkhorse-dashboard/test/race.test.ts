@@ -9,6 +9,7 @@ import { TooltipProvider } from "@cloudflare/kumo";
 import { installDom } from "./dom.ts";
 import { raceFixtureState } from "./race-fixtures.ts";
 import { stateView } from "../src/model.ts";
+import { saddlecloth } from "../src/lane.tsx";
 import { RaceView } from "../src/race.tsx";
 import {
   entrantResult,
@@ -18,7 +19,6 @@ import {
   raceSplit,
   raceStart,
   rejectionDelta,
-  saddlecloth,
 } from "../src/race-model.ts";
 import { mountDashboard } from "../src/dashboard.ts";
 import { renderDashboard } from "../src/render.ts";
@@ -165,6 +165,9 @@ test("semantic track keeps claim order at finish, checks after request, and real
   assert.match(track.textContent!, /Checks failed, plus/);
   assert.match(track.textContent!, /Promoted to main aaaaaaa → ccccccc/);
   assert.match(track.textContent!, /Closed at the finish/);
+  assert.equal(track.querySelector(".lane-marker-review")!.textContent, "○");
+  assert.equal(track.querySelector(".lane-marker-approved")!.textContent, "◆");
+  assert.equal(track.querySelector(".race-saddlecloth")!.getAttribute("aria-label"), "Agent number 2");
   assert.doesNotMatch(html(value), /Photo finish|progressbar|% done/);
   assert.equal(raceStart(race), Date.parse("2026-10-13T14:01:59Z"));
 });
@@ -227,7 +230,7 @@ test("advisory approval skips hollow check marker with a connector and remains t
     /Checks failed/,
   );
   assert.match(
-    lane.querySelector('[data-milestone="approvedAt"] .race-connector')!.getAttribute("style")!,
+    lane.querySelector('[data-milestone="approvedAt"]')!.getAttribute("style")!,
     /--race-gap:2/,
   );
 });

@@ -270,9 +270,49 @@ The reviewed `race-silk-*`, `race-cloth-ink`, and
 `race-hurdle-ink` values live in `src/host-tokens.json`, with identity always carried
 by the number. Missing ledger evidence or activity counts are omitted.
 
+The race view uses the accepted FH-057 `LaneRunner`, `LaneMarker`, `LaneConnector`
+and enrollment identity helpers from `src/lane.tsx`. Marker shapes and silk styling
+are shared with the fork graph; race-specific CSS only places them in the track.
+
 The offline fixture harness includes `race-open`, `race-finished`, `race-photo`,
 `race-empty`, `race-loading`, `race-error`, `race-unknown`, `race-standard`, and
 `race-advisory`. Open `fixtures.html?scenario=race-photo#race/race-01` for the recorded
 rejection panel, or `?scenario=race-open#work`, `#review`, and `#overview` for its
 Work badge, Promote warning, and Needs you copy. These snapshots are synthetic;
 they do not establish live race, deployment, or owner acceptance.
+
+### Forks on Overview (FH-057)
+
+The read-only hero projects `/state` into a clock-time graph above Needs you. It uses
+live claims, loaded push activity, reviews and their current receipt summaries, and
+ledger `recordedAt` times. Optional FH-052/053 races appear only when supplied.
+Dense events fold at the measured plot width; their tooltips and the always-accessible
+table retain the recorded facts. Below 640px only the table renders. The graph caps
+at eight lanes with in-place expansion, a 24-hour maximum default window, guarded
+viewer disclosure storage, and reduced-motion support.
+
+`src/lane.tsx` owns the shared primitives for FH-055 and FH-057:
+`LaneRunner({entrant, state})`, `laneSilkStyle(state, agent)`, `saddlecloth(state, agent)`,
+`Saddlecloth({identity})`, `LaneMarker({kind})`, `LaneLine({path})` (SVG), and
+`LaneConnector({reached})` (decorative race-table connector). Marker kinds include
+`unreached`, `reached`, `claim`, `push`, `review`, `passed`, `failed`, `approved`, and
+`promoted`. `agentIdentities(agents)` ranks legacy agents alphabetically before
+agents ordered by enrollment timestamp, with alphabetical tie-breaking. The number
+always accompanies the repeating `race-silk-1/2/3` colors. Unknown agents get no
+invented number. Both `--lane-silk` and FH-055's `--entrant-silk` are supported.
+
+Missing history stays missing: a promoted lane without its claim uses its earliest
+loaded event and an open stub, with no invented branch junction. Standard review
+approval timestamps and released standard claims are not exposed by the current
+core snapshot. Approval marks render only if a recorded `approvedAt` is supplied;
+the Approved state word remains available without a timestamp. Race release and
+approval times come from recorded entrant fields. Earlier push history is explicitly
+labeled when the loaded activity cannot cover a claim's start.
+
+Fixture scenarios: `fork-hero`, `fork-resolved`, `fork-old`, `fork-many`, `fork-empty`,
+`fork-dense`, and `fork-live` on `fixtures.html?scenario=…`. The live scenario has a
+**Fixture new push** control that appends a synthetic push and invalidates the
+snapshot through the normal read path. These routes and controls never ship in
+production assets. Captures prove fixture rendering only; reserved root tests,
+worker-host integration, fresh-clone/D5 checks, and design/code sign-off remain
+separate acceptance gates.

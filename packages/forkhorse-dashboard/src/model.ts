@@ -165,7 +165,7 @@ export function stateView(wire: StateResponse): ProjectState {
       ...blocker,
       agent: blocker.pushingAgent,
       reason: `Push from ${blocker.pushingAgent} overlaps ${blocker.claimingAgent}'s live claim.`,
-      resolved: false,
+      resolved: !!blocker.resolved,
     })),
     reviews: wire.reviews.map((review) =>
       reviewView(review, wire.project.settings?.requireReceipt),

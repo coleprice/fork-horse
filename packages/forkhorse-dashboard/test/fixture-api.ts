@@ -1,4 +1,5 @@
 import { raceScenarios, raceFixtureState } from "./race-fixtures.ts";
+import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
   reviewScenarios,
@@ -22,6 +23,22 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     // Test harness reset; this middleware is excluded from production builds.
     if (url.pathname === "/__fixtures/reset" && request.method === "POST") {
       states.clear();
+      response.statusCode = 204;
+      response.end();
+      return;
+    }
+    if (url.pathname === "/__fixtures/fork-live-push" && request.method === "POST") {
+      const state = states.get("fork-live");
+      if (state) {
+        const previous = state.activity.find((a) => a.repoName === "fixture-fork-3")!;
+        const at = new Date().toISOString();
+        state.activity.push({
+          ...previous,
+          sequence: state.activity.length + 100,
+          recordedAt: at,
+          eventTimestamp: at,
+        });
+      }
       response.statusCode = 204;
       response.end();
       return;
@@ -56,6 +73,13 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
             packet: state.packets[0],
           });
       }
+      return;
+    }
+    const forkRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (forkRoute && forkScenarios.includes(forkRoute[1])) {
+      if (!states.has(forkRoute[1])) states.set(forkRoute[1], forkFixtureState(forkRoute[1]));
+      const state = states.get(forkRoute[1])!;
+      send(forkRoute[2] === "state" ? state : { activity: [], nextAfter: 0 });
       return;
     }
     const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(
