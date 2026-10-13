@@ -9,7 +9,7 @@ import type { Claim, ClaimReleaseAudit, Fork, ReceiptSummary, Review } from "./w
 
 export const settings = (project: Project) => project.settings ?? { requireReceipt: false };
 export const publicReview = ({ receiptGeneration: _generation, ...review }: Review) => ({
-  ...review, receipt: review.receipt ?? null,
+  ...review, receipt: review.receipt ?? null, returned: review.returned ?? null,
 });
 export type ExecuteReceipt = (
   request: RunRequest, authority: ReceiptAuthority, generation: string,

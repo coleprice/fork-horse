@@ -27,12 +27,12 @@ export function reviewGate(
   review: Review,
   state: ProjectState,
 ): { approve: boolean; promote: boolean; reason: string } {
-  const fork = state.forks.find((entry) => entry.repoName === review.repoName);
-  if (!fork || fork.head !== review.sha || review.status === "stale") {
-    return { approve: false, promote: false, reason: "Fork moved · request a fresh review" };
-  }
-  if (review.status === "promoted")
-    return { approve: false, promote: false, reason: "Promoted to canonical" };
+  const cause = reviewState(review, state);
+  if (cause.kind !== "current")
+    return { approve: false, promote: false, reason: cause.caption || cause.label };
+  // A missing fork or invalid approval binding cannot authorize an owner write.
+  if (!state.forks.some((fork) => fork.repoName === review.repoName) || review.status === "stale")
+    return { approve: false, promote: false, reason: "Refresh and request review again." };
   const requireReceipt = state.project.settings?.requireReceipt;
   if (requireReceipt === undefined)
     return {
@@ -65,6 +65,51 @@ export function reviewGate(
     promote: review.status === "approved",
     reason: receiptGateCaption(review, requireReceipt),
   };
+}
+
+export type ReviewState = {
+  kind: "current" | "promoted" | "returned" | "fork-moved" | "main-moved" | "out-of-date";
+  label: string;
+  caption: string;
+  banner?: string;
+  mainSha?: string;
+};
+
+/** First proven cause wins; main movement does not depend on core's stale flag. */
+export function reviewState(review: Review, state: ProjectState): ReviewState {
+  if (review.status === "promoted") return { kind: "promoted", label: "Promoted", caption: "" };
+  if (review.returned) return { kind: "returned", label: "Returned", caption: "" };
+  const fork = state.forks.find((entry) => entry.repoName === review.repoName);
+  if (fork && fork.head !== review.sha)
+    return {
+      kind: "fork-moved",
+      label: "Fork moved",
+      caption: "The agent must request review again.",
+      banner: "The fork moved after this review was requested. The agent must request review again.",
+    };
+  const latest = state.ledger.toSorted((a, b) => a.promotedAt.localeCompare(b.promotedAt)).at(-1);
+  if (
+    latest &&
+    review.base &&
+    latest.sha !== review.base &&
+    !state.reconcilerAlerts.some((alert) => alert.id === "current-head") &&
+    state.promotionPending === null
+  )
+    return {
+      kind: "main-moved",
+      label: "Main moved",
+      mainSha: latest.sha,
+      caption: "The agent must rebase and request review again.",
+      banner: `main moved to ${latest.sha.slice(0, 7)} after this review was requested. The agent must rebase and request review again.`,
+    };
+  if (review.stale === true)
+    return {
+      kind: "out-of-date",
+      label: "Out of date",
+      caption: "The agent must request review again.",
+      banner: "This review no longer applies. The agent must request review again.",
+    };
+  return { kind: "current", label: review.status === "approved" ? "Approved" : "In review", caption: "" };
 }
 
 /** Refuse incomplete snapshots instead of silently filling missing live data with fixtures. */
@@ -121,30 +166,18 @@ export function stateView(wire: StateResponse): ProjectState {
       reason: `Push from ${blocker.pushingAgent} overlaps ${blocker.claimingAgent}'s live claim.`,
       resolved: false,
     })),
-    reviews: wire.reviews.map((review) => ({
-      ...review,
-      requestedAt: review.createdAt,
-      status: review.promoted
-        ? "promoted"
-        : review.stale ||
-            (review.approval !== null &&
-              (review.approval.sha !== review.sha ||
-                (wire.project.settings?.requireReceipt !== false &&
-                  review.receipt?.trigger !== "before-promote" &&
-                  review.approval.receiptDigest !== review.receiptDigest)))
-          ? "stale"
-          : review.approval
-            ? "approved"
-            : "pending",
-    })),
+    reviews: wire.reviews.map((review) =>
+      reviewView(review, wire.project.settings?.requireReceipt),
+    ),
     ledger: wire.ledger.map((entry) => ({
       review: entry.review,
       sha: entry.after,
       promotedAt: entry.recordedAt,
       receiptDigest: entry.receiptDigest,
     })),
+    promotionPending: wire.promotionPending,
     reconcilerAlerts: [
-      ...wire.reconcilerAlerts.map((alert) => ({ sha: alert.after, message: alert.reason })),
+      ...wire.reconcilerAlerts.map((alert) => ({ id: alert.id, sha: alert.after, message: alert.reason })),
       ...(wire.promotionPending
         ? [
             {
@@ -233,4 +266,27 @@ export function promotionReceipt(
       review.receipt?.digest === entry.receiptDigest &&
       review.receipt?.status !== "running",
   );
+}
+
+/** Shared public review projection keeps detail and queue approval bindings identical. */
+export function reviewView(
+  review: StateResponse["reviews"][number],
+  requireReceipt?: boolean,
+): Review {
+  return {
+    ...review,
+    requestedAt: review.createdAt,
+    status: review.promoted
+      ? "promoted"
+      : review.stale ||
+          (review.approval !== null &&
+            (review.approval.sha !== review.sha ||
+              (requireReceipt !== false &&
+                review.receipt?.trigger !== "before-promote" &&
+                review.approval.receiptDigest !== review.receiptDigest)))
+        ? "stale"
+        : review.approval
+          ? "approved"
+          : "pending",
+  };
 }

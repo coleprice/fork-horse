@@ -89,6 +89,10 @@ function setup(id = "receipts", owner = true, fetcher?: typeof fetch) {
 }
 
 test("receipt wire maps every status without logs; durations and timeout use supplied check time", async () => {
+  for (const [ms, text] of [[0, "0 ms"], [1, "1 ms"], [227, "227 ms"], [999, "999 ms"], [1000, "1 s"], [1499, "1 s"], [1500, "2 s"]] as const)
+    assert.equal(duration(ms), text);
+  assert.equal(duration(-1), "");
+  assert.equal(duration(Number.NaN), "");
   assert.equal(duration(41000), "41 s");
   assert.equal(duration(110000), "1 min 50 s");
   assert.equal(duration(60000), "1 min");
@@ -142,7 +146,8 @@ test("queue and recent receipts use singular and plural check counts, including 
       await until(() =>
         c.root.querySelector(".receipt-history-row")!.textContent!.includes(expected),
       );
-      const passed = c.root.querySelector('[data-review="receipt-3"]')!.closest("tr")!;
+      const passedReview = c.wire.reviews.find((review) => review.id === "receipt-3")!;
+      const passed = [...c.root.querySelectorAll(".review-card")].find((row) => row.textContent!.includes(passedReview.repoName))!;
       assert.ok(passed.querySelector(".receipt-cell")!.textContent!.includes(expected));
       const history = [...c.root.querySelectorAll(".receipt-history-row")];
       assert.equal(history.length, 5);

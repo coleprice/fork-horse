@@ -274,6 +274,9 @@ use receipts to gate approval or promotion. Null means **no check receipt**, not
 passing checks. Moving the fork head or releasing its claim invalidates an
 outstanding review. Both approve and promote read the fork head fresh rather than
 relying only on queued push events. State also computes stale status from fresh heads.
+Recorded fork pushes compare reviews with the freshly read default-branch head,
+so a delayed older event cannot stale a review of the current commit. If Artifacts
+throws or returns an empty branch log, invalidation falls back to the event's head.
 
 With `requireReceipt: true`, promote waits for a new successful before-promote
 execution and compares its generation/commit/digest, including for reviews approved
@@ -345,9 +348,25 @@ no-store`; plaintext Git tokens appear only in the successful issuance response.
 
 | Route | Authority | Result |
 | --- | --- | --- |
-| `GET /projects/:id/me` | Agent or owner | `{role, agent?, forks:[{repoName, remote, head, createdAt}]}`. Agents see only their registered forks; owners see all registered forks. Canonical and inconsistent/unregistered records are excluded. Heads come from the repository's default-branch log. |
+| `GET /projects/:id/me` | Agent or owner | `{role, agent?, forks:[{repoName, remote, head, createdAt}], work:WorkItem[]}`. Agents see only their registered forks and live claimed work; owners see all registered forks and `work:[]`. Canonical and inconsistent/unregistered records are excluded. Heads come from the repository's default-branch log. |
 | `POST /projects/:id/forks/:repo/token` | Owning agent only | Body `{scope:"read"\|"write", ttlSeconds?}`; TTL is an integer 60–3600, default 900. Returns status 201 with `{repoName, remote, token, scope, expiresAt}`. Owner credentials cannot mint through this route. |
 | `DELETE /projects/:id/forks/:repo/tokens` | Owning agent or owner | Revokes active provider tokens, including join-issued tokens, then returns `{repoName, revoked}`. A completed repeat returns zero. |
+
+Each `WorkItem` contains `packet:{id,title}`, `repoName`, `claimedAt`, `forkHead`,
+`canonicalHead`, `review`, `next`, and a plain-text `hint` of at most 200 characters.
+`review` is null or `{id,sha,stale,returned,receipt,approved,promoted}`; it includes
+only the receipt summary, never execution identities or full logs. Core selects
+the latest stored non-stale review matching the caller, packet and claimed fork.
+If a raw Git push has changed the head before its event arrives, the summary marks
+that review stale without changing its durable record.
+
+The first matching rule determines `next`: promoted reviews are `done`; a return
+at the reviewed head is `address_return`; absent, stale or head-mismatched reviews
+are `request_review` (or `push` when there is no review and both heads match);
+running receipts are `wait_for_checks`; missing or non-passing required receipts
+are `fix_checks`; everything else is `wait_for_owner`. Advisory failures do not
+block owner review. Released claims disappear from `work`, even when their review
+history remains.
 
 Canonical token operations return 403, unknown forks 404, and foreign ownership 403.
 An agent credential still cannot approve or promote reviews. A supplied Git token is
@@ -387,6 +406,56 @@ uncertain outcomes without creating another subscription. Missing credentials st
 pending. Legacy repositories need owner inventory/backfill; active records are not
 periodically reconciled against external deletions. See [core integration](../../docs/core-integration.md)
 for exact Wrangler schema, limits, first-deploy secrets files and the separate live gate.
+
+## Review detail and return (FH-039)
+
+`Review.returned` is `null` or `{reason, at}` (ISO timestamp); legacy records project
+as `null` without a storage migration. The field is included in `/state` reviews.
+Owner-only `POST /projects/:id/reviews/:rid/return` accepts `{reason}` (nonblank,
+1–2000 characters) and returns `200 {review}`. Invalid reasons return 400; promoted
+reviews or an unresolved promotion intent return 409. The transaction clears approval
+and writes a durable `reviewReturn:<id>` audit with review, packet, agent, returnedBy,
+reason and at. Returned reviews cannot be approved or promoted: both return
+`409 {"error":"Review was returned to the agent."}`. A later push marks the review
+stale normally; the agent requests a new review. Returning does not release the claim.
+
+`GET /projects/:id/reviews/:rid` is available to the owner and that review's agent,
+including historical reviews after claim release. It returns:
+
+- `review`: public review, excluding private receipt execution identity and logs;
+- `packet`: `{id, title, goal, paths, acceptance}`;
+- `changes`: `{base, head, fileCount, truncated, files:[{path,status}]}`, sorted by
+  path, at most 200 files, with `added`, `modified` or `deleted` status;
+- `commits`: at most 50 commits reachable from head but not base, newest commit
+  timestamp first (SHA breaks ties), with `{sha,subject,authorName,packetTrailer,
+  agentTrailer}`, and `commitsTruncated`;
+- `promotion`: this review's successful ledger entry projected to
+  `{before,after,recordedAt,receiptDigest}`, or `null`;
+- `blockers`: only observations for this packet.
+
+Changes use Artifacts trees at the stored exact base and head, including modes,
+symlinks and gitlinks. Commit history follows all merge parents and excludes all
+base ancestors. Only the final trailer paragraph supplies `Fork-Horse-Packet` and
+`Fork-Horse-Agent`; absent trailers are null. Author emails and full commit messages
+are omitted. Neither read endpoint issues Git tokens.
+
+`GET /projects/:id/reviews/:rid/diff?path=<encoded-path>` uses the same authority
+and returns `{path,status,binary,patch,truncated}`. Paths not in the returned 200-file
+changes list return 404. NUL bytes or invalid UTF-8 produce `binary:true` and an empty
+patch. Text uses a unified replacement hunk with three lines of edge context; the
+linear algorithm avoids quadratic work on adversarial inputs. The patch is capped
+at 64 KiB of UTF-8, at whole diff-line boundaries, with `truncated:true` if incomplete.
+Mode-only changes can have an empty patch. Symlink targets are content, never followed;
+gitlinks render their commit references without accessing the referenced repository.
+
+Reads fail closed with 413 above these input budgets: 20,000 combined tree entries,
+64 directory levels, 4 KiB per path, 2,048 distinct commits (including base ancestry),
+64 KiB per commit message, 4 KiB per author name, 2 MiB combined message/name bytes,
+1 MiB per blob before decoding, or 2,048 ledger/blocker records per store. Provider
+object calls return complete metadata/tree objects; these budgets are checked on
+receipt and cannot constrain allocations inside the provider. Malformed or unavailable
+objects use the existing sanitized 502 response. Fixtures exercise these boundaries in
+actual workerd; they do not establish live Artifacts or Cloudflare acceptance.
 
 ## Quick checks (FH-010)
 

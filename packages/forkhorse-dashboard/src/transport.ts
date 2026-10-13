@@ -1,5 +1,12 @@
 import { stateView } from "./model.ts";
-import type { ActivityPage, DashboardTransport, StateResponse, OwnerReceipt } from "./contracts.ts";
+import type {
+  ActivityPage,
+  DashboardTransport,
+  StateResponse,
+  OwnerReceipt,
+  ReviewDetail,
+  ReviewDiff,
+} from "./contracts.ts";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -59,6 +66,14 @@ export function createHttpTransport(options: HttpTransportOptions): DashboardTra
     return (await response.json()) as T;
   }
   return {
+    getReview: (id, review) =>
+      call<ReviewDetail>(`${projectPath(id)}/reviews/${encodeURIComponent(review)}`),
+    getDiff: (id, review, path) =>
+      call<ReviewDiff>(
+        `${projectPath(id)}/reviews/${encodeURIComponent(review)}/diff?path=${encodeURIComponent(path)}`,
+      ),
+    returnReview: (id, review, reason) =>
+      call(`${projectPath(id)}/reviews/${encodeURIComponent(review)}/return`, "POST", { reason }),
     getState: async (id) => stateView(await call<StateResponse>(`${projectPath(id)}/state`)),
     getActivity: (id, after = 0) =>
       call<ActivityPage>(`${projectPath(id)}/activity?after=${after}&limit=100`),

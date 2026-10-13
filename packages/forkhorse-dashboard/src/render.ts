@@ -13,6 +13,7 @@ export function renderDashboard(view: ViewModel): string {
         owner: true,
         async selectProject() {},
         setSection() {},
+        openReview() {},
         async action() {},
       },
     }),

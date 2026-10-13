@@ -1,6 +1,6 @@
 import type { Brand, DashboardTransport, ProjectOption } from "./contracts.ts";
 import { ApiError } from "./transport.ts";
-import { assertState, reviewGate, type ViewModel } from "./model.ts";
+import { assertState, reviewGate, reviewState, type ViewModel } from "./model.ts";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -43,12 +43,43 @@ export function mountDashboard(
   const react = createRoot(root);
   const window = root.ownerDocument.defaultView!;
   const sectionFromHash = (): Section => {
-    const hash = window.location.hash.slice(1);
+    const hash = window.location.hash.slice(1).split("/")[0];
     return ["overview", "work", "review", "agents"].includes(hash) ? (hash as Section) : "overview";
   };
+  const reviewFromHash = () => {
+    const match = /^#review\/(.+)$/.exec(window.location.hash);
+    // Older capability hosts retain the queue; bookmarks must not open a dead-end detail.
+    if (match && !options.transport.getReview) {
+      try {
+        window.history.replaceState(null, "", "#review");
+      } catch {
+        window.location.hash = "review";
+      }
+      return undefined;
+    }
+    try {
+      return match ? decodeURIComponent(match[1]) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   let section = sectionFromHash();
+  let selectedReviewId = reviewFromHash();
+  function openReview(id?: string) {
+    if (id && !options.transport.getReview) return;
+    section = "review";
+    selectedReviewId = id;
+    const hash = id ? `review/${encodeURIComponent(id)}` : "review";
+    try {
+      window.history.pushState(null, "", `#${hash}`);
+    } catch {
+      window.location.hash = hash;
+    }
+    draw();
+  }
   function setSection(value: Section) {
     section = value;
+    selectedReviewId = undefined;
     // srcdoc inherits the OS URL; never let native anchors navigate its frame.
     try {
       window.history.replaceState(null, "", `#${value}`);
@@ -60,9 +91,11 @@ export function mountDashboard(
   }
   function onHash() {
     section = sectionFromHash();
+    selectedReviewId = reviewFromHash();
     draw();
   }
   window.addEventListener("hashchange", onHash);
+  window.addEventListener("popstate", onHash);
   function draw() {
     if (disposed) return;
     flushSync(() =>
@@ -71,6 +104,16 @@ export function mountDashboard(
           view: { ...view },
           actions: {
             section,
+            reviewId: selectedReviewId,
+            openReview,
+            getReview: options.transport.getReview
+              ? (id: string) => options.transport.getReview!(view.project, id)
+              : undefined,
+            getDiff: options.transport.getDiff
+              ? (id: string, path: string) => options.transport.getDiff!(view.project, id, path)
+              : undefined,
+            returnReview:
+              options.owner !== false && options.transport.returnReview ? returnReview : undefined,
             setSection,
             selectProject,
             retry: refresh,
@@ -230,6 +273,38 @@ export function mountDashboard(
     return true;
   }
 
+  async function returnReview(id: string, reason: string) {
+    if (options.owner === false || view.busy || !view.state || !options.transport.returnReview)
+      return false;
+    const review = view.state.reviews.find((r) => r.id === id);
+    const fork = view.state.forks.find((f) => f.repoName === review?.repoName);
+    if (
+      !review ||
+      reviewState(review, view.state).kind !== "current" ||
+      review.status === "stale" ||
+      review.status === "promoted" ||
+      fork?.head !== review.sha ||
+      reason.length < 1 ||
+      reason.length > 2000
+    )
+      return false;
+    view.busy = true;
+    view.notice = undefined;
+    draw();
+    try {
+      await options.transport.returnReview(view.project, id, reason);
+    } catch (error) {
+      // Refresh reads only: an uncertain write is never retried. Dialog owns its error.
+      await load();
+      throw error;
+    }
+    await load();
+    view.notice = `Returned to ${review.agent}`;
+    view.noticeSha = undefined;
+    draw();
+    return true;
+  }
+
   async function setSettings(requireReceipt: boolean) {
     if (options.owner === false || view.busy || !options.transport.setSettings || !view.state)
       return;
@@ -266,6 +341,7 @@ export function mountDashboard(
       unsubscribe?.();
       stopLive?.();
       window.removeEventListener("hashchange", onHash);
+      window.removeEventListener("popstate", onHash);
       flushSync(() => react.unmount());
     },
   };

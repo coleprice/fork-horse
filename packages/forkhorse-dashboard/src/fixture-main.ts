@@ -1,3 +1,4 @@
+import { reviewScenarios } from "../test/review-fixtures.ts";
 import { applyAppTheme, followSystemTheme } from "./theme.ts";
 import { mountDashboard } from "./dashboard.ts";
 import { createHttpTransport } from "./transport.ts";
@@ -10,6 +11,11 @@ document.title = `${__DASHBOARD_BRAND__.name} · Fixture projects`;
 let paused = new URL(location.href).searchParams.get("scenario") === "paused";
 const statusListeners = new Set<(paused: boolean) => void>();
 const fixtureTransport = createHttpTransport({ origin: location.origin });
+// Labeled fixture for capability hosts that support queue/receipts but not detail reads.
+if (new URL(location.href).searchParams.get("host") === "queue-only") {
+  delete fixtureTransport.getReview;
+  delete fixtureTransport.getDiff;
+}
 fixtureTransport.live = {
   subscribe(listener) {
     statusListeners.add(listener);
@@ -35,6 +41,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
     ...[
+      ...reviewScenarios,
       "large",
       "first",
       "partial",
@@ -86,4 +93,9 @@ accent.addEventListener("click", () => {
   applyAppTheme({ mode: "light", accentColor: themeFixture.accent });
 });
 controls.append(accent);
+// Capture controls can be hidden through the fixture UI so they never cover evidence.
+const hide = document.createElement("button");
+hide.textContent = "Hide fixture controls";
+hide.addEventListener("click", () => controls.remove());
+controls.append(hide);
 document.body.append(controls);

@@ -30,14 +30,21 @@ import {
   recentReceipts,
   receiptGateCaption,
   reviewGate,
+  reviewState,
   reviewQueue,
   type ViewModel,
 } from "./model.ts";
-import type { Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
+import { ReviewView } from "./review.tsx";
+import type { ReviewDetail, ReviewDiff, Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
 import { relativeTime as relative } from "./time.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
 export interface ViewActions {
+  reviewId?: string;
+  openReview(id?: string): void;
+  getReview?(id: string): Promise<ReviewDetail>;
+  getDiff?(id: string, path: string): Promise<ReviewDiff>;
+  returnReview?(id: string, reason: string): Promise<boolean>;
   section: Section;
   setSection(section: Section): void;
   owner: boolean;
@@ -127,8 +134,10 @@ export function packetStatus(id: string, state: ProjectState): { label: string; 
     return { label: "Blocked", tone: "warning" };
   const reviews = state.reviews.filter((r) => r.packet === id);
   if (reviews.some((r) => r.status === "promoted")) return { label: "Promoted", tone: "success" };
-  if (reviews.some((r) => r.status === "approved")) return { label: "Approved", tone: "success" };
-  if (reviews.some((r) => r.status === "stale")) return { label: "Fork moved", tone: "warning" };
+  if (reviews.some((r) => r.status === "approved" && reviewState(r, state).kind === "current"))
+    return { label: "Approved", tone: "success" };
+  const outdated = reviews.map((r) => reviewState(r, state)).find((cause) => cause.banner);
+  if (outdated) return { label: outdated.label, tone: "warning" };
   if (reviews.some((r) => r.status === "pending")) return { label: "In review", tone: "info" };
   if (state.claims.some((c) => c.packet === id && c.active))
     return { label: "In progress", tone: "brand" };
@@ -182,7 +191,7 @@ function Notice({ message, sha }: { message?: string; sha?: string }) {
   }, [message, sha, toasts]);
   return null;
 }
-function ReviewActions({
+export function ReviewActions({
   review,
   view,
   actions,
@@ -389,7 +398,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const blockers = state?.blockers.filter((b) => !b.resolved) ?? [];
   const reviews = state ? reviewQueue(state) : [];
   const reviewCount = reviews.filter(
-    (r) => r.status === "pending" || r.status === "approved",
+    (r) => !r.returned && (r.status === "pending" || r.status === "approved"),
   ).length;
   const history = state ? recentReceipts(state) : [];
   const lastPromotion = state?.ledger.at(-1);
@@ -696,7 +705,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   size="sm"
                   className="fixture-banner"
                   title="FIXTURE · OFFLINE"
-                  description="Local synthetic snapshots only. No live deployment or account connection."
+                  description="Local synthetic snapshots only. No account connection."
                 />
               )}
               {(view.busy || askError) && (
@@ -949,7 +958,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   )}
                   {section(
                     "review",
-                    <>
+                    actions.reviewId && actions.getReview ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={actions} openReceipt={showReceipt} /> : <>
                       <section id="reviews">
                         <h2>Review queue</h2>
                         {reviews.length ? (
@@ -967,23 +976,21 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           >
                             {reviews.map((r) => {
                               const gate = reviewGate(r, state);
-                              const stale =
-                                r.status === "stale" ||
-                                state.forks.find((f) => f.repoName === r.repoName)?.head !== r.sha;
+                              const cause = reviewState(r, state);
+                              const stale = !!cause.banner;
                               return (
-                                <Table.Row key={r.id} className="review-card">
+                                <Table.Row key={r.id} className="review-card" onClick={actions.getReview ? (event) => {
+                                  if (!(event.target as HTMLElement).closest("button, a")) actions.openReview(r.id);
+                                } : undefined}>
                                   <Table.Cell>
-                                    <button
+                                    {actions.getReview ? <button
                                       className="claim-link"
                                       onClick={() => {
-                                        setReceiptPanel(false);
-                                        setReviewId(r.id);
-                                        setPacketId(undefined);
-                                        toggle(true);
+                                        actions.openReview(r.id);
                                       }}
                                     >
                                       {r.packet}
-                                    </button>
+                                    </button> : <span>{r.packet}</span>}
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Tooltip
@@ -999,19 +1006,10 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell>{short(r.sha)}</Table.Cell>
                                   <Table.Cell>
                                     <Status
-                                      label={
-                                        stale
-                                          ? "Fork moved"
-                                          : r.status === "approved"
-                                            ? "Approved"
-                                            : "In review"
-                                      }
+                                      label={cause.label}
                                       tone={
-                                        stale
-                                          ? "warning"
-                                          : r.status === "approved"
-                                            ? "success"
-                                            : "info"
+                                        cause.kind === "returned" ? "danger" : stale ? "warning"
+                                          : r.status === "approved" ? "success" : "info"
                                       }
                                     />
                                     <div className="caption muted folded">
@@ -1024,12 +1022,13 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                         <div>Requested {relative(r.requestedAt)}</div>
                                       )}
                                     </div>
+                                    {r.returned && <p className="caption muted returned-preview">{r.returned.reason.split(/\r?\n/)[0]}</p>}
                                     {stale && (
                                       <div className="caption muted state-reason">
-                                        The agent must request review again.
+                                        {cause.caption}
                                       </div>
                                     )}
-                                    {!stale &&
+                                    {!stale && !r.returned &&
                                       (receiptGateCaption(
                                         r,
                                         state.project.settings?.requireReceipt === true,

@@ -1,3 +1,4 @@
+import { ReviewReader } from "./review-detail";
 import { publicReview, readReceipt, settings } from "./receipts";
 import type { Receipts } from "./receipts";
 import { publicEvents } from "./subscriptions";
@@ -296,6 +297,7 @@ export class Workflow {
         approval: null,
         stale: false,
         promoted: false,
+        returned: null,
         createdAt: now(),
       };
       if (!this.receipts) throw new Error("Receipt integration required");
@@ -303,11 +305,58 @@ export class Workflow {
       this.receipts.start(run, !settings(project).requireReceipt);
       return json({ review: publicReview(review) }, 201);
     }
+    const detail = /^\/reviews\/([^/]+)(\/diff)?$/.exec(path);
+    if (detail && method === "GET") {
+      const review = await this.storage.get<Review>(`review:${detail[1]}`);
+      if (!review) throw new HttpError(404, "Review not found.");
+      if (!actor.owner && actor.agent !== review.agent)
+        throw new HttpError(403, "Review belongs to another agent.");
+      using repo = await this.env.ARTIFACTS.get(review.repoName);
+      const reader = new ReviewReader(repo);
+      const changes = await reader.changes(review.base, review.sha);
+      if (detail[2]) return json(await reader.diff(new URL(request.url).searchParams.get("path") ?? "", changes));
+      const packet = await this.storage.get<Packet>(`packet:${review.packet}`);
+      if (!packet) throw new HttpError(404, "Packet not found.");
+      // Historical stores can grow indefinitely; fail closed instead of scanning without a budget.
+      const ledgerEntries = await this.storage.list<LedgerEntry>({ prefix: "ledger:", limit: 2049 });
+      const blockerEntries = await this.storage.list<Blocker>({ prefix: "blocker:", limit: 2049 });
+      if (ledgerEntries.size > 2048 || blockerEntries.size > 2048)
+        throw new HttpError(413, "Review exceeds the bounded read limit.");
+      const ledger = [...ledgerEntries.values()].find(entry => entry.review === review.id);
+      return json({ review: publicReview(review),
+        packet: { id: packet.id, title: packet.title, goal: packet.goal, paths: packet.paths, acceptance: packet.acceptance },
+        changes: changes.public, ...await reader.history(review.base, review.sha),
+        promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest } : null,
+        blockers: [...blockerEntries.values()].filter(blocker => blocker.packet === review.packet),
+      });
+    }
+    const returning = /^\/reviews\/([^/]+)\/return$/.exec(path);
+    if (returning && method === "POST") {
+      this.owner(actor);
+      const data = await body(request);
+      if (!text(data.reason, 2000)) throw new HttpError(400, "reason must be 1 to 2000 characters.");
+      const reason = data.reason;
+      const returned = await this.storage.transaction(async txn => {
+        const review = await txn.get<Review>(`review:${returning[1]}`);
+        if (!review) throw new HttpError(404, "Review not found.");
+        if (review.promoted) throw new HttpError(409, "Review was already promoted.");
+        if (await txn.get("promotionPending")) throw new HttpError(409, "Promotion needs owner inspection.");
+        review.returned = { reason, at: now() };
+        review.approval = null;
+        await txn.put({
+          [`review:${review.id}`]: review,
+          [`reviewReturn:${crypto.randomUUID()}`]: { review: review.id, packet: review.packet, agent: review.agent, returnedBy: "owner", ...review.returned },
+        });
+        return review;
+      });
+      return json({ review: publicReview(returned) });
+    }
     const reviewing = /^\/reviews\/([^/]+)\/(approve|promote)$/.exec(path);
     if (reviewing && method === "POST") {
       this.owner(actor);
       const review = await this.storage.get<Review>(`review:${reviewing[1]}`);
       if (!review) throw new HttpError(404, "Review not found.");
+      if (review.returned) throw new HttpError(409, "Review was returned to the agent.");
       if (await this.storage.get("promotionPending"))
         throw new HttpError(409, "Promotion needs owner inspection.");
       if (review.promoted) throw staleBase();
@@ -328,6 +377,7 @@ export class Workflow {
         }
         const approved = await this.storage.transaction(async txn => {
           const current = await txn.get<Review>(`review:${review.id}`);
+          if (current?.returned) throw new HttpError(409, "Review was returned to the agent.");
           if (!current || current.stale || current.promoted || current.sha !== review.sha)
             throw new HttpError(409, "Approval is stale; request review again.");
           if (requireReceipt && (current.receiptGeneration !== review.receiptGeneration || current.receiptDigest !== review.receiptDigest))
@@ -353,6 +403,7 @@ export class Workflow {
         const run = await this.receipts.reserve(project, review, fork, "before-promote");
         const result = await this.receipts.run(run);
         const current = await this.storage.get<Review>(`review:${review.id}`);
+        if (current?.returned) throw new HttpError(409, "Review was returned to the agent.");
         if (!current || current.stale || current.promoted || current.sha !== run.commit ||
             current.receiptGeneration !== run.generation || current.receipt?.trigger !== "before-promote")
           throw new HttpError(409, "Approval is stale; request review again.");
@@ -380,6 +431,7 @@ export class Workflow {
       if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
         throw staleBase();
       const checked = await this.storage.get<Review>(`review:${review.id}`);
+      if (checked?.returned) throw new HttpError(409, "Review was returned to the agent.");
       if (!checked || checked.stale || checked.promoted || checked.sha !== review.sha)
         throw new HttpError(409, "Approval is stale; request review again.");
       if (requireReceipt && (checked.receiptGeneration !== checkedGeneration || checked.receiptDigest !== review.receiptDigest ||
@@ -517,6 +569,7 @@ export async function recordWorkflowPush(
   project: Project,
   event: PushEvent,
   entry: Activity,
+  forkHead?: string,
 ): Promise<void> {
   if (entry.agent) {
     for (const claim of (await txn.list<Claim>({ prefix: "claim:" })).values()) {
@@ -538,8 +591,10 @@ export async function recordWorkflowPush(
       }
     }
     if (entry.ref === `refs/heads/${project.defaultBranch}`) {
+      // Queue events can arrive after a newer review; prefer the fresh fork head.
+      const head = forkHead ?? entry.after;
       for (const review of (await txn.list<Review>({ prefix: "review:" })).values()) {
-        if (review.repoName === entry.repoName && !review.promoted && review.sha !== entry.after)
+        if (review.repoName === entry.repoName && !review.promoted && review.sha !== head)
           await txn.put(`review:${review.id}`, { ...review, stale: true });
       }
     }

@@ -1,9 +1,11 @@
 import { publicEvents } from "./subscriptions";
 import { body, HttpError, json } from "./http";
 import { branchHead } from "./artifacts";
+import { resumeWork } from "./resume-work";
+import { settings } from "./receipts";
 import type { Env, Project } from "./types";
 import type { Actor } from "./workflow";
-import type { Fork } from "./workflow-types";
+import type { Fork, WorkItem } from "./workflow-types";
 
 export interface TokenAudit {
   action: "issued" | "revoked";
@@ -53,6 +55,7 @@ export class CallerCredentials {
       const registered = await this.storage.list<string | null>({ prefix: "repo:" });
       const records = await this.storage.list<Fork>({ prefix: "fork:" });
       const forks = [];
+      const heads = new Map<string, string>();
       for (const [key, fork] of records) {
         const owner = registered.get(`repo:${fork.repoName}`);
         if (
@@ -65,6 +68,7 @@ export class CallerCredentials {
           continue;
         using repo = await this.env.ARTIFACTS.get(fork.repoName);
         const head = await branchHead(repo, project.defaultBranch);
+        heads.set(fork.repoName, head);
         forks.push({
           ...await publicEvents(this.storage, fork.repoName),
           repoName: fork.repoName,
@@ -73,11 +77,26 @@ export class CallerCredentials {
           createdAt: fork.createdAt,
         });
       }
+      let work: WorkItem[] = [];
+      if (!actor.owner && actor.agent) {
+        using repo = await this.env.ARTIFACTS.get(project.repoName);
+        work = await resumeWork(
+          this.storage,
+          actor.agent,
+          heads,
+          await branchHead(repo, project.defaultBranch),
+          settings(project).requireReceipt,
+        );
+      }
       return json({
-        project: { repoName: project.repoName, ...await publicEvents(this.storage, project.repoName) },
+        project: {
+          repoName: project.repoName,
+          ...(await publicEvents(this.storage, project.repoName)),
+        },
         role: actor.owner ? "owner" : "agent",
         ...(!actor.owner && { agent: actor.agent }),
         forks,
+        work,
       });
     }
     const issuing = /^\/forks\/([^/]+)\/token$/.exec(path);
