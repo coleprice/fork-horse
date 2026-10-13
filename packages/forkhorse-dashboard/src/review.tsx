@@ -3,7 +3,7 @@ import { Badge, Banner, Button, ClipboardText, Dialog, Tooltip, Textarea } from 
 import { ArrowUUpLeft, Copy, Warning } from "@phosphor-icons/react";
 import type { Review, ReviewDetail, ReviewDiff } from "./contracts.ts";
 import { blockerView, blockerGatesReview, reviewState, reviewView, type ViewModel } from "./model.ts";
-import { type ViewActions, ReviewActions, Paths } from "./view.tsx";
+import { type ViewActions, ReviewActions } from "./view.tsx";
 import { CollisionBanner, CollisionRows } from "./collisions.tsx";
 import { ApiError } from "./transport.ts";
 import { checkCount, duration, ReceiptBadge } from "./receipts.tsx";
