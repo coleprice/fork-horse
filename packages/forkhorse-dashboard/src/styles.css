@@ -806,6 +806,12 @@ footer {
   gap: 4px;
   margin: 8px 0 12px;
 }
+.fork-window-chip[aria-pressed="true"] {
+  background: var(--color-kumo-tint);
+  color: var(--text-color-kumo-strong);
+  box-shadow: inset 0 0 0 1px var(--color-kumo-ring);
+  font-weight: 600;
+}
 .fork-picture {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
@@ -851,8 +857,14 @@ footer {
   display: block;
   color: var(--text-color-kumo-subtle);
 }
-.fork-state-success {
+.fork-state-success > span {
   color: var(--text-color-kumo-success);
+}
+.fork-state-info > span {
+  color: var(--text-color-kumo-info);
+}
+.fork-state-brand > span {
+  color: var(--text-color-kumo-brand);
 }
 .fork-race-label {
   position: absolute;
@@ -924,13 +936,18 @@ footer {
   padding: 0 3px;
   white-space: nowrap;
 }
-.fork-stub,
-.fork-earlier {
+.fork-history {
   position: absolute;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   max-width: calc(100% - 12px);
   background: var(--color-kumo-base);
   padding-right: 4px;
   white-space: nowrap;
+}
+.fork-stub {
+  color: inherit;
 }
 .fork-earlier {
   font-size: 10px;

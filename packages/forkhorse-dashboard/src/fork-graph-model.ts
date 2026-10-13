@@ -32,6 +32,23 @@ export const timestamp = (value?: string | null) => {
 };
 export const clockTime = (at: number) =>
   new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+/** Put the collision beside its pushing lane; unrelated lanes interrupt the connector. */
+export function collisionLink(pushingY: number, claimingY: number, laneYs: number[]) {
+  const top = Math.min(pushingY, claimingY);
+  const bottom = Math.max(pushingY, claimingY);
+  const crossings = laneYs.filter((y) => y > top && y < bottom).toSorted((a, b) => a - b);
+  const direction = Math.sign(claimingY - pushingY);
+  const nextY = direction > 0 ? (crossings[0] ?? claimingY) : (crossings.at(-1) ?? claimingY);
+  const ringY = pushingY + direction * Math.min(32, Math.abs(nextY - pushingY) / 2);
+  const segments: { top: number; height: number }[] = [];
+  let start = top;
+  for (const crossing of crossings) {
+    if (crossing - 8 > start) segments.push({ top: start, height: crossing - 8 - start });
+    start = crossing + 8;
+  }
+  if (bottom > start) segments.push({ top: start, height: bottom - start });
+  return { ringY, segments };
+}
 const HOUR = 3600000;
 const eventLabels: Record<LaneMarkKind, string> = {
   claim: "claimed",

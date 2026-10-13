@@ -4,6 +4,7 @@ import type { ProjectState } from "./contracts.ts";
 import { LaneLine, LaneMarker, Saddlecloth, silkStyle } from "./lane.tsx";
 import {
   clockTime,
+  collisionLink,
   foldMarks,
   forkGraph,
   timestamp,
@@ -131,6 +132,7 @@ export function ForkGraph({
       <div className="fork-chips" aria-label="Fork graph time window">
         {(
           [
+            ["recent", "Recent"],
             ["four", "Last 4 h"],
             ["today", "Today"],
             ["day", "24 h"],
@@ -139,6 +141,7 @@ export function ForkGraph({
           <Button
             key={value}
             size="sm"
+            className="fork-window-chip"
             variant={choice === value ? "secondary" : "ghost"}
             aria-pressed={choice === value}
             onClick={() => setChoice(value)}
@@ -174,7 +177,15 @@ export function ForkGraph({
                   <strong>{lane.agent}</strong>
                   <code className="caption">{lane.packet}</code>
                   <span
-                    className={`fork-state caption ${lane.state === "Promoted to main" ? "fork-state-success" : ""}`}
+                    className={`fork-state caption ${
+                      lane.state === "Promoted to main" || lane.state === "Approved"
+                        ? "fork-state-success"
+                        : lane.state === "Checks running"
+                          ? "fork-state-info"
+                          : lane.state === "Racing"
+                            ? "fork-state-brand"
+                            : ""
+                    }`}
                   >
                     <span aria-hidden="true">●</span> {lane.state}
                   </span>
@@ -294,23 +305,31 @@ export function ForkGraph({
           })}
           {layout.map(({ lane, y }) => (
             <div key={lane.id}>
-              {(lane.claimedAt === undefined || lane.claimedAt < graph.start) && (
+              {(lane.claimedAt === undefined ||
+                lane.claimedAt < graph.start ||
+                lane.earlierPushes) && (
                 <span
-                  className="fork-stub caption muted"
+                  className="fork-history caption muted"
                   style={{ left: `${percent(lane.start ?? graph.start)}%`, top: y + 10 }}
                 >
-                  ‹
-                  {lane.claimedAt !== undefined
-                    ? ` since ${clockTime(lane.claimedAt)}`
-                    : " open start"}
-                </span>
-              )}
-              {lane.earlierPushes && (
-                <span
-                  className="fork-earlier caption muted"
-                  style={{ left: `${percent(lane.start ?? graph.start)}%`, top: y + 27 }}
-                >
-                  Earlier pushes not shown
+                  {lane.claimedAt === undefined ? (
+                    <Tooltip
+                      content="Started before the loaded history"
+                      render={
+                        <button
+                          className="fork-stub"
+                          aria-label="Started before the loaded history"
+                        />
+                      }
+                    >
+                      ‹
+                    </Tooltip>
+                  ) : lane.claimedAt < graph.start ? (
+                    <span className="fork-stub">‹ since {clockTime(lane.claimedAt)}</span>
+                  ) : null}
+                  {lane.earlierPushes && (
+                    <span className="fork-earlier">Earlier pushes not shown</span>
+                  )}
                 </span>
               )}
               {foldMarks(
@@ -356,33 +375,40 @@ export function ForkGraph({
               ({ lane }) => lane.agent === blocker.claimingAgent && lane.packet === blocker.packet,
             );
             if (!pushing || !claiming || pushing === claiming) return null;
-            const top = Math.min(pushing.y, claiming.y),
-              bottom = Math.max(pushing.y, claiming.y),
-              mid = (top + bottom) / 2;
+            const { ringY, segments } = collisionLink(
+              pushing.y,
+              claiming.y,
+              layout.map(({ y }) => y),
+            );
             const caption = `collision · ${blocker.resolved ? "resolved" : "open"}`;
             const text = `${clockTime(at)} ${caption}: ${blocker.pushingAgent} with ${blocker.claimingAgent}`;
             const freeRight = innerWidth - (x(at) - 12) > 150;
             const freeLeft = x(at) - 12 > 150;
             const nearMark = layout.some(
               ({ lane, y }) =>
-                Math.abs(y - mid) < 22 && lane.events.some((e) => Math.abs(x(e.at) - x(at)) < 150),
+                Math.abs(y - ringY) < 22 &&
+                lane.events.some((e) => Math.abs(x(e.at) - x(at)) < 150),
             );
-            const showCaption = (freeRight || freeLeft) && !nearMark && bottom - top === 64;
+            const showCaption =
+              (freeRight || freeLeft) && !nearMark && Math.abs(claiming.y - pushing.y) === 64;
             return (
               <div
                 key={blocker.id}
                 className={`fork-collision ${blocker.resolved ? "resolved" : ""}`}
               >
-                <span
-                  className="fork-collision-line"
-                  style={{ left: `${percent(at)}%`, top, height: bottom - top }}
-                />
+                {segments.map(({ top, height: segmentHeight }) => (
+                  <span
+                    key={top}
+                    className="fork-collision-line"
+                    style={{ left: `${percent(at)}%`, top, height: segmentHeight }}
+                  />
+                ))}
                 <Tooltip
                   content={text}
                   render={
                     <button
                       className="fork-collision-ring fork-mark-button"
-                      style={{ left: `${percent(at)}%`, top: mid }}
+                      style={{ left: `${percent(at)}%`, top: ringY }}
                       aria-label={text}
                     />
                   }
@@ -392,7 +418,7 @@ export function ForkGraph({
                 {showCaption && (
                   <span
                     className={`fork-collision-caption caption ${freeRight ? "right" : "left"}`}
-                    style={{ left: `${percent(at)}%`, top: mid - 8 }}
+                    style={{ left: `${percent(at)}%`, top: ringY - 8 }}
                   >
                     {caption}
                   </span>

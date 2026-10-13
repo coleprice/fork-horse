@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { createRoot } from "react-dom/client";
 import { createElement, act } from "react";
 import { TooltipProvider } from "@cloudflare/kumo";
-import { forkGraph, foldMarks } from "../src/fork-graph-model.ts";
+import { forkGraph, foldMarks, collisionLink } from "../src/fork-graph-model.ts";
 import { agentIdentities, saddlecloth } from "../src/lane.tsx";
 import { ForkGraph } from "../src/fork-graph.tsx";
 import { stateView } from "../src/model.ts";
@@ -85,6 +85,29 @@ test("folding at measured width preserves every event and prioritizes checks ove
   assert.ok(cluster.events.some((e) => e.kind === "approved"));
   assert.equal(folded.flatMap((g) => g.events).length, lane.events.length);
 });
+test("collision rings sit beside the pushing lane and links break around unrelated lanes", () => {
+  assert.deepEqual(collisionLink(80, 208, [80, 144, 208]), {
+    ringY: 112,
+    segments: [
+      { top: 80, height: 56 },
+      { top: 152, height: 56 },
+    ],
+  });
+  assert.deepEqual(collisionLink(208, 80, [80, 144, 208]), {
+    ringY: 176,
+    segments: [
+      { top: 80, height: 56 },
+      { top: 152, height: 56 },
+    ],
+  });
+  assert.deepEqual(collisionLink(80, 144, [80, 144]), {
+    ringY: 112,
+    segments: [{ top: 80, height: 64 }],
+  });
+  const grouped = collisionLink(80, 238, [80, 174, 238]);
+  assert.equal(grouped.ringY, 112);
+  assert.ok(grouped.segments.every((s) => s.top + s.height <= 166 || s.top >= 182));
+});
 test("fixture DOM leaves closed table in accessibility tree, supports navigation and storage denial", async () => {
   const { JSDOM } = createRequire(import.meta.url)("jsdom");
   const dom = new JSDOM("<div id='root'></div>", { url: "https://fixture.idiot.tax" });
@@ -117,6 +140,30 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
       ),
     ),
   );
+  const unknownStart = document.querySelector<HTMLButtonElement>("button.fork-stub")!;
+  assert.equal(unknownStart.textContent, "‹");
+  assert.equal(unknownStart.getAttribute("aria-label"), "Started before the loaded history");
+  for (const [word, tone] of [
+    ["Approved", "success"],
+    ["Checks running", "info"],
+    ["Racing", "brand"],
+  ]) {
+    const labels = [...document.querySelectorAll(".fork-state")].filter((el) =>
+      el.textContent!.includes(word),
+    );
+    assert.ok(labels.length);
+    assert.ok(labels.every((el) => el.classList.contains(`fork-state-${tone}`)));
+  }
+  const chips = [...document.querySelectorAll<HTMLButtonElement>(".fork-window-chip")];
+  assert.deepEqual(
+    chips.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent),
+    ["Recent"],
+  );
+  await act(async () => chips.find((b) => b.textContent === "Last 4 h")!.click());
+  assert.deepEqual(
+    chips.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent),
+    ["Last 4 h"],
+  );
   const image = document.querySelector('[role="img"]')!;
   const table = document.getElementById(image.getAttribute("aria-describedby")!)!;
   assert.match(
@@ -138,6 +185,33 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
   assert.equal(opened[0], "fixture-01");
   assert.match(table.textContent!, /checks failed/);
   assert.match(table.textContent!, /checks passed/);
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ForkGraph, {
+          state: fixture("fork-old"),
+          owner: false,
+          openReview: () => {},
+          openPacket: () => {},
+          openReceipt: () => {},
+          now,
+        }),
+      ),
+    ),
+  );
+  const oldHistory = [...document.querySelectorAll(".fork-history")].filter((el) =>
+    el.textContent!.includes("since"),
+  );
+  assert.ok(oldHistory.length);
+  for (const history of oldHistory) {
+    assert.match(history.querySelector(".fork-stub")!.textContent!, /^‹ since \d{2}:\d{2}$/);
+    assert.equal(
+      history.querySelector(".fork-stub")!.nextElementSibling!.textContent,
+      "Earlier pushes not shown",
+    );
+  }
   await act(async () => root.unmount());
   dom.window.close();
 });
