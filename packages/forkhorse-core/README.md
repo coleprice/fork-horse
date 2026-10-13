@@ -502,7 +502,7 @@ CAS and advisory-mode semantics are unchanged. See [receipts](../../docs/receipt
 The workerd suite exercises real local Dynamic Workers with fixture repositories
 and mocked containers. Deployed latency and no-container live smoke remain open.
 
-### Race packets (FH-052)
+### Race packets (FH-052 / FH-053)
 
 An owner may set `mode: "race"` on `POST /projects/:id/packets`. Omission and
 legacy records read as `"standard"`; a packet's mode cannot change. Standard
@@ -529,10 +529,37 @@ record the first push; queue events predating the claim do not. Receipt mileston
 require an attached passing receipt for the matching entrant/review generation.
 Caller `/me.work` includes open race entries with the existing `next` rules.
 
-FH-052 records `promotedAt` on a successful race promotion, leaving the entrant
-open. Race finish, closure, placings, winner and ledger entry ID belong to FH-053;
-until that integration `/state.races` reports `status: "open"` and null finish
-metadata. This package's fixture tests are offline workerd evidence only.
+The first approved review whose canonical Git compare-and-swap succeeds wins.
+The ledger transaction records the winner's `promotedAt` and place 1, releases
+all still-open entrants, stales their outstanding reviews, and stores
+`race:<packet>` as `{winner, places, finishedAt, ledgerEntryId}`. `winner` is the
+agent name; `places` is an ordered array of `{agent, place}`. `ledgerEntryId`
+is the string `ledger[].id`, and that ledger entry's `race` is the packet ID.
+`/state.races[]` exposes this result (`places: []` and null finish metadata while
+open), keeping its entrants in claim order with individual `place` values.
+
+Remaining places rank entrants still running before those that left earlier,
+then by the furthest milestone: Claimed → First push → Review requested → Checks
+passed → Approved → Promoted. Ties use the earliest time at that milestone,
+then agent name for identical timestamps. Entries closed at the finish get
+`closedBy: "race-finished"`; prior withdrawals retain their `release`/`owner`
+reason and original closing time. The winner retains a `releasedBy: "promote"`
+audit for its exact review, allowing an already-running advisory receipt to
+attach without changing final placings. Other open entrants use the existing
+release mechanism with `releasedBy: "race-finished"`; their affected blockers
+resolve with `by: "race-finished"`. Other packets' bindings remain untouched.
+Finished races refuse new or repeated entrant claims with `409 "Race finished."`.
+
+A race promote refused on a canonical-base mismatch, including a finished race,
+keeps the usual `409 {"error":"stale base, rebase"}`. A separate small transaction
+retains the entrant's first `promoteRejected: {at, expected, found}`; `expected`
+is that review's base and `found` is the canonical head read at refusal.
+`/state.races[].entrants[]` exposes the record, or null before any such refusal.
+Later requests do not overwrite it. A failure to persist this diagnostic is
+logged without changing the definite 409 response. Uncertain pushes or finish
+transaction failures retain `promotionPending` for inspection, with no partial
+ledger, finish, placement or release writes. These fixture tests are offline
+workerd evidence only; live race acceptance is separate.
 
 Agent enrollment, including OAuth's owner-authorized enrollment route, stores
 `createdAt`. Token rotation preserves it. `/state.agents` exposes only `name` and

@@ -1,4 +1,4 @@
-import type { Claim, Packet, RaceEntrant, RaceState } from "./workflow-types";
+import type { Claim, Packet, RaceEntrant, RaceResult, RaceState, Review } from "./workflow-types";
 
 export type { RaceEntrant } from "./workflow-types";
 
@@ -44,13 +44,54 @@ export async function markEntrant(
     await storage.put(key, { ...entrant, [milestone]: at });
 }
 
-/** FH-053 owns the finish record; absent finish metadata stays explicitly null. */
+const milestones = ["createdAt", "firstPushAt", "reviewRequestedAt", "receiptPassedAt", "approvedAt", "promotedAt"] as const;
+function progress(entrant: RaceEntrant): { rank: number; at: string } {
+  for (let rank = milestones.length - 1; rank >= 0; rank--) {
+    const at = entrant[milestones[rank]!];
+    if (at !== null) return { rank, at };
+  }
+  throw new Error("Race entrant has no claim time");
+}
+
+/** Rank the finish snapshot before closing entrants; withdrawals always follow runners. */
+export function placedEntrants(records: RaceEntrant[], winner: string): RaceEntrant[] {
+  return records.toSorted((a, b) => {
+    if (a.agent === b.agent) return 0;
+    if (a.agent === winner) return -1;
+    if (b.agent === winner) return 1;
+    const closed = Number(a.closedAt !== null) - Number(b.closedAt !== null);
+    if (closed) return closed;
+    const left = progress(a), right = progress(b);
+    return right.rank - left.rank || Date.parse(left.at) - Date.parse(right.at) || a.agent.localeCompare(b.agent);
+  });
+}
+
+/** Separate from the refused promotion's transaction; never overwrites a first refusal. */
+export async function recordPromoteRejected(storage: DurableObjectStorage, review: Review, found: string): Promise<void> {
+  const at = new Date().toISOString();
+  await storage.transaction(async txn => {
+    const key = entrantKey(review.packet, review.agent);
+    const entrant = await txn.get<RaceEntrant>(key);
+    if (entrant && entrant.repoName === review.repoName && !entrant.promoteRejected)
+      await txn.put(key, { ...entrant, promoteRejected: { at, expected: review.base, found } });
+  });
+}
+
+/** Finish metadata and entrants are committed together by the successful promote. */
 export async function raceStates(storage: Storage, packets: Packet[]): Promise<RaceState[]> {
   const records = await entrants(storage);
-  return packets.filter(packet => packet.mode === "race").map(packet => ({
-    packet: packet.id, status: "open", finishedAt: null, winner: null, ledgerEntryId: null,
-    entrants: records.filter(entrant => entrant.packet === packet.id)
-      .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt) || a.agent.localeCompare(b.agent))
-      .map(({ packet: _packet, paths: _paths, createdAt, ...entrant }) => ({ ...entrant, claimedAt: createdAt })),
-  }));
+  const results = await storage.list<RaceResult>({ prefix: "race:" });
+  return packets.filter(packet => packet.mode === "race").map(packet => {
+    const result = results.get(`race:${packet.id}`);
+    return {
+      packet: packet.id, status: result ? "finished" : "open",
+      finishedAt: result?.finishedAt ?? null, winner: result?.winner ?? null,
+      ledgerEntryId: result?.ledgerEntryId ?? null, places: result?.places ?? [],
+      entrants: records.filter(entrant => entrant.packet === packet.id)
+        .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt) || a.agent.localeCompare(b.agent))
+        .map(({ packet: _packet, paths: _paths, createdAt, ...entrant }) => ({
+          ...entrant, claimedAt: createdAt, promoteRejected: entrant.promoteRejected ?? null,
+        })),
+    };
+  });
 }

@@ -260,9 +260,9 @@ describe("FH-052 race entrants", () => {
     expect(race.entrants[1]).toMatchObject({ firstPushAt: null, reviewRequestedAt: null, receiptPassedAt: null, approvedAt: null });
     expect((await api(f.id, `/reviews/${a.id}/promote`, OWNER, {})).status).toBe(200);
     const promoted = (await state(f.id)).races[0]!;
-    expect(promoted.entrants[0]).toMatchObject({ promotedAt: expect.any(String), closedAt: null, place: null });
+    expect(promoted.entrants[0]).toMatchObject({ promotedAt: expect.any(String), closedAt: expect.any(String), place: 1 });
     expect(promoted.entrants[1]!.promotedAt).toBeNull();
-    expect(promoted.status).toBe("open"); // FH-053 owns finish, closure and placings.
+    expect(promoted.status).toBe("finished"); // FH-053 closes the complete race.
     expect((await state(f.id)).ledger).toHaveLength(1);
   });
 
@@ -279,7 +279,7 @@ describe("FH-052 race entrants", () => {
     const winner = snapshot.reviews.find(r => r.promoted)!;
     expect(snapshot.ledger).toHaveLength(1);
     expect(snapshot.races[0]!.entrants.filter(e => e.promotedAt !== null).map(e => e.agent)).toEqual([winner.agent]);
-    expect(snapshot.races[0]!.entrants.every(e => e.closedAt === null && e.place === null)).toBe(true);
+    expect(snapshot.races[0]!.entrants.every(e => e.closedAt !== null && e.place !== null)).toBe(true);
   });
 
   it("uses caller-owned race entries for /me with the existing next-step rules", async () => {

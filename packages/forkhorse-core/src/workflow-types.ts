@@ -31,6 +31,15 @@ export interface RaceEntrant extends Claim {
   place: number | null;
   closedAt: string | null;
   closedBy: "release" | "owner" | "race-finished" | null;
+  /** Absent on older entrants; the first canonical-base refusal is retained. */
+  promoteRejected?: { at: string; expected: string; found: string } | null;
+}
+/** Immutable finish at race:<packet>; places name agents, never fork aliases. */
+export interface RaceResult {
+  winner: string;
+  places: { agent: string; place: number }[];
+  finishedAt: string;
+  ledgerEntryId: string;
 }
 export interface RaceState {
   packet: string;
@@ -38,6 +47,7 @@ export interface RaceState {
   finishedAt: string | null;
   winner: string | null;
   ledgerEntryId: string | null;
+  places: RaceResult["places"];
   entrants: (Omit<RaceEntrant, "packet" | "paths" | "createdAt"> & { claimedAt: string })[];
 }
 /** Durable release history. Claim identity and provenance only; no credentials. */
@@ -46,7 +56,7 @@ export interface ClaimReleaseAudit {
   agent: string;
   repoName: string;
   claimedAt: string;
-  releasedBy: "agent" | "owner" | "promote";
+  releasedBy: "agent" | "owner" | "promote" | "race-finished";
   review?: string;
   recordedAt: string;
 }
@@ -108,6 +118,8 @@ export interface LedgerEntry {
   after: string;
   receiptDigest: string | null;
   recordedAt: string;
+  /** Packet ID linking this promotion to race:<packet>; absent on standard entries. */
+  race?: string;
 }
 export interface Blocker {
   id: string;
@@ -119,7 +131,7 @@ export interface Blocker {
   paths: string[];
   at: string | null;
   pushingPacket: string | null;
-  resolved: null | { at: string; by: "release" | "promote" | "owner"; reason?: string };
+  resolved: null | { at: string; by: "release" | "promote" | "owner" | "race-finished"; reason?: string };
 }
 export interface ReconcilerAlert {
   id: string;
