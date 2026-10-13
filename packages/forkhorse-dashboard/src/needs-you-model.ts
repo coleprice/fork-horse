@@ -180,6 +180,9 @@ export function ownerNeeds(state: ProjectState, brand: Brand, now = Date.now()):
                 sha(review.sha),
                 ".",
                 ...(required ? [" Checks run again first."] : []),
+                ...(state.packets.find((packet) => packet.id === review.packet)?.mode === "race"
+                  ? [" First promote wins the race."]
+                  : []),
               ]
             : ["Approving lets you promote it to ", mono("main"), "."],
         target: { review: review.id },

@@ -10,9 +10,16 @@ export interface ProjectState {
   };
   canonicalHead?: string;
   recentActivity?: Activity[];
-  agents: { name: string }[];
+  agents: { name: string; createdAt?: string | null }[];
   forks: { agent: string; repoName: string; head: string; events?: "pending" | "active" }[];
-  packets: { id: string; title: string; goal: string; paths: string[]; acceptance: string[] }[];
+  packets: {
+    id: string;
+    title: string;
+    goal: string;
+    paths: string[];
+    acceptance: string[];
+    mode?: "standard" | "race";
+  }[];
   claims: {
     packet: string;
     agent: string;
@@ -33,8 +40,16 @@ export interface ProjectState {
     sha?: string;
     repoName?: string;
   }[];
+  races?: Race[];
   reviews: Review[];
-  ledger: { review: string; sha: string; promotedAt: string; receiptDigest?: string | null }[];
+  ledger: {
+    id?: string;
+    before?: string;
+    review: string;
+    sha: string;
+    promotedAt: string;
+    receiptDigest?: string | null;
+  }[];
   reconcilerAlerts: {
     sha: string;
     message: string;
@@ -154,7 +169,7 @@ export interface StateResponse {
     events?: "pending" | "active";
     settings?: { requireReceipt: boolean };
   };
-  agents: { name: string }[];
+  agents: { name: string; createdAt?: string | null }[];
   forks: {
     agent: string;
     repoName: string;
@@ -189,6 +204,7 @@ export interface StateResponse {
     promoted: boolean;
     createdAt: string;
   }[];
+  races?: Race[];
   ledger: LedgerEntry[];
   activity: Activity[];
   reconcilerAlerts: {
@@ -245,4 +261,29 @@ export interface ReviewDiff {
   binary: boolean;
   patch: string;
   truncated: boolean;
+}
+
+/** Optional FH-052/053 read projection; absent evidence is never synthesized. */
+export interface RaceEntrant {
+  agent: string;
+  repoName: string;
+  claimedAt: string;
+  firstPushAt: string | null;
+  reviewRequestedAt: string | null;
+  receiptPassedAt: string | null;
+  approvedAt: string | null;
+  promotedAt: string | null;
+  place: number | null;
+  closedAt: string | null;
+  closedBy?: "release" | "owner" | "race-finished" | null;
+  promoteRejected?: { at: string; expected: string; found: string } | null;
+}
+export interface Race {
+  packet: string;
+  status: "open" | "finished";
+  entrants: RaceEntrant[];
+  finishedAt?: string | null;
+  winner?: string | null;
+  /** Exact string reference to ledger[].id; never an array position. */
+  ledgerEntryId?: string | null;
 }

@@ -1,3 +1,4 @@
+import { raceScenarios } from "../test/race-fixtures.ts";
 import { needsScenarios } from "../test/needs-you-fixtures.ts";
 import { reviewScenarios } from "../test/review-fixtures.ts";
 import { applyAppTheme, followSystemTheme } from "./theme.ts";
@@ -42,6 +43,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
     ...[
+      ...raceScenarios,
       ...reviewScenarios,
       ...needsScenarios,
       "large",

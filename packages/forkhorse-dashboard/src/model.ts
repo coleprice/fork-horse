@@ -157,6 +157,7 @@ export function stateView(wire: StateResponse): ProjectState {
     project: wire.project,
     recentActivity: wire.activity,
     agents: wire.agents,
+    races: wire.races,
     forks: wire.forks,
     packets: wire.packets,
     claims: wire.claims.map((claim) => ({ ...claim, active: true })),
@@ -170,6 +171,8 @@ export function stateView(wire: StateResponse): ProjectState {
       reviewView(review, wire.project.settings?.requireReceipt),
     ),
     ledger: wire.ledger.map((entry) => ({
+      id: entry.id,
+      before: entry.before,
       review: entry.review,
       sha: entry.after,
       promotedAt: entry.recordedAt,

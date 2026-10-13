@@ -34,6 +34,7 @@ import {
   reviewQueue,
   type ViewModel,
 } from "./model.ts";
+import { RaceView } from "./race.tsx";
 import { ReviewView } from "./review.tsx";
 import { NeedsYou } from "./needs-you.tsx";
 import type { OwnerNeed } from "./needs-you-model.ts";
@@ -42,6 +43,8 @@ import { relativeTime as relative } from "./time.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
 export interface ViewActions {
+  raceId?: string;
+  openRace?(id?: string): void;
   reviewId?: string;
   openReview(id?: string): void;
   getReview?(id: string): Promise<ReviewDetail>;
@@ -132,6 +135,10 @@ export function PathDetails({
   );
 }
 export function packetStatus(id: string, state: ProjectState): { label: string; tone: Tone } {
+  const race = state.races?.find((entry) => entry.packet === id);
+  if (race?.status === "finished") return { label: "Promoted", tone: "success" };
+  if (race?.status === "open" && race.entrants.length > 0) return { label: "Racing", tone: "brand" };
+
   if (state.blockers.some((b) => b.packet === id && !b.resolved))
     return { label: "Blocked", tone: "warning" };
   const reviews = state.reviews.filter((r) => r.packet === id);
@@ -220,6 +227,8 @@ export function ReviewActions({
     review.receiptDigest === confirmation.digest &&
     view.state!.project.defaultBranch === confirmation.branch;
   const gate = reviewGate(review, view.state!);
+  const race = view.state!.races?.find((entry) => entry.packet === review.packet && entry.status === "open");
+  const otherEntrants = race?.entrants.filter((entrant) => entrant.repoName !== review.repoName && !entrant.closedAt).map((entrant) => entrant.agent) ?? [];
   const rechecking =
     required && review.receipt?.status === "running" && review.receipt.trigger === "before-promote";
   if (!actions.owner) return null;
@@ -325,6 +334,7 @@ export function ReviewActions({
               description="Review changed. Close and review again."
             />
           )}
+          {race && <p className="caption race-promote-warning">Promoting this finishes the race.{otherEntrants.length > 0 && <> {otherEntrants.join(" and ")} will be closed and placed.</>}</p>}
           <div className="dialog-actions">
             <Button disabled={promoting} onClick={() => setConfirmation(undefined)}>
               Cancel
@@ -418,6 +428,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     }
   }
   function showPacket(id: string) {
+    if (state?.packets.find((entry) => entry.id === id)?.mode === "race") {
+      setPacketId(undefined);
+      setReviewId(undefined);
+      actions.openRace?.(id);
+      return;
+    }
     setReceiptPanel(false);
     setPacketId(id);
     setReviewId(undefined);
@@ -615,7 +631,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     <>
       <Notice message={view.notice} sha={view.noticeSha} />
       <ReceiptAnnouncements project={view.project} reviews={state?.reviews ?? []} />
-      <div className={`app-shell ${panel ? "panel-open" : ""}`}>
+      <div className={`app-shell ${panel && !actions.raceId ? "panel-open" : ""} ${actions.raceId ? "race-shell" : ""}`}>
         <main className="main-pane">
           <div className="main-container">
             <header className="page-header">
@@ -639,6 +655,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   />
                 )}
                 {ask}
+                {!actions.raceId && (
                 <Tooltip
                   content={panel ? "Hide activity" : "Show activity"}
                   render={
@@ -656,6 +673,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                 >
                   <Pulse size={16} weight="bold" />
                 </Tooltip>
+                )}
               </div>
             </header>
             <div className="tab-gutter">
@@ -732,11 +750,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               )}
               {(view.busy || askError) && (
                 <div role="status" aria-live="polite">
-                  {view.busy && <p>Loading the latest project snapshot…</p>}
+                  {view.busy && !actions.raceId && <p>Loading the latest project snapshot…</p>}
                   {askError && <p>{askError}</p>}
                 </div>
               )}
-              {view.error && (
+              {view.error && !actions.raceId && (
                 <Banner
                   variant="error"
                   className="text-kumo-default"
@@ -752,7 +770,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   }
                 />
               )}
-              {!state ? (
+              {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={actions} /> : !state ? (
                 !view.busy &&
                 !view.error &&
                 empty(view.project ? "No snapshot loaded." : "Select a configured project.")
@@ -916,11 +934,15 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           >
                             {state.packets.map((p) => {
                               const live = claims.filter((c) => c.packet === p.id);
+                              const race = state.races?.find((entry) => entry.packet === p.id);
                               return (
                                 <Table.Row
                                   key={p.id}
+                                  data-packet-id={p.id}
                                   className={selected?.id === p.id ? "selected-row" : ""}
-                                  onClick={() => showPacket(p.id)}
+                                  onClick={(event) => {
+                                    if (!(event.target as HTMLElement).closest("button, a")) showPacket(p.id);
+                                  }}
                                 >
                                   <Table.Cell>
                                     <button
@@ -929,11 +951,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       onClick={() => showPacket(p.id)}
                                     >
                                       {p.title}
-                                    </button>
+                                    </button>{p.mode === "race" && <Badge variant="neutral">Race</Badge>}
                                     <div className="caption muted">{p.id}</div>
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Status {...packetStatus(p.id, state)} />
+                                    {race?.status === "finished" && race.winner && <div className="caption muted">Won by {race.winner}</div>}
                                     <div className="caption muted folded">
                                       {live
                                         .filter((c) => c.createdAt)
@@ -946,10 +969,10 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Tooltip
-                                      content={live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                      content={p.mode === "race" ? race?.entrants.map((entrant) => entrant.agent).join(", ") || "No entrants yet" : live.map((c) => c.agent).join(", ") || "Unclaimed"}
                                       render={<span className="truncated-name" />}
                                     >
-                                      {live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                      {p.mode === "race" ? (race?.entrants.length ? `${race.entrants.length} entrants` : "No entrants yet") : live.map((c) => c.agent).join(", ") || "Unclaimed"}
                                     </Tooltip>
                                     <div className="caption muted folded">
                                       {live.map((c) => (
@@ -1018,7 +1041,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       }}
                                     >
                                       {r.packet}
-                                    </button> : <span>{r.packet}</span>}
+                                    </button> : <span>{r.packet}</span>}{state.packets.find((p) => p.id === r.packet)?.mode === "race" && <Badge variant="neutral">Race</Badge>}
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Tooltip
@@ -1264,7 +1287,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
             </div>
           </div>
         </main>
-        {narrow ? (
+        {!actions.raceId && (narrow ? (
           <Dialog.Root open={panel} onOpenChange={toggle}>
             <Dialog
               className="activity-drawer"
@@ -1286,7 +1309,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               {panelContent}
             </aside>
           )
-        )}
+        ))}
       </div>
     </>
   );

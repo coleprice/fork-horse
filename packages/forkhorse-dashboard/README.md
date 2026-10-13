@@ -252,3 +252,25 @@ photo-finish loser), `review-main-moved-stale`, `review-out-of-date`, and stale 
 non-stale reconciler/pending-promotion variants. Open their detail at
 `#review/review-1` or queue at `#review`. These fixtures establish offline rendering
 only. Design PASS and independent code acceptance remain external handback gates.
+
+## Recorded races (FH-055)
+
+Race packets open a read-only full-width page at `#race/<packet>` in either host.
+The track is a semantic table and becomes stacked lanes below 640px. It shows only
+recorded milestones in claim order: Claimed, First push, Review requested, Checks
+passed, Approved, Promoted. The shared race clock starts at the earliest claim;
+there is no running timer or estimated progress. Results use core's recorded places.
+
+The optional FH-052/053 projection carries `races`, agent enrollment `createdAt`,
+and `ledgerEntryId` (the exact string `ledger[].id`). Legacy agents are numbered
+alphabetically first, then enrolled agents by `createdAt`; response order never
+assigns identity. The reviewed `race-silk-*`, `race-cloth-ink`, and
+`race-hurdle-ink` values live in `src/host-tokens.json`, with identity always carried
+by the number. Missing ledger evidence or activity counts are omitted.
+
+The offline fixture harness includes `race-open`, `race-finished`, `race-photo`,
+`race-empty`, `race-loading`, `race-error`, `race-unknown`, `race-standard`, and
+`race-advisory`. Open `fixtures.html?scenario=race-photo#race/race-01` for the recorded
+rejection panel, or `?scenario=race-open#work`, `#review`, and `#overview` for its
+Work badge, Promote warning, and Needs you copy. These snapshots are synthetic;
+they do not establish live race, deployment, or owner acceptance.
