@@ -569,6 +569,7 @@ export async function recordWorkflowPush(
   project: Project,
   event: PushEvent,
   entry: Activity,
+  forkHead?: string,
 ): Promise<void> {
   if (entry.agent) {
     for (const claim of (await txn.list<Claim>({ prefix: "claim:" })).values()) {
@@ -590,8 +591,10 @@ export async function recordWorkflowPush(
       }
     }
     if (entry.ref === `refs/heads/${project.defaultBranch}`) {
+      // Queue events can arrive after a newer review; prefer the fresh fork head.
+      const head = forkHead ?? entry.after;
       for (const review of (await txn.list<Review>({ prefix: "review:" })).values()) {
-        if (review.repoName === entry.repoName && !review.promoted && review.sha !== entry.after)
+        if (review.repoName === entry.repoName && !review.promoted && review.sha !== head)
           await txn.put(`review:${review.id}`, { ...review, stale: true });
       }
     }
