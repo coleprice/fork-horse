@@ -17,8 +17,21 @@ import {
   useKumoToastManager,
 } from "@cloudflare/kumo";
 import { ArrowLeft, ArrowLineUp, Pulse, Warning, X } from "@phosphor-icons/react";
-import { ReceiptAnnouncements, ReceiptCell, ReceiptDetails } from "./receipts.tsx";
-import { receiptGateCaption, reviewGate, reviewQueue, type ViewModel } from "./model.ts";
+import {
+  duration,
+  ReceiptAnnouncements,
+  ReceiptBadge,
+  ReceiptCell,
+  ReceiptDetails,
+} from "./receipts.tsx";
+import {
+  promotionReceipt,
+  recentReceipts,
+  receiptGateCaption,
+  reviewGate,
+  reviewQueue,
+  type ViewModel,
+} from "./model.ts";
 import type { Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
@@ -382,6 +395,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const reviewCount = reviews.filter(
     (r) => r.status === "pending" || r.status === "approved",
   ).length;
+  const history = state ? recentReceipts(state) : [];
+  const lastPromotion = state?.ledger.at(-1);
+  const lastReceipt = state && lastPromotion ? promotionReceipt(state, lastPromotion) : undefined;
   const claims = state?.claims.filter((c) => c.active) ?? [];
   const selected = state?.packets.find((p) => p.id === packetId);
   const selectedReview = state?.reviews.find((r) => r.id === reviewId);
@@ -749,8 +765,22 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         <p className="muted">
                           {state.ledger.length ? (
                             <>
-                              Last promotion: {short(state.ledger.at(-1)!.sha)} ·{" "}
-                              {relative(state.ledger.at(-1)!.promotedAt)}
+                              Last promotion: {short(lastPromotion!.sha)} ·{" "}
+                              {relative(lastPromotion!.promotedAt)}
+                              {lastReceipt?.receipt && (
+                                <>
+                                  {" · "}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="promotion-receipt"
+                                    aria-label={`View receipt for ${lastReceipt.packet}`}
+                                    onClick={() => showReceipt(lastReceipt.id)}
+                                  >
+                                    <ReceiptBadge status={lastReceipt.receipt.status} />
+                                  </Button>
+                                </>
+                              )}
                             </>
                           ) : (
                             "No promotions yet"
@@ -1056,6 +1086,58 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           </DataTable>
                         ) : (
                           empty("No reviews waiting for owner action.")
+                        )}
+                      </section>
+                      <section id="recent-receipts" aria-labelledby="recent-receipts-heading">
+                        <h2 id="recent-receipts-heading">Recent receipts</h2>
+                        {history.length ? (
+                          <Table>
+                            <Table.Body>
+                              {history.map((review) => (
+                                <Table.Row key={review.id}>
+                                  <Table.Cell className="receipt-history-cell">
+                                    <Button
+                                      variant="ghost"
+                                      className="receipt-history-row"
+                                      aria-label={`View receipt for ${review.packet} at ${review.sha.slice(0, 7)}`}
+                                      onClick={() => showReceipt(review.id)}
+                                    >
+                                      <span className="receipt-history-packet">
+                                        {review.packet}
+                                      </span>
+                                      {short(review.sha)}
+                                      <ReceiptBadge
+                                        status={review.receipt.status}
+                                        recheck={
+                                          state.project.settings?.requireReceipt === true &&
+                                          review.receipt.trigger === "before-promote"
+                                        }
+                                      />
+                                      <span className="caption muted tabular">
+                                        {review.receipt.checks.length} checks
+                                        {duration(review.receipt.durationMs) &&
+                                          ` · ${duration(review.receipt.durationMs)}`}
+                                      </span>
+                                      <span className="caption muted">
+                                        {review.receipt.trigger === "before-promote"
+                                          ? "Before promote"
+                                          : "On review"}
+                                      </span>
+                                      <span className="caption muted">
+                                        {review.receipt.finishedAt && (
+                                          <time dateTime={review.receipt.finishedAt}>
+                                            {relative(review.receipt.finishedAt)}
+                                          </time>
+                                        )}
+                                      </span>
+                                    </Button>
+                                  </Table.Cell>
+                                </Table.Row>
+                              ))}
+                            </Table.Body>
+                          </Table>
+                        ) : (
+                          <p className="muted">No receipts yet.</p>
                         )}
                       </section>
                     </>,

@@ -254,7 +254,17 @@ export function fixtureState(id = "demo"): StateResponse {
       }
     }
   }
-  if (["receipts", "advisory", "recheck", "rerun-failed", "gating-recheck"].includes(id)) {
+  if (
+    [
+      "receipts",
+      "advisory",
+      "recheck",
+      "rerun-failed",
+      "gating-recheck",
+      "history-required",
+      "history-advisory",
+    ].includes(id)
+  ) {
     const statuses: (ReceiptStatus | null)[] = [
       "running",
       "running",
@@ -324,6 +334,44 @@ export function fixtureState(id = "demo"): StateResponse {
       }
     }
   }
+  if (id === "history-required" || id === "history-advisory") {
+    result.project.settings = { requireReceipt: id === "history-required" };
+    for (const review of result.reviews) {
+      if (review.receipt?.status === "running") review.receipt.startedAt = "2026-10-12T00:00:00Z";
+    }
+    const source = result.reviews[2];
+    // Shuffled history spans repeated packet IDs and both promotion modes.
+    const promoted = Array.from({ length: 7 }, (_, index) => {
+      const receipt = fixtureReceipt(
+        index === 6 && id === "history-advisory" ? "failed" : "passed",
+        id === "history-required" ? "before-promote" : "review-created",
+      );
+      receipt.digest = String(index + 1).repeat(64);
+      receipt.finishedAt = `2026-10-12T01:0${index}:41Z`;
+      const review = {
+        ...structuredClone(source),
+        id: `promoted-${index}`,
+        packet: `history-${index}`,
+        sha: String(index + 1).repeat(40),
+        receipt,
+        receiptDigest: receipt.digest,
+        approval: null,
+        promoted: true,
+      };
+      result.ledger.push({
+        id: `promotion-${index}`,
+        review: review.id,
+        repoName: id,
+        ref: "refs/heads/main",
+        before: HEAD,
+        after: review.sha,
+        receiptDigest: receipt.digest,
+        recordedAt: receipt.finishedAt,
+      });
+      return review;
+    });
+    result.reviews.push(...promoted.reverse());
+  }
   return result;
 }
 
@@ -368,7 +416,8 @@ export function fixtureOwnerReceipt(review: StateResponse["reviews"][number]): O
         logs: {
           stdout: Array.from(
             { length: 220 },
-            (_, index) => `${check.name} fixture output ${index + 1}`,
+            (_, index) =>
+              `${check.name} fixture output ${index + 1}${index === 219 ? " <script>fixture</script>" : ""}`,
           ).join("\n"),
           stderr: "Fixture stderr",
           truncated: false,

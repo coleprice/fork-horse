@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mountDashboard } from "../src/dashboard.ts";
 import { createHttpTransport } from "../src/transport.ts";
-import { receiptGateCaption, reviewGate, stateView } from "../src/model.ts";
+import {
+  promotionReceipt,
+  recentReceipts,
+  receiptGateCaption,
+  reviewGate,
+  stateView,
+} from "../src/model.ts";
 import { duration, ReceiptDetails } from "../src/receipts.tsx";
 import { fixtureOwnerReceipt, fixtureReceipt, fixtureState } from "./fixtures.ts";
 import { createElement } from "react";
@@ -391,6 +397,127 @@ test("approved before-promote outcomes distinguish failed code from an interrupt
     assert.equal(rows[6].querySelectorAll(".state-reason").length, 1);
     assert.equal((rows[6].textContent!.match(/Waiting for checks\./g) ?? []).length, 1);
     assert.match(rows[6].querySelector(".column-receipts")!.textContent!, /Not started/);
+  } finally {
+    c.close();
+  }
+});
+
+test("recent receipts retain promoted summaries, sort by receipt time and cap at five without changing the queue", () => {
+  for (const id of ["history-required", "history-advisory"]) {
+    const state = stateView(fixtureState(id));
+    const order = state.reviews.map((r) => r.id);
+    const history = recentReceipts(state);
+    assert.deepEqual(
+      history.map((r) => r.id),
+      ["promoted-6", "promoted-5", "promoted-4", "promoted-3", "promoted-2"],
+    );
+    assert.ok(history.every((r) => r.status === "promoted"));
+    assert.deepEqual(
+      state.reviews.map((r) => r.id),
+      order,
+      "source order stays intact",
+    );
+    assert.equal(history[0].receipt.status, id === "history-required" ? "passed" : "failed");
+    const running = state.reviews[0];
+    running.receipt!.startedAt = "2026-10-12T02:00:00Z";
+    assert.equal(
+      recentReceipts(state)[0].id,
+      running.id,
+      "unfinished receipts order by their actual start",
+    );
+    for (const review of state.reviews) review.receipt = null;
+    assert.deepEqual(recentReceipts(state), []);
+  }
+});
+
+test("last promotion binds exact ledger review, SHA and digest, including advisory failures", () => {
+  const state = stateView(fixtureState("history-advisory"));
+  const entry = state.ledger.at(-1)!;
+  assert.equal(entry.receiptDigest, fixtureState("history-advisory").ledger.at(-1)!.receiptDigest);
+  const matching = promotionReceipt(state, entry)!;
+  assert.equal(matching.id, "promoted-6");
+  assert.equal(matching.receipt!.status, "failed");
+  for (const change of [
+    { receiptDigest: null },
+    { receiptDigest: undefined },
+    { receiptDigest: "9".repeat(64) },
+    { review: "missing" },
+    { sha: "9".repeat(40) },
+  ]) {
+    assert.equal(promotionReceipt(state, { ...entry, ...change }), undefined);
+  }
+  matching.receipt = { ...matching.receipt!, status: "running" };
+  assert.equal(promotionReceipt(state, entry), undefined);
+  matching.receipt = null;
+  assert.equal(promotionReceipt(state, entry), undefined);
+});
+
+test("promoted history and Last promotion open the same receipt with owner-only escaped logs", async () => {
+  for (const id of ["history-required", "history-advisory"]) {
+    const c = setup(id);
+    try {
+      await until(() => c.root.querySelectorAll(".receipt-history-row").length === 5);
+      assert.equal(c.root.querySelectorAll(".review-card").length, 7);
+      const rows = [...c.root.querySelectorAll<HTMLButtonElement>(".receipt-history-row")];
+      assert.match(rows[0].textContent!, /history-6.*7777777/);
+      assert.match(rows[0].textContent!, /3 checks · 41 s/);
+      assert.match(
+        rows[0].textContent!,
+        id === "history-required" ? /Before promote/ : /On review/,
+      );
+      assert.ok(rows[0].querySelector("time"));
+      rows[0].focus();
+      rows[0].click();
+      await until(
+        () => c.root.querySelector(".receipt-details")?.textContent?.includes("history-6") === true,
+      );
+      [...c.root.querySelectorAll<HTMLButtonElement>("button")]
+        .find((b) => b.textContent === "View logs")!
+        .click();
+      await until(() => !!c.root.querySelector(".receipt-logs"));
+      assert.equal(c.calls.filter((call) => call.path.endsWith("/receipt")).length, 1);
+      assert.match(c.calls.at(-1)!.path, /reviews\/promoted-6\/receipt$/);
+      assert.equal(c.root.querySelector(".receipt-logs script"), null);
+      assert.match(
+        c.root.querySelector(".receipt-logs")!.textContent!,
+        /<script>fixture<\/script>/,
+      );
+      c.root.querySelector<HTMLButtonElement>(".promotion-receipt")!.click();
+      await until(
+        () => c.root.querySelector(".receipt-details")?.textContent?.includes("history-6") === true,
+      );
+      assert.match(
+        c.root.querySelector(".promotion-receipt")!.textContent!,
+        id === "history-required" ? /Passed/ : /Failed/,
+      );
+      c.wire.ledger.at(-1)!.receiptDigest = "0".repeat(64);
+      await c.app.refresh();
+      await until(() => !c.root.querySelector(".promotion-receipt"));
+    } finally {
+      c.close();
+    }
+    const agent = setup(id, false);
+    try {
+      await until(() => !!agent.root.querySelector(".receipt-history-row"));
+      agent.root.querySelector<HTMLButtonElement>(".receipt-history-row")!.click();
+      await until(() => !!agent.root.querySelector(".receipt-details"));
+      assert.doesNotMatch(agent.root.textContent!, /View logs|Hide logs/);
+      assert.equal(
+        agent.calls.some((call) => call.path.endsWith("/receipt")),
+        false,
+      );
+    } finally {
+      agent.close();
+    }
+  }
+});
+
+test("empty history is honest even while receipt-free reviews exist", async () => {
+  const c = setup("quiet");
+  try {
+    await until(() => !!c.root.querySelector("#recent-receipts"));
+    assert.equal(c.root.querySelector("#recent-receipts p")!.textContent, "No receipts yet.");
+    assert.equal(c.root.querySelector(".receipt-history-row"), null);
   } finally {
     c.close();
   }

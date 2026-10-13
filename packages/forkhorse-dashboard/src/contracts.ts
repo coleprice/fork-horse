@@ -33,7 +33,7 @@ export interface ProjectState {
     sha?: string;
   }[];
   reviews: Review[];
-  ledger: { review: string; sha: string; promotedAt: string }[];
+  ledger: { review: string; sha: string; promotedAt: string; receiptDigest?: string | null }[];
   reconcilerAlerts: { sha: string; message: string }[];
 }
 

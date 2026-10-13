@@ -141,6 +141,7 @@ export function stateView(wire: StateResponse): ProjectState {
       review: entry.review,
       sha: entry.after,
       promotedAt: entry.recordedAt,
+      receiptDigest: entry.receiptDigest,
     })),
     reconcilerAlerts: [
       ...wire.reconcilerAlerts.map((alert) => ({ sha: alert.after, message: alert.reason })),
@@ -200,4 +201,37 @@ export function receiptGateCaption(review: Review, required: boolean): string {
     default:
       return "Waiting for checks.";
   }
+}
+
+/** Latest public summaries remain reachable even after their reviews leave the queue. */
+export function recentReceipts(
+  state: ProjectState,
+): (Review & { receipt: NonNullable<Review["receipt"]> })[] {
+  return state.reviews
+    .filter(
+      (review): review is Review & { receipt: NonNullable<Review["receipt"]> } => !!review.receipt,
+    )
+    .sort((a, b) => {
+      const timestamp = (review: Review) => {
+        const value = Date.parse(review.receipt!.finishedAt ?? review.receipt!.startedAt);
+        return Number.isFinite(value) ? value : 0;
+      };
+      return timestamp(b) - timestamp(a) || a.id.localeCompare(b.id);
+    })
+    .slice(0, 5);
+}
+
+/** A ledger digest identifies the historical receipt, never merely the latest review for a packet. */
+export function promotionReceipt(
+  state: ProjectState,
+  entry: ProjectState["ledger"][number],
+): Review | undefined {
+  if (!entry.receiptDigest) return;
+  return state.reviews.find(
+    (review) =>
+      review.id === entry.review &&
+      review.sha === entry.sha &&
+      review.receipt?.digest === entry.receiptDigest &&
+      review.receipt?.status !== "running",
+  );
 }

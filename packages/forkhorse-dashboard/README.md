@@ -156,3 +156,18 @@ the sidebar bundle after its loading caption at the end of body. FH-033 leaves
 that gatekeeper source unchanged and compares baseline/final first paint.
 Farrier design PASS, superprime code acceptance and the post-FH-032L live receipt
 capture are separate gates; this package's offline checks cannot establish them.
+
+## FH-036 receipt history
+
+Review shows the five newest public receipt summaries, including promoted reviews.
+Finished receipts sort by their finish time; running receipts sort by their start
+and show no invented finish time. Each row opens the existing receipt panel.
+Overview's Last promotion opens a receipt only when the ledger review ID, commit
+and receipt digest match its public summary. Missing or replaced summaries leave
+the promotion line without an outcome. Owner logs retain the existing Access
+session route; agents have no logs control.
+
+The `history-required` and `history-advisory` fixtures include shuffled promoted
+reviews, more than five receipts, both triggers and an advisory failure. These
+are offline fixture evidence; design review, owner acceptance and live checks
+remain separate.

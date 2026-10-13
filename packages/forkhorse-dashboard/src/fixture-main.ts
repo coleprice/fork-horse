@@ -49,6 +49,8 @@ mountDashboard(document.getElementById("dashboard")!, {
       "recheck",
       "rerun-failed",
       "gating-recheck",
+      "history-required",
+      "history-advisory",
     ].map((id) => ({
       id,
       label: `${id} fixture`,

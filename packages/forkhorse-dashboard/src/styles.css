@@ -609,3 +609,44 @@ footer {
 .receipt-failure > .receipt-link {
   margin-inline-start: calc(var(--spacing) * 7);
 }
+
+/* One keyboard target opens each historical receipt; metadata wraps within the host frame. */
+.receipt-history-cell {
+  padding: 0;
+}
+.receipt-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
+  width: 100%;
+  height: auto;
+  justify-content: stretch;
+  text-align: left;
+  gap: calc(var(--spacing) * 3);
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 2);
+}
+.receipt-history-row > * {
+  min-width: 0;
+}
+.receipt-history-packet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.promotion-receipt {
+  display: inline-flex;
+  vertical-align: baseline;
+  padding: 0;
+  height: auto;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@container (max-width: 819px) {
+  .receipt-history-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+}
+@media (max-width: 639px) {
+  .receipt-history-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
