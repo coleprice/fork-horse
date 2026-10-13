@@ -27,6 +27,8 @@ export interface EnrolledAgent extends AgentIdentity {
 
 export type CoreOperation =
   | { kind: "state"; project: string }
+  | { kind: "me"; project: string }
+  | { kind: "refresh_token"; project: string; repoName: string; ttlSeconds: number }
   | { kind: "activity"; project: string; after?: number; limit?: number }
   | { kind: "join"; project: string; agent: string; ttlSeconds?: number }
   | { kind: "claim"; project: string; packet: string; repoName?: string }
@@ -143,6 +145,13 @@ export function coreRequest(token: string, operation: CoreOperation, signal: Abo
   switch (operation.kind) {
     case "state":
       path = `${base}/state`;
+      break;
+    case "me":
+      path = `${base}/me`;
+      break;
+    case "refresh_token":
+      path = `${base}/forks/${component(operation.repoName)}/token`;
+      data = { scope: "write", ttlSeconds: operation.ttlSeconds };
       break;
     case "activity": {
       const query = new URLSearchParams();

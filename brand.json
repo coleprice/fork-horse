@@ -2,6 +2,7 @@
   "codeName": true,
   "name": "Fork Horse",
   "mark": "🐎",
+  "railIcon": "phosphor:horse",
   "slug": "forkhorse",
   "tagline": "Multi-agent collaboration for Git, on Cloudflare",
   "domains": { "primary": "forkhorse.com", "short": "fork.horse" },

@@ -29,6 +29,7 @@ export async function dispatchApi(request: Request, env: Env, owner = false): Pr
         /^\/agents\/[^/]+\/rotate$/.test(suffix) ||
         /^\/forks\/[^/]+\/(commit|token)$/.test(suffix) ||
         /^\/packets\/[^/]+\/(archive|unarchive)$/.test(suffix) ||
+        /^\/blockers\/[^/]+\/resolve$/.test(suffix) ||
         /^\/reviews\/[^/]+\/(approve|promote|return)$/.test(suffix)
           ? ["POST"]
           : /^\/forks\/[^/]+\/tokens$/.test(suffix)

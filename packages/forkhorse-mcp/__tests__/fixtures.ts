@@ -7,6 +7,7 @@ export class FixtureCore {
     ["api_fixture_builder", { project: "demo", agent: "builder" }],
   ]);
   claims: ClaimBinding[] = [{ packet: "FH-004", agent: "builder", repoName: "demo--builder-1" }];
+  work: unknown[] = [];
   requests: Pick<Request, "url" | "method" | "headers" | "json">[] = [];
   enrollments = 0;
   forks = 1;
@@ -29,6 +30,7 @@ export class FixtureCore {
         );
       if (this.payload !== undefined) return Response.json(this.payload);
       const path = new URL(request.url).pathname;
+      if (path.endsWith("/me")) return Response.json({ work: this.work });
       if (path.endsWith("/state")) return Response.json({ claims: this.claims, fixture: true });
       if (path.endsWith("/join"))
         return Response.json({ repoName: `demo--builder-${++this.forks}`, fixture: true });

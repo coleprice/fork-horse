@@ -5,13 +5,14 @@ import type { ProjectState } from "../../../forkhorse-dashboard/src/contracts.ts
 import type { SidebarBatch } from "../ui-types.ts";
 import { SnapshotFeed } from "../feed.ts";
 import brand from "../../../../brand.json";
+import { railIconUrl } from "../rail-icon.ts";
 import { markIconUrl } from "../../../forkhorse-dashboard/src/mark.ts";
 
 const icon = { url: markIconUrl(brand.mark) };
 
 /** Only an authenticated account may use this metadata; it grants no owner authority. */
 export function sidebarAccountDescription(): AccountDescription {
-  return { displayName: brand.name, avatar: icon, providesUi: { title: brand.name, icon } };
+  return { displayName: brand.name, avatar: icon, providesUi: { title: brand.name, icon: { url: railIconUrl(brand.railIcon) } } };
 }
 
 /** Trusted host seam supplied by the authenticated, project-bound account. */

@@ -13,7 +13,7 @@ import type {
   ReconcilerAlert,
   Review,
 } from "../src/workflow-types";
-import type { PushEvent } from "../src/types";
+import type { Activity, PushEvent } from "../src/types";
 import { branchHead } from "../src/artifacts";
 import { AFTER, BEFORE } from "./fixtures";
 import { TestSupervisor } from "./worker";
@@ -49,6 +49,7 @@ interface State {
   ledger: LedgerEntry[];
   reconcilerAlerts: ReconcilerAlert[];
   blockers: Blocker[];
+  activity: Activity[];
   promotionPending: LedgerEntry | null;
 }
 async function state(id: string) {
@@ -58,6 +59,28 @@ async function releases(id: string): Promise<ClaimReleaseAudit[]> {
   return runInDurableObject(stub(id), async (_instance, objectState) =>
     [...(await objectState.storage.list<ClaimReleaseAudit>({ prefix: "claimRelease:" })).values()],
   );
+}
+async function seedBlockers(id: string, repoName: string, pushingPacket: string | null = null) {
+  const blockers: Blocker[] = [
+    { id: "open", packet: pushingPacket ? "foreign" : "one", claimingAgent: "alpha", pushingAgent: "beta",
+      repoName, sha: AFTER, paths: ["src/index.ts"], at: null, pushingPacket, resolved: null },
+    { id: "legacy", packet: "one", claimingAgent: "alpha", pushingAgent: "beta",
+      repoName, sha: BEFORE, paths: ["src/index.ts"], at: null, pushingPacket: null, resolved: null },
+    { id: "other", packet: "two", claimingAgent: "beta", pushingAgent: "alpha",
+      repoName, sha: AFTER, paths: ["docs"], at: null, pushingPacket: null, resolved: null },
+    { id: "resolved", packet: "one", claimingAgent: "alpha", pushingAgent: "beta",
+      repoName, sha: BEFORE, paths: ["src/index.ts"], at: null, pushingPacket: null,
+      resolved: { at: "2026-10-12T00:00:00.000Z", by: "owner", reason: "Already reconciled" } },
+  ];
+  await mutate(id, async (_instance, objectState) => {
+    for (const blocker of blockers) {
+      if (blocker.id === "legacy") {
+        const { resolved: _resolved, at: _at, pushingPacket: _pushingPacket, ...legacy } = blocker;
+        await objectState.storage.put(`blocker:${blocker.id}`, legacy);
+      } else await objectState.storage.put(`blocker:${blocker.id}`, blocker);
+    }
+  });
+  return blockers;
 }
 async function fixture(branch = "main") {
   const id = `flow-${crypto.randomUUID().slice(0, 8)}`;
@@ -278,12 +301,130 @@ describe("FH-050 packet visibility and claim guard in workerd with offline provi
 });
 
 describe("workflow in real Durable Objects, with explicitly offline Git/Artifacts fixtures", () => {
+  it("normalizes legacy blockers on all reads without rewriting their records", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a);
+    const blockers = await seedBlockers(f.id, f.b);
+    expect((await state(f.id)).blockers).toEqual(blockers.toSorted((a, b) => a.id.localeCompare(b.id)));
+    const listed = await (await api(f.id, "/blockers", f.alpha)).json<{ blockers: Blocker[] }>();
+    expect(listed.blockers).toEqual((await state(f.id)).blockers);
+    const detail = await (await api(f.id, `/reviews/${r.id}`, f.alpha)).json<{ blockers: Blocker[] }>();
+    expect(detail.blockers).toEqual(listed.blockers.filter(b => b.packet === "one"));
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get("blocker:legacy")).not.toHaveProperty("resolved");
+      expect(await objectState.storage.get("blocker:legacy")).not.toHaveProperty("at");
+      expect(await objectState.storage.get("blocker:legacy")).not.toHaveProperty("pushingPacket");
+    });
+  });
+
+  it.each(["open", "legacy"])("owner resolves %s once, preserving history, claim and Git-push-only activity", async bid => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const blockers = await seedBlockers(f.id, f.b);
+    // Owner resolution must leave the real push activity and receive sequence unchanged.
+    expect(await stub(f.id).recordPush(push(f.a))).toBe(true);
+    const initial = await state(f.id);
+    const route = `/blockers/${bid}/resolve`;
+    const response = await api(f.id, route, OWNER, { reason: "Conflict reconciled" });
+    expect(response.status).toBe(200);
+    const { blocker } = await response.json<{ blocker: Blocker }>();
+    expect(blocker).toEqual({ ...blockers.find(b => b.id === bid),
+      resolved: { at: expect.any(String), by: "owner", reason: "Conflict reconciled" } });
+    const repeats = await Promise.all([
+      api(f.id, route, OWNER, { reason: "Another explanation" }),
+      api(f.id, route, OWNER, { reason: "Repeated request" }),
+    ]);
+    for (const repeat of repeats) {
+      expect(repeat.status).toBe(200);
+      expect(await repeat.json()).toEqual({ blocker });
+    }
+    const snapshot = await state(f.id);
+    expect(snapshot.claims).toEqual(initial.claims);
+    expect(snapshot.blockers).toEqual(initial.blockers.map(b => b.id === bid ? blocker : b));
+    expect(snapshot.activity).toEqual(initial.activity);
+    const page = await (await api(f.id, "/activity?after=1", f.alpha)).json<{ activity: Activity[]; nextAfter: number }>();
+    expect(page).toEqual({ activity: [], nextAfter: 1 });
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get(`blocker:${bid}`)).toEqual(blocker);
+      expect(await objectState.storage.get("sequence")).toBe(1);
+    });
+    expect(await stub(f.id).recordPush(push(f.a, AFTER, BEFORE))).toBe(true);
+    expect((await state(f.id)).activity.map(entry => entry.sequence)).toEqual([1, 2]);
+    expect((await api(f.id, "/packets/one/claim", f.alpha, undefined, "DELETE")).status).toBe(200);
+    expect((await state(f.id)).blockers.find(b => b.id === bid)).toEqual(blocker);
+  });
+
+  it("validates owner resolution authority, reason, project and blocker before changing storage", async () => {
+    const f = await fixture();
+    await seedBlockers(f.id, f.b);
+    const route = "/blockers/open/resolve";
+    expect((await api(f.id, route, f.alpha, { reason: "Reconciled" })).status).toBe(403);
+    expect((await api(f.id, "/blockers/missing/resolve", f.beta, {})).status).toBe(403);
+    expect((await api(f.id, route, "invalid", { reason: "Reconciled" })).status).toBe(403);
+    expect((await api(f.id, route, OWNER)).status).toBe(405);
+    for (const reason of [undefined, null, 1, true, "", "   ", "a".repeat(201)]) {
+      expect((await api(f.id, route, OWNER, { reason })).status).toBe(400);
+    }
+    expect((await api(f.id, route, OWNER, [])).status).toBe(400);
+    expect((await api(f.id, "/blockers/missing/resolve", OWNER, { reason: "Reconciled" })).status).toBe(404);
+    const g = await fixture();
+    expect((await api(g.id, route, OWNER, { reason: "Reconciled" })).status).toBe(404);
+    expect((await state(f.id)).blockers.find(b => b.id === "open")?.resolved).toBeNull();
+    expect((await state(f.id)).activity).toEqual([]);
+    const trusted = await stub(f.id).ownerRequest({
+      url: `https://api.idiot.tax/projects/${f.id}${route}`, method: "POST", body: JSON.stringify({ reason: "a".repeat(200) }),
+    });
+    expect(trusted.status).toBe(200);
+    expect(JSON.parse(trusted.body).blocker.resolved).toMatchObject({ by: "owner", reason: "a".repeat(200) });
+    expect((await api(f.id, "/blockers/legacy/resolve", OWNER, { reason: "x" })).status).toBe(200);
+    const resolved = (await state(f.id)).blockers.find(b => b.id === "resolved")!;
+    expect(await (await api(f.id, "/blockers/resolved/resolve", OWNER, { reason: "Already done" })).json()).toEqual({ blocker: resolved });
+    expect((await state(f.id)).activity).toEqual([]);
+  });
+
+  it("rolls back owner resolution when blocker audit persistence fails", async () => {
+    const f = await fixture();
+    const blockers = await seedBlockers(f.id, f.b);
+    await mutate(f.id, (_instance, objectState) => {
+      const transaction = objectState.storage.transaction.bind(objectState.storage);
+      vi.spyOn(objectState.storage, "transaction").mockImplementation(callback => transaction(async txn => {
+        const put = txn.put.bind(txn);
+        vi.spyOn(txn, "put").mockImplementation(async (...args: unknown[]) => {
+          await (put as (...args: unknown[]) => Promise<void>)(...args);
+          throw new Error("offline blocker persistence failure");
+        });
+        return callback(txn);
+      }));
+    });
+    try {
+      expect((await api(f.id, "/blockers/legacy/resolve", OWNER, { reason: "Reconciled" })).status).toBe(502);
+      expect((await state(f.id)).blockers).toEqual(blockers.toSorted((a, b) => a.id.localeCompare(b.id)));
+      expect((await state(f.id)).activity).toEqual([]);
+      await mutate(f.id, async (_instance, objectState) => {
+        expect(await objectState.storage.get("sequence")).toBeUndefined();
+        expect(await objectState.storage.get("blocker:legacy")).not.toHaveProperty("resolved");
+      });
+    } finally { vi.restoreAllMocks(); }
+    expect((await api(f.id, "/blockers/legacy/resolve", OWNER, { reason: "Reconciled" })).status).toBe(200);
+    expect((await state(f.id)).activity).toEqual([]);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get("sequence")).toBeUndefined();
+      expect(await objectState.storage.get("blocker:legacy")).toMatchObject({
+        resolved: { at: expect.any(String), by: "owner", reason: "Reconciled" },
+      });
+    });
+  });
+
   it.each(["owner", "agent"] as const)("audits %s release, invalidates reviews and keeps repeated release idempotent", async (role) => {
     const f = await fixture();
     await packet(f.id);
     await claim(f.id, f.alpha);
     const original = (await state(f.id)).claims[0]!;
     const r = await review(f.id, f.alpha, f.a);
+    const blockers = await seedBlockers(f.id, f.b, "one");
     expect((await claim(f.id, OWNER)).status).toBe(403);
     expect((await api(f.id, "/packets/one/claim", "invalid", undefined, "DELETE")).status).toBe(403);
     expect((await api(f.id, "/packets/one/claim", f.beta, undefined, "DELETE")).status).toBe(403);
@@ -293,12 +434,19 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     const snapshot = await state(f.id);
     expect(snapshot.claims).toEqual([]);
     expect(snapshot.reviews.find(item => item.id === r.id)?.stale).toBe(true);
+    expect(snapshot.blockers).toHaveLength(4);
+    for (const blocker of snapshot.blockers) {
+      expect(blocker).toEqual(blocker.id === "open" || blocker.id === "legacy"
+        ? { ...blockers.find(b => b.id === blocker.id), resolved: { at: expect.any(String), by: "release" } }
+        : blockers.find(b => b.id === blocker.id));
+    }
     expect(await releases(f.id)).toEqual([{
       packet: "one", agent: "alpha", repoName: f.a, claimedAt: original.createdAt,
       releasedBy: role, recordedAt: expect.any(String),
     }]);
     expect((await api(f.id, "/packets/one/claim", token, undefined, "DELETE")).status).toBe(200);
     expect(await releases(f.id)).toHaveLength(1);
+    expect((await state(f.id)).blockers).toEqual(snapshot.blockers);
     expect((await api(f.id, "/packets/missing/claim", token, undefined, "DELETE")).status).toBe(404);
     expect((await claim(f.id, f.beta)).status).toBe(201);
     expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(409);
@@ -311,12 +459,15 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     await packet(f.id, "two", ["docs"]);
     await claim(f.id, f.alpha);
     await claim(f.id, f.beta, "two");
+    await seedBlockers(f.id, f.a, "one");
     const response = await stub(f.id).ownerRequest({
       url: `https://api.idiot.tax/projects/${f.id}/packets/one/claim`, method: "DELETE",
     });
     expect(response.status).toBe(200);
     expect((await state(f.id)).claims).toMatchObject([{ packet: "two", agent: "beta" }]);
     expect(await releases(f.id)).toMatchObject([{ releasedBy: "owner", agent: "alpha" }]);
+    expect((await state(f.id)).blockers.find(b => b.id === "open")?.resolved?.by).toBe("release");
+    expect((await state(f.id)).blockers.find(b => b.id === "other")?.resolved).toBeNull();
   });
 
   it("releases only the promoted claim, audits its review and invalidates sibling reviews atomically", async () => {
@@ -328,6 +479,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     const original = (await state(f.id)).claims.find(c => c.packet === "one")!;
     const sibling = await review(f.id, f.alpha, f.a);
     const r = await review(f.id, f.alpha, f.a);
+    const blockers = await seedBlockers(f.id, f.b, "one");
     expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(200);
     const snapshot = await state(f.id);
     expect(snapshot.claims).toMatchObject([{ packet: "two", agent: "beta" }]);
@@ -335,6 +487,12 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     expect(snapshot.reviews.find(item => item.id === sibling.id)).toMatchObject({ promoted: false, stale: true });
     expect(snapshot.ledger).toMatchObject([{ review: r.id, after: AFTER }]);
     expect(snapshot.promotionPending).toBeNull();
+    expect(snapshot.blockers).toHaveLength(4);
+    for (const blocker of snapshot.blockers) {
+      expect(blocker).toEqual(blocker.id === "open" || blocker.id === "legacy"
+        ? { ...blockers.find(b => b.id === blocker.id), resolved: { at: expect.any(String), by: "promote" } }
+        : blockers.find(b => b.id === blocker.id));
+    }
     expect(await releases(f.id)).toEqual([{
       packet: "one", agent: "alpha", repoName: f.a, claimedAt: original.createdAt,
       releasedBy: "promote", review: r.id, recordedAt: expect.any(String),
@@ -348,6 +506,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     await packet(f.id);
     await claim(f.id, f.alpha);
     const r = await review(f.id, f.alpha, f.a);
+    const blockers = await seedBlockers(f.id, f.b, "one");
     await mutate(f.id, (_instance, objectState) => {
       const transaction = objectState.storage.transaction.bind(objectState.storage);
       vi.spyOn(objectState.storage, "transaction").mockImplementation(callback => transaction(async txn => {
@@ -371,6 +530,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
       expect(snapshot.reviews.find(item => item.id === r.id)).toMatchObject({ promoted: false, stale: false });
       expect(snapshot.promotionPending !== null).toBe(operation === "promote");
       expect(await releases(f.id)).toEqual([]);
+      expect(snapshot.blockers).toEqual(blockers.toSorted((a, b) => a.id.localeCompare(b.id)));
     } finally { vi.restoreAllMocks(); }
   });
 
@@ -534,11 +694,133 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     expect(await stub(f.id).recordPush(push(f.b))).toBe(true);
     expect(await stub(f.id).recordPush(push(f.b))).toBe(true);
     expect((await state(f.id)).blockers).toMatchObject([
-      { packet: "one", claimingAgent: "alpha", pushingAgent: "beta", paths: ["src/index.ts"] },
+      { packet: "one", claimingAgent: "alpha", pushingAgent: "beta", paths: ["src/index.ts"], at: expect.any(String), pushingPacket: null, resolved: null },
     ]);
     expect((await state(f.id)).blockers).toHaveLength(1);
     await stub(f.id).recordPush(push(f.a));
     expect((await state(f.id)).blockers).toHaveLength(1);
+  });
+
+  it.each([0, 1, 2])("records push time and the uniquely attributable pushing claim (%s live claims)", async count => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    if (count >= 1) {
+      await packet(f.id, "two", ["docs"]);
+      await claim(f.id, f.beta, "two");
+    }
+    if (count === 2) {
+      await packet(f.id, "three", ["other"]);
+      await claim(f.id, f.beta, "three");
+    }
+    expect(await stub(f.id).recordPush(push(f.b))).toBe(true);
+    const snapshot = await state(f.id);
+    expect(snapshot.blockers).toHaveLength(1);
+    expect(snapshot.blockers[0]).toMatchObject({
+      packet: "one", repoName: f.b, pushingPacket: count === 1 ? "two" : null,
+      at: snapshot.activity[0]!.recordedAt, resolved: null,
+    });
+  });
+
+  it.each(["two", null, undefined])("gates the pushing fork with pushingPacket %s and leaves claimant reviews ungated", async pushingPacket => {
+    const f = await fixture();
+    await packet(f.id);
+    await packet(f.id, "two", ["docs"]);
+    await claim(f.id, f.alpha);
+    await claim(f.id, f.beta, "two");
+    const claimant = await review(f.id, f.alpha, f.a, "one", AFTER, false);
+    const pusher = await review(f.id, f.beta, f.b, "two");
+    expect(await stub(f.id).recordPush(push(f.b))).toBe(true);
+    const blocker = (await state(f.id)).blockers[0]!;
+    await mutate(f.id, async (_instance, objectState) => {
+      const { pushingPacket: _pushingPacket, ...legacy } = blocker;
+      await objectState.storage.put(`blocker:${blocker.id}`, pushingPacket === undefined
+        ? legacy : { ...blocker, pushingPacket });
+    });
+    const error = { error: "This fork pushed into paths another agent has claimed. The owner must resolve the blocker first." };
+    for (const operation of ["approve", "promote"]) {
+      const denied = await api(f.id, `/reviews/${pusher.id}/${operation}`, OWNER, {});
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual(error);
+    }
+    await mutate(f.id, instance => {
+      expect(instance.gitFixture.pushes).toEqual([]);
+      expect(instance.fixture.calls.filter(c => c.method === "createToken" && c.repo === f.id)).toEqual([]);
+    });
+    expect((await state(f.id)).promotionPending).toBeNull();
+    expect((await api(f.id, `/reviews/${claimant.id}/approve`, OWNER, {})).status).toBe(200);
+    if (pushingPacket === "two") {
+      // Claimant promotion is permitted and resolves the observation in its release transaction.
+      expect((await api(f.id, `/reviews/${claimant.id}/promote`, OWNER, {})).status).toBe(200);
+      expect((await state(f.id)).blockers[0]?.resolved?.by).toBe("promote");
+    } else {
+      expect((await api(f.id, `/blockers/${blocker.id}/resolve`, OWNER, { reason: "Conflict reconciled" })).status).toBe(200);
+      expect((await api(f.id, `/reviews/${pusher.id}/approve`, OWNER, {})).status).toBe(200);
+      expect((await api(f.id, `/reviews/${pusher.id}/promote`, OWNER, {})).status).toBe(200);
+      expect((await state(f.id)).blockers[0]?.resolved?.by).toBe("owner");
+    }
+  });
+
+  it("ignores resolved blockers and packet-specific collisions on another packet of the same pushing fork", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a, "one", AFTER, false);
+    await mutate(f.id, async (_instance, objectState) => {
+      const blocker: Blocker = {
+        id: "another", packet: "foreign", claimingAgent: "beta", pushingAgent: "alpha",
+        repoName: f.a, sha: AFTER, paths: ["docs"], at: null, pushingPacket: "another", resolved: null,
+      };
+      await objectState.storage.put({
+        "blocker:another": blocker,
+        "blocker:resolved": { ...blocker, id: "resolved", pushingPacket: "one", resolved: { at: "2026-10-12T00:00:00.000Z", by: "owner", reason: "Done" } },
+      });
+    });
+    expect((await api(f.id, `/reviews/${r.id}/approve`, OWNER, {})).status).toBe(200);
+    expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(200);
+    expect((await state(f.id)).blockers.find(b => b.id === "another")?.resolved).toBeNull();
+  });
+
+  it.each(["approve", "promote"])("rechecks blockers after asynchronous %s preparation before committing consent or minting canonical authority", async operation => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a);
+    const blocker: Blocker = {
+      id: "race", packet: "foreign", claimingAgent: "beta", pushingAgent: "alpha",
+      repoName: f.a, sha: AFTER, paths: ["docs"], at: null, pushingPacket: "one", resolved: null,
+    };
+    await mutate(f.id, async (instance, objectState) => {
+      if (operation === "approve") {
+        const transaction = objectState.storage.transaction.bind(objectState.storage);
+        vi.spyOn(objectState.storage, "transaction").mockImplementationOnce(async callback => {
+          await objectState.storage.put(`blocker:${blocker.id}`, blocker);
+          return transaction(callback);
+        });
+        const current = (await objectState.storage.get<Review>(`review:${r.id}`))!;
+        await objectState.storage.put(`review:${r.id}`, { ...current, approval: null });
+      } else {
+        const prepare = instance.gitFixture.preparePromote.bind(instance.gitFixture);
+        vi.spyOn(instance.gitFixture, "preparePromote").mockImplementationOnce(async (...args) => {
+          const prepared = await prepare(...args);
+          await objectState.storage.put(`blocker:${blocker.id}`, blocker);
+          return prepared;
+        });
+      }
+    });
+    try {
+      const response = await api(f.id, `/reviews/${r.id}/${operation}`, OWNER, {});
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "This fork pushed into paths another agent has claimed. The owner must resolve the blocker first." });
+      const snapshot = await state(f.id);
+      expect(snapshot.promotionPending).toBeNull();
+      expect(snapshot.ledger).toEqual([]);
+      if (operation === "approve") expect(snapshot.reviews[0]?.approval).toBeNull();
+      await mutate(f.id, instance => {
+        expect(instance.gitFixture.pushes).toEqual([]);
+        expect(instance.fixture.calls.filter(c => c.method === "createToken" && c.repo === f.id)).toEqual([]);
+      });
+    } finally { vi.restoreAllMocks(); }
   });
 
   it("allows sibling paths and rejects canonical/foreign fork selection", async () => {

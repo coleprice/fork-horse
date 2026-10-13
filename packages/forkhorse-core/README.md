@@ -473,6 +473,40 @@ receipt and cannot constrain allocations inside the provider. Malformed or unava
 objects use the existing sanitized 502 response. Fixtures exercise these boundaries in
 actual workerd; they do not establish live Artifacts or Cloudflare acceptance.
 
+## Blocker resolution (FH-048)
+
+Blockers are permanent conflict observations. `/blockers`, `/state.blockers` and
+review detail `blockers` include open and resolved history. Every public blocker
+has `resolved: null` while open or `{at, by, reason?}` after resolution; `at` is an
+ISO timestamp and `by` is `release`, `promote` or `owner`. Legacy records without
+the field read as open without rewriting storage. `at` records the push's receive
+timestamp and `pushingPacket` identifies the pushing agent's live claim on that
+fork at observation time. Both fields read as `null` on legacy records. A fork
+with no live pushing claim or multiple live pushing claims uses `pushingPacket:
+null`, because raw push events identify the fork rather than a packet.
+
+Releasing a claim as its agent or closing it as the owner resolves every open
+blocker whose claimant `packet` or `pushingPacket` is that packet with `by: "release"`. Successful promotion's automatic
+claim release uses `by: "promote"`. Resolution shares the claim-release transaction,
+preserves earlier resolutions and leaves blockers for other packets untouched.
+
+Owner-only `POST /projects/:id/blockers/:bid/resolve` accepts `{reason}` (nonblank,
+1–200 characters) and returns `200 {blocker}` with `by: "owner"`. A valid repeated
+request returns the original blocker unchanged, including its timestamp and reason.
+Agents receive 403, unknown blockers 404 and invalid reasons 400. The transaction
+persists the resolution timestamp, owner provenance and reason on the permanent
+blocker record as its audit. Activity remains Git-push-only; resolution leaves
+the activity log and receive sequence unchanged. These workerd tests use offline providers;
+live collision and resolution acceptance remains an operator check.
+
+Approve and promote return 409 with `"This fork pushed into paths another agent
+has claimed. The owner must resolve the blocker first."` when an open blocker
+matches the review's `repoName` and either matches its packet through
+`pushingPacket` or has `pushingPacket: null` (including legacy observations).
+Claimant reviews on a different fork remain ungated. Resolved history never
+blocks a review. The check occurs before receipt/Git work and is repeated before
+approval persistence and after promotion preparation.
+
 ## Quick checks (FH-010)
 
 Core also exports `QuickFiles` and declares a `LOADER` Worker Loader binding.
