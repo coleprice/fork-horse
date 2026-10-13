@@ -10,7 +10,7 @@ import { branchHead } from "./artifacts";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import { WorkerGit } from "./git";
 import type { GitOperations } from "./git";
-import type { Agent } from "./workflow";
+import type { Actor, Agent } from "./workflow";
 import { Workflow, recordWorkflowPush } from "./workflow";
 import { capActivity } from "./activity";
 import type { StoredActivity } from "./activity";
@@ -87,8 +87,8 @@ export class Supervisor extends DurableObject<Env> {
     return equalHash(hash, this.env.OWNER_API_TOKEN_HASH ?? "");
   }
 
-  private async authorize(hash: string): Promise<{ owner: boolean; agent?: string }> {
-    if (this.isOwner(hash)) return { owner: true };
+  private async authorize(hash: string): Promise<Actor> {
+    if (this.isOwner(hash)) return { owner: true, ownerVia: "owner-api" };
     const agents = await this.ctx.storage.list<Agent>({ prefix: "agent:" });
     for (const agent of agents.values()) {
       if (equalHash(hash, agent.tokenHash)) return { owner: false, agent: agent.name };
@@ -149,7 +149,7 @@ export class Supervisor extends DurableObject<Env> {
             throw new HttpError(403, "Only the owner can create projects.");
           return await this.create(await body(request));
         }
-        const actor = trustedOwner ? { owner: true } : await this.authorize(hash);
+        const actor: Actor = trustedOwner ? { owner: true, ownerVia: "access" } : await this.authorize(hash);
         const project = await this.ctx.storage.get<Project>("project");
         if (!project) throw new HttpError(404, "Project not found.");
         if (url.pathname === `/projects/${project.id}/join` && request.method === "POST") {

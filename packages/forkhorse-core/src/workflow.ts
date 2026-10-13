@@ -25,12 +25,15 @@ import type {
   RaceResult,
   ReconcilerAlert,
   Review,
+  SettingsChange,
   StateSnapshot,
 } from "./workflow-types";
 
 export interface Actor {
   owner: boolean;
   agent?: string;
+  /** Set only by Supervisor authentication, never by request data. */
+  ownerVia?: SettingsChange["via"];
 }
 export interface Agent {
   name: string;
@@ -239,12 +242,33 @@ export class Workflow {
     const method = request.method;
     if (path === "/settings" && method === "PATCH") {
       this.owner(actor);
+      if (await this.storage.get("promotionPending"))
+        throw new HttpError(409, "Promotion needs owner inspection.");
       const data = await body(request);
       if (Object.keys(data).length !== 1 || typeof data.requireReceipt !== "boolean")
         throw new HttpError(400, "Provide only requireReceipt as a boolean.");
-      project.settings = { requireReceipt: data.requireReceipt };
-      await this.storage.put("project", project);
-      return json({ settings: project.settings });
+      const before = settings(project).requireReceipt;
+      const next = { requireReceipt: data.requireReceipt };
+      if (before === next.requireReceipt) return json({ settings: next });
+      if (!actor.ownerVia) throw new Error("Owner authentication source is required");
+      let recordedAt = now();
+      // Requests share Supervisor's gate. Wait for an actual fresh timestamp rather
+      // than overwrite a same-millisecond change or manufacture an audit time.
+      while (await this.storage.get(`settingsChange:${recordedAt}`)) {
+        await new Promise(resolve => setTimeout(resolve, 1));
+        recordedAt = now();
+      }
+      const change: SettingsChange = {
+        setting: "requireReceipt", before, after: next.requireReceipt,
+        by: "owner", via: actor.ownerVia, recordedAt,
+      };
+      await this.storage.transaction(async txn => {
+        await txn.put({
+          project: { ...project, settings: next },
+          [`settingsChange:${recordedAt}`]: change,
+        });
+      });
+      return json({ settings: next });
     }
     const receiptRoute = /^\/reviews\/([^/]+)\/receipt$/.exec(path);
     if (receiptRoute && method === "GET") {
@@ -474,7 +498,9 @@ export class Workflow {
       return json({ review: publicReview(review),
         packet: { id: packet.id, title: packet.title, goal: packet.goal, paths: packet.paths, acceptance: packet.acceptance },
         changes: changes.public, ...await reader.history(review.base, review.sha),
-        promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest } : null,
+        promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest,
+          ...(ledger.requireReceipt === undefined ? {} : { requireReceipt: ledger.requireReceipt }),
+        } : null,
         blockers: [...blockerEntries.values()].filter(blocker => blocker.packet === review.packet).map(publicBlocker),
       });
     }
@@ -610,6 +636,7 @@ export class Workflow {
         before: review.base,
         after: review.sha,
         receiptDigest: review.receiptDigest,
+        requireReceipt,
         recordedAt: now(),
         ...(race ? { race: review.packet } : {}),
       };
@@ -726,6 +753,7 @@ export class Workflow {
       ledger: (await list<LedgerEntry>(this.storage, "ledger:")).toSorted((a, b) =>
         a.recordedAt.localeCompare(b.recordedAt),
       ),
+      settingsChanges: await list<SettingsChange>(this.storage, "settingsChange:"),
       activity: [
         ...(
           await this.storage.list<StoredActivity>({ prefix: "activity:", reverse: true, limit: 100 })
