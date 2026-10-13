@@ -9,10 +9,10 @@ import { TestSupervisor } from "./worker";
 const OWNER = "offline-fixture-owner-token";
 const THIRD = "a".repeat(40);
 const claimedAt = "2026-10-12T10:00:00.000Z";
-function api(id: string, path: string, token: string, method = "GET", data?: unknown) {
+function api(id: string, path: string, token: string, method?: string, data?: unknown) {
   return worker.fetch(
     new Request(`https://api.idiot.tax/projects/${id}${path}`, {
-      method,
+      method: method ?? (data === undefined ? "GET" : "POST"),
       headers: { authorization: `Bearer ${token}` },
       body: data === undefined ? undefined : JSON.stringify(data),
     }),
