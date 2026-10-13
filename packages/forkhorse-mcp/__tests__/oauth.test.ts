@@ -141,10 +141,10 @@ describe("real OAuth provider with labeled in-memory fixtures", () => {
     const form = /<form\b[^>]*>([\s\S]*?)<\/form>/.exec(html)!;
     expect(html.match(/<form\b/g)).toHaveLength(1);
     expect(form[0].slice(0, form[0].indexOf(">") + 1)).toBe('<form method="post">');
-    expect(form[1].match(/<input\b[^>]*>/g)).toEqual([
+    expect(form[1]!.match(/<input\b[^>]*>/g)).toEqual([
       expect.stringMatching(/^<input type="hidden" name="handle" value="[^"<>]+">$/),
     ]);
-    expect(form[1].match(/<button\b[^>]*>[^<]*<\/button>/g)).toEqual([
+    expect(form[1]!.match(/<button\b[^>]*>[^<]*<\/button>/g)).toEqual([
       '<button type="submit" name="decision" value="deny">Deny</button>',
       '<button type="submit" name="decision" value="approve">Allow</button>',
     ]);

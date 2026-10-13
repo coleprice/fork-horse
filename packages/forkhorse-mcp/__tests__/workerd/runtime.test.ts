@@ -133,7 +133,8 @@ describe("offline workerd regression", () => {
     expect(html).toContain('role="note"');
     expect(html).toContain("prefers-color-scheme: dark");
     expect(html).toContain('<form method="post"><input type="hidden" name="handle"');
-    expect(html.indexOf('value="deny"')).toBeLessThan(html.indexOf('value="approve"'));
+    const form = /<form\b[^>]*>([\s\S]*?)<\/form>/.exec(html)![1]!;
+    expect(form.indexOf('value="deny"')).toBeLessThan(form.indexOf('value="approve"'));
     expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
     expect(outbound).not.toHaveBeenCalled();
   });
