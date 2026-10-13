@@ -57,7 +57,7 @@ export function BudgetUsage({
   return (
     <div className="budget-usage">
       <UsageFigures usage={usage} agent={agent} brand={brand} />
-      {!!budget &&
+      {budget != null &&
         (!value || status === "unchecked" || status === undefined ? (
           <Tooltip content={value ? "Budget status unavailable." : `${agent} hasn't reported usage.`} render={<span />}>
             <Badge appearance="dot" variant="neutral" className="caption status-dot status-warning">Budget unchecked</Badge>

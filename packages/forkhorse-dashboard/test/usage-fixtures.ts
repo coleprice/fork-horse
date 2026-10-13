@@ -7,6 +7,8 @@ export const usageScenarios = [
   "usage-unchecked",
   "usage-both",
   "usage-legacy",
+  "usage-unbudgeted",
+  "usage-reordered",
 ];
 export function usageFixtureState(id = "usage-race", now = Date.now()): StateResponse {
   const state = reviewFixtureState("review-approved");
@@ -46,7 +48,10 @@ export function usageFixtureState(id = "usage-race", now = Date.now()): StateRes
     createdAt: at(50),
   }));
   for (const [i, r] of state.reviews.entries()) {
-    if (r.receipt) { r.receipt.startedAt = at(10 - i); r.receipt.finishedAt = at(8 - i); }
+    if (r.receipt) {
+      r.receipt.startedAt = at(10 - i);
+      r.receipt.finishedAt = at(8 - i);
+    }
   }
   for (const r of state.reviews) r.approval = { sha: r.sha, receiptDigest: r.receiptDigest };
   state.packets[0].mode = "race";
@@ -114,6 +119,17 @@ export function usageFixtureState(id = "usage-race", now = Date.now()): StateRes
       );
     for (const e of state.races[0].entrants) e.budget = "within";
   }
+  if (id === "usage-unbudgeted") {
+    state.races[0].tokenBudget = null;
+    state.packets[0].tokenBudget = null;
+    for (const entrant of state.races[0].entrants) {
+      entrant.usage = { reported: null, metered: null };
+      entrant.budget = "unchecked";
+    }
+    for (const claim of state.claims) claim.usage = { reported: null, metered: null };
+    for (const review of state.reviews) review.usageAtReview = { reported: null, metered: null };
+  }
+  if (id === "usage-reordered") state.races[0].entrants.reverse();
   if (id === "usage-legacy") {
     for (const r of state.reviews) delete r.usageAtReview;
     for (const c of state.claims) delete c.usage;

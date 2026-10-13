@@ -29,7 +29,7 @@ async function until(fn: () => unknown) {
   }
   assert.fail("Usage DOM did not settle");
 }
-function setup(scenario = "usage-race", route = "#work", owner = true, noDetail = false) {
+function setup(scenario = "usage-race", route = "#race/FH-040", owner = true, noDetail = false) {
   const dom = new JSDOM('<div id="dashboard"></div>', {
     url: `https://fixture.idiot.tax/${route}`,
   });
@@ -175,14 +175,14 @@ test("graph historical promotion uses its snapshot while the active lane uses cu
 });
 test("race Compare is factual and read-only for both roles, with true ratio meters and detail-backed file counts", async () => {
   for (const owner of [true, false]) {
-    const c = setup("usage-race", "#work", owner);
+    const c = setup("usage-race", "#race/FH-040", owner);
     try {
       await until(
         () =>
           c.root.querySelector(".race-compare")?.textContent?.includes("fewest") &&
           c.calls.filter((call) => call.url.pathname.includes("/reviews/")).length === 3,
       );
-      const meters = [...c.root.querySelectorAll<HTMLMeterElement>(".race-token-lanes meter")];
+      const meters = [...c.root.querySelectorAll<HTMLMeterElement>(".race-track meter")];
       assert.deepEqual(
         meters.map((m) => [m.value, m.max]),
         [
@@ -262,7 +262,7 @@ test("both sources stay separate in race budget and agent totals; unchecked and 
   } finally {
     c.close();
   }
-  const u = setup("usage-unchecked", "#work", false, true);
+  const u = setup("usage-unchecked", "#race/FH-040", false, true);
   try {
     await until(() => u.root.querySelector(".race-compare"));
     assert.match(u.root.textContent!, /Budget unchecked/);
@@ -355,13 +355,76 @@ test("automatic budget rejection creates no new Needs you item and removes the e
   );
 });
 
-
 test("agent review detail explains automatic rejection without owner controls", async () => {
   const c = setup("usage-over", "#review/usage-review-2", false);
   try {
     await until(() => c.root.querySelector(".review-detail .usage-promotion-caption"));
-    assert.match(c.root.querySelector(".review-detail")!.textContent!, /Over its token budget \(reported\). It can't win this race\./);
+    assert.match(
+      c.root.querySelector(".review-detail")!.textContent!,
+      /Over its token budget \(reported\). It can't win this race\./,
+    );
     assert.equal(!!c.root.querySelector(".review-detail [data-action]"), false);
-    assert.equal(c.calls.some((call) => call.method !== "GET"), false);
-  } finally { c.close(); }
+    assert.equal(
+      c.calls.some((call) => call.method !== "GET"),
+      false,
+    );
+  } finally {
+    c.close();
+  }
+});
+
+test("core unchecked state on an unbudgeted race shows Not reported and keeps Promote", async () => {
+  const race = setup("usage-unbudgeted", "#race/FH-040");
+  try {
+    await until(() => !!race.root.querySelector(".race-track"));
+    assert.equal(!!race.root.querySelector(".race-track meter"), false);
+    assert.equal(
+      race.root.querySelector(".race-track")!.textContent!.includes("Budget unchecked"),
+      false,
+    );
+    assert.match(race.root.querySelector(".race-track")!.textContent!, /Not reported/);
+  } finally {
+    race.close();
+  }
+  const review = setup("usage-unbudgeted", "#review/usage-review-0");
+  try {
+    await until(() => !!review.root.querySelector('.review-detail [data-action="promote"]'));
+    assert.equal(!!review.root.querySelector(".review-detail .usage-promotion-caption"), false);
+    assert.equal(
+      review.calls.some((call) => call.method !== "GET"),
+      false,
+    );
+  } finally {
+    review.close();
+  }
+});
+test("track, Compare, and results share accepted claim order with Tokens before Result", async () => {
+  const c = setup("usage-reordered", "#race/FH-040");
+  try {
+    await until(() => !!c.root.querySelector(".race-compare"));
+    const track = c.root.querySelector(".race-track")!;
+    const ordered = ["fixture-agent", "fixture-peer", "fixture-third"];
+    assert.deepEqual(
+      [...track.querySelectorAll("tbody tr")].map((row) => row.getAttribute("data-race-agent")),
+      ordered,
+    );
+    assert.deepEqual(
+      [...c.root.querySelectorAll(".race-compare thead th")].slice(1).map((th) => th.textContent),
+      ordered,
+    );
+    assert.deepEqual(
+      [...track.querySelectorAll("thead th")].map((th) => th.textContent).slice(-2),
+      ["Tokens", "Result"],
+    );
+    assert.deepEqual(
+      [...c.root.querySelectorAll(".race-results thead th")].map((th) => th.textContent).slice(-2),
+      ["Tokens", "Result"],
+    );
+    assert.equal(track.querySelectorAll(".lane-marker-approved").length, 3);
+    assert.equal(track.querySelectorAll(".lane-marker-review").length, 3);
+    assert.equal(track.querySelectorAll(".race-mark-box").length, 18);
+    assert.equal(c.root.querySelector(".race-compare")!.textContent!.includes("25:00.0"), true);
+  } finally {
+    c.close();
+  }
 });

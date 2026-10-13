@@ -1,24 +1,24 @@
 import { assertDetail } from "./review.tsx";
 import { useEffect, useState } from "react";
 import type { Brand, ProjectState, Race, ReviewDetail } from "./contracts.ts";
-import { LaneRunner } from "./lane.tsx";
+import { raceEntrants, raceStart, raceSplit } from "./race-model.ts";
 import { BudgetUsage } from "./usage.tsx";
 import { totalTokens } from "./usage.ts";
 
-const elapsed = (start: number, end?: string | null) => {
+const elapsed = (start: number | undefined, end?: string | null) => {
   const at = Date.parse(end ?? "");
-  return Number.isFinite(start) && Number.isFinite(at) && at >= start ? at - start : undefined;
+  return start !== undefined && Number.isFinite(start) && Number.isFinite(at) && at >= start
+    ? at - start
+    : undefined;
 };
-const time = (ms?: number) =>
-  ms === undefined ? "Not yet" : `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
 const best = (values: (number | undefined)[], index: number) =>
   values.length > 1 &&
   values.every((value) => value !== undefined) &&
   values[index] === Math.min(...(values as number[]));
 
-/** Read-only FH-062 composition seam for the FH-055 track, without ranking or owner writes. */
-export function RaceUsage({
-  race,
+/** Facts below the accepted FH-055 track, using its claim order and recorded race clock. */
+export function RaceCompare({
+  race: rawRace,
   state,
   brand,
   getReview,
@@ -28,6 +28,7 @@ export function RaceUsage({
   brand: Brand;
   getReview?: (id: string) => Promise<ReviewDetail>;
 }) {
+  const race = { ...rawRace, entrants: raceEntrants(rawRace) };
   const reviews = race.entrants.map((entrant) =>
     state.reviews
       .filter(
@@ -64,7 +65,7 @@ export function RaceUsage({
     // Exact review identities trigger reads; host action objects need not be stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keys, getReview]);
-  const start = Math.min(...race.entrants.map((e) => Date.parse(e.claimedAt)));
+  const start = raceStart(race);
   const approved = race.entrants.map((e) => elapsed(start, e.approvedAt));
   const promoted = race.entrants.map((e) => elapsed(start, e.promotedAt));
   const changes = reviews.map((r) => (r ? details[r.id]?.changes.fileCount : undefined));
@@ -94,31 +95,8 @@ export function RaceUsage({
     );
   };
   return (
-    <section className="race-usage" aria-label={`Race ${race.packet} usage`}>
-      <h2>Race · {race.packet}</h2>
-      <div className="table-scroll">
-        <table className="race-token-lanes">
-          <thead>
-            <tr>
-              <th scope="col">Entrant</th>
-              <th scope="col">Tokens</th>
-              <th scope="col">Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {race.entrants.map((e, i) => (
-              <tr key={e.repoName}>
-                <th scope="row">
-                  <LaneRunner entrant={e} state={state} />
-                </th>
-                <td>{tokens(i, false)}</td>
-                <td>{e.promotedAt ? "Promoted" : e.closedAt ? "Closed" : "Racing"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <h3>Compare</h3>
+    <section className="race-usage" aria-labelledby="race-compare-title">
+      <h3 id="race-compare-title">Compare</h3>
       <p className="caption muted">
         Times since the first entrant claimed. Push counts cover loaded activity only. Files come
         from the latest review detail.
@@ -138,15 +116,15 @@ export function RaceUsage({
           <tbody>
             {(
               [
-                ["Time to Approved", approved],
-                ["Time to Promoted", promoted],
+                ["Time to Approved", approved, "approvedAt"],
+                ["Time to Promoted", promoted, "promotedAt"],
               ] as const
-            ).map(([label, values]) => (
+            ).map(([label, values, key]) => (
               <tr key={label}>
                 <th scope="row">{label}</th>
-                {values.map((value, i) => (
+                {values.map((_value, i) => (
                   <td key={race.entrants[i].repoName}>
-                    {time(value)}
+                    {raceSplit(race.entrants[i][key], start) || "Not yet"}
                     {best([...values], i) && <span className="caption muted">fastest</span>}
                   </td>
                 ))}

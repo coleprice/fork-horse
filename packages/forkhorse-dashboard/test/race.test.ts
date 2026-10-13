@@ -159,6 +159,7 @@ test("semantic track keeps claim order at finish, checks after request, and real
       "Checks passed",
       "Approved",
       "Promoted",
+      "Tokens",
       "Result",
     ],
   );

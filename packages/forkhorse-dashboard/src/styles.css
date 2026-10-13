@@ -1181,7 +1181,6 @@ footer {
 @media (max-width: 639px) {
   .table-agents .column-tokens { display: none; }
   .fork-table td:nth-child(9)::before { content: "Tokens"; }
-  .race-token-lanes { min-width: 480px; }
   .race-usage .table-scroll { overflow-x: auto; }
 }
 
@@ -1525,4 +1524,14 @@ footer {
     gap: 16px;
     padding: 16px;
   }
+}
+
+/* Usage is an extra facts column; FH-055's milestone geometry and glyph rules stay authoritative. */
+.race-track thead th:first-child, .race-track thead th:last-child { width: 16%; }
+.race-track thead .race-tokens-heading { width: 170px; text-align: left; }
+.race-track .race-tokens { padding: 20px 8px; vertical-align: top; text-align: left; }
+@media (max-width: 639px) {
+  .race-track .race-tokens { display: block; padding: 16px 0; }
+  .race-tokens > .race-phone-label { margin-bottom: 8px; }
+  .race-track-empty thead .race-tokens-heading { display: none; }
 }

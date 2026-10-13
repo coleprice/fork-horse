@@ -1,4 +1,3 @@
-import { RaceUsage } from "./race-usage.tsx";
 import { UsageFigures } from "./usage.tsx";
 import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
 import { useState, useEffect, useRef, type ReactNode } from "react";
@@ -907,7 +906,6 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "work",
                     <>
-                      {actions.section === "work" && (state.races ?? []).map((race) => <RaceUsage key={race.packet} race={race} state={state} brand={view.brand} getReview={actions.getReview} />)}
                       {!!blockers.length && (
                         <section id="blockers" className="blockers">
                           {blockers.map((b) => (

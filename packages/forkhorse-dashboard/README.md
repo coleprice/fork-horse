@@ -324,10 +324,13 @@ separate on claims, race entrants, and `usageAtReview`. Every token figure carri
 its source and report freshness. Review detail uses the immutable review snapshot;
 promotion gates use the current entrant's core-computed budget state. Over-budget
 and unchecked budgeted entrants have no Promote control. Unbudgeted legacy races
-and ordinary packets need no usage report. There is no new Needs you kind.
+and ordinary packets need no usage report. An explicit core `budget: "unchecked"`
+on a race with `tokenBudget: null` does not show Budget unchecked or hide Promote.
+There is no new Needs you kind.
 
-The Work view exposes a read-only race usage composition with Tokens before Result
-and a facts-only Compare table. Times start with the first entrant claim, checks
+The accepted FH-055 race view includes Tokens before Result in its milestone track
+and results table, with a facts-only Compare section directly below the track.
+Compare uses FH-055 claim order and its shared recorded race clock. Checks
 come from public receipts, files from exact review detail, and push counts from
 loaded activity within the entrant's binding window. No score, inferred line count,
 price, or automatic ranking is computed. Missing detail is Unavailable. The queue's
@@ -341,13 +344,13 @@ explicitly describes these as cumulative reports received today, not consumption
 today. Daily deltas and distinct reclaimed-claim lifetimes need more core history.
 
 The fixture harness provides `usage-race`, `usage-over`, `usage-unchecked`,
-`usage-both`, and `usage-legacy`, with `role=agent` for the read-only host. Fixture
+`usage-both`, `usage-legacy`, `usage-unbudgeted`, and `usage-reordered`, with `role=agent` for the read-only host. Fixture
 checks and browser captures are synthetic. See
 [test/captures/fh-062/README.md](test/captures/fh-062/README.md).
 
-Final integration is held for accepted FH-060, FH-055's track/results, and FH-049
-where the owner decision UI overlaps. The usage composition currently sits in Work;
-its meter and Compare section still need to be placed into the accepted FH-055
-race view. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
+Accepted FH-055 main is normally merged at `3d87cdca649740984524882a00408cb9780ae327`
+(second parent `ea577a1d96fc52528bd2854d58ee2a29d9ccf679`). Its glyphs, claim order,
+neutral unreached rings, centered hurdles, badges and silks remain in the shared track.
+Final integration is held for accepted FH-060 and overlapping FH-049 if it lands. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
 serialized operator checks. Saddler PASS and owner review remain open. This local
 candidate has no live Cloudflare, deployment, or owner-acceptance evidence.

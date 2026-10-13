@@ -15,7 +15,7 @@ export function usageTooltip(usage: Usage, agent: string, brand: Brand): string 
 /** The current entrant's budget controls promotion; a review's older snapshot never overrides it. */
 export function usagePromotionCaption(review: Review, state: ProjectState): string {
   const race = state.races?.find((r) => r.packet === review.packet);
-  if (!race?.tokenBudget) return "";
+  if (!race || race.tokenBudget == null) return "";
   const entrant = race.entrants.find(
     (e) => e.agent === review.agent && e.repoName === review.repoName,
   );
