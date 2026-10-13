@@ -11,6 +11,7 @@ import type { GitOperations } from "./git";
 import { ZERO_SHA } from "./trees";
 import { capActivity } from "./activity";
 import { publicPacket } from "./packets";
+import { archivePacket } from "./packet-archive";
 import type { StoredActivity } from "./activity";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import type {
@@ -180,6 +181,12 @@ export class Workflow {
         throw new HttpError(409, "Packet already exists.");
       await this.storage.put(`packet:${packet.id}`, packet);
       return json({ packet }, 201);
+    }
+    const archiving = /^\/packets\/([^/]+)\/(archive|unarchive)$/.exec(path);
+    if (archiving && method === "POST") {
+      this.owner(actor);
+      const action = archiving[2] === "archive" ? "archive" : "unarchive";
+      return json({ packet: await archivePacket(this.storage, archiving[1]!, action) });
     }
     const claiming = /^\/packets\/([^/]+)\/claim$/.exec(path);
     if (claiming && (method === "POST" || method === "DELETE")) {

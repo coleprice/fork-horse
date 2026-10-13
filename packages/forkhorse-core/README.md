@@ -211,6 +211,14 @@ Packets expose `archived: null | {at, by: "owner"}` in `GET /packets` and
 migration. Both lists retain archived packets and their metadata for clients to
 filter. Claim creation on an archived packet returns 409 `Packet is archived.`;
 an existing claim may still be released.
+Only the owner may archive or unarchive. Archive returns 409 while there is a
+live claim (including an open race entrant), a review that is neither promoted,
+stale nor returned, or an open blocker identifying the packet as claimant or
+pusher. Legacy blockers remain open. Archive never deletes history. Each state
+transition atomically writes a `packetArchive:<packet>:<recordedAt>` audit record
+with `{packet, action: "archive" | "unarchive", by: "owner", recordedAt}`.
+Repeated archive/unarchive requests return 200 unchanged without another audit.
+Git-push activity records keep their existing schema.
 
 | Method and suffix under `/projects/:id` | Role | Body / response |
 | --- | --- | --- |
@@ -218,6 +226,8 @@ an existing claim may still be released.
 | `POST /agents/:agent/rotate` | Owner | `{}` → `{agent, apiToken}`; previous API credential immediately stops working |
 | `POST /packets` | Owner | `{id,title,goal,paths,acceptance}` → `{packet}` (201) |
 | `GET /packets` | Owner/agent | `{packets}` |
+| `POST /packets/:pid/archive` | Owner | `{packet}` (200); 409 for open work or blockers |
+| `POST /packets/:pid/unarchive` | Owner | `{packet}` (200) |
 | `POST /packets/:pid/claim` | Agent | `{repoName?}` → `{claim}` (201 new, 200 existing) |
 | `DELETE /packets/:pid/claim` | Owner or claiming agent | `{released:true}`; invalidates outstanding reviews for that packet |
 | `POST /forks/:repo/commit` | Agent | `{packet,files:[{path,content}],message}` → `{repoName,packet,sha}` (201) |

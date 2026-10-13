@@ -2,11 +2,9 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { archivePacket } from "../src/packet-archive";
-import type { HasOpenRaceEntrant } from "../src/packet-archive";
 import type { Packet, PacketArchiveAudit } from "../src/workflow-types";
 
 const packet: Packet = { id: "done", title: "Done", goal: "Fixture", paths: ["src"], acceptance: ["Check"], archived: null };
-const noRace: HasOpenRaceEntrant = async () => false;
 async function inside(callback: (storage: DurableObjectStorage) => Promise<void>) {
   const stub = env.SUPERVISOR.get(env.SUPERVISOR.idFromName(`archive-${crypto.randomUUID().slice(0, 8)}`));
   await runInDurableObject(stub, async (_instance, state) => {
@@ -30,19 +28,21 @@ describe("FH-050 archive transaction in workerd with explicit dependency fixture
     await inside(async storage => {
       await storage.put(key as string, value);
       const before = await storage.list();
-      await expect(archivePacket(storage, "done", "archive", noRace)).rejects.toMatchObject({ status: 409, message });
+      await expect(archivePacket(storage, "done", "archive")).rejects.toMatchObject({ status: 409, message });
       expect(await storage.list()).toEqual(before);
     });
   });
 
-  it("uses the race dependency inside the transaction and refuses an open entrant", async () => {
+  it("refuses an open entrant using the fixed race storage contract", async () => {
     await inside(async storage => {
-      // This is a supplied reader fixture, not a claim about FH-052's storage format.
-      const hasEntrant: HasOpenRaceEntrant = async (txn, id) => {
-        expect(await txn.get(`packet:${id}`)).toEqual(packet);
-        return true;
-      };
-      await expect(archivePacket(storage, "done", "archive", hasEntrant)).rejects.toMatchObject({ status: 409, message: "Packet has a live claim." });
+      // Fixed FH-052 record shape supplied as a fixture before dependency integration.
+      await storage.put("entrant:done:alpha", {
+        packet: "done", agent: "alpha", repoName: "fixture--alpha-1", paths: ["src"],
+        createdAt: "2026-10-13T14:19:00.000Z", firstPushAt: null,
+        reviewRequestedAt: null, receiptPassedAt: null, approvedAt: null,
+        promotedAt: null, place: null, closedAt: null, closedBy: null,
+      });
+      await expect(archivePacket(storage, "done", "archive")).rejects.toMatchObject({ status: 409, message: "Packet has a live claim." });
       expect(await audits(storage)).toEqual([]);
       expect(await storage.get("packet:done")).toEqual(packet);
     });
@@ -58,20 +58,22 @@ describe("FH-050 archive transaction in workerd with explicit dependency fixture
         "blocker:resolved": { packet: "done", pushingPacket: "done", resolved: { at: "fixture", by: "owner" } },
         "blocker:other": { packet: "other", pushingPacket: null, resolved: null },
         "claim:other": { packet: "other" },
+        "entrant:done:closed": { packet: "done", closedAt: "2026-10-13T14:19:00.000Z", closedBy: "release" },
+        "entrant:done-other:open": { packet: "done-other", closedAt: null },
         "receipt:digest": { outcome: "passed" },
         "activity:0000000000000001": { sequence: 1 },
         "ledger:old": { review: "promoted" },
       };
       await storage.put(history);
-      const archived = await archivePacket(storage, "done", "archive", noRace);
+      const archived = await archivePacket(storage, "done", "archive");
       expect(archived.archived).toEqual({ at: expect.any(String), by: "owner" });
       expect(await audits(storage)).toEqual([{ packet: "done", action: "archive", by: "owner", recordedAt: archived.archived!.at }]);
       await storage.put("claim:done", { packet: "done" });
-      expect(await archivePacket(storage, "done", "archive", noRace)).toEqual(archived);
+      expect(await archivePacket(storage, "done", "archive")).toEqual(archived);
       expect(await audits(storage)).toHaveLength(1);
-      const active = await archivePacket(storage, "done", "unarchive", noRace);
+      const active = await archivePacket(storage, "done", "unarchive");
       expect(active.archived).toBeNull();
-      expect(await archivePacket(storage, "done", "unarchive", noRace)).toEqual(active);
+      expect(await archivePacket(storage, "done", "unarchive")).toEqual(active);
       expect((await audits(storage)).map(a => a.action)).toEqual(["archive", "unarchive"]);
       for (const [key, value] of Object.entries(history)) expect(await storage.get(key)).toEqual(value);
     });
@@ -82,7 +84,7 @@ describe("FH-050 archive transaction in workerd with explicit dependency fixture
       vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-13T14:19:00.000Z"));
       try {
         for (const action of ["archive", "unarchive", "archive", "unarchive"] as const)
-          await archivePacket(storage, "done", action, noRace);
+          await archivePacket(storage, "done", action);
         const entries = await audits(storage);
         expect(entries.map(a => a.action)).toEqual(["archive", "unarchive", "archive", "unarchive"]);
         expect(new Set(entries.map(a => a.recordedAt)).size).toBe(4);
@@ -95,10 +97,10 @@ describe("FH-050 archive transaction in workerd with explicit dependency fixture
       const legacy = { ...packet } as Partial<Packet>;
       delete legacy.archived;
       await storage.put("packet:done", legacy);
-      expect((await archivePacket(storage, "done", "unarchive", noRace)).archived).toBeNull();
+      expect((await archivePacket(storage, "done", "unarchive")).archived).toBeNull();
       expect(await storage.get("packet:done")).toEqual(legacy);
       for (const action of ["archive", "unarchive"] as const)
-        await expect(archivePacket(storage, "missing", action, noRace)).rejects.toMatchObject({ status: 404 });
+        await expect(archivePacket(storage, "missing", action)).rejects.toMatchObject({ status: 404 });
       const transaction = storage.transaction.bind(storage);
       vi.spyOn(storage, "transaction").mockImplementation(callback => transaction(async txn => {
         const put = txn.put.bind(txn);
@@ -109,11 +111,11 @@ describe("FH-050 archive transaction in workerd with explicit dependency fixture
         return callback(txn);
       }));
       try {
-        await expect(archivePacket(storage, "done", "archive", noRace)).rejects.toThrow("offline audit persistence failure");
+        await expect(archivePacket(storage, "done", "archive")).rejects.toThrow("offline audit persistence failure");
         expect(await storage.get("packet:done")).toEqual(legacy);
         expect(await audits(storage)).toEqual([]);
       } finally { vi.restoreAllMocks(); }
-      expect((await archivePacket(storage, "done", "archive", noRace)).archived).not.toBeNull();
+      expect((await archivePacket(storage, "done", "archive")).archived).not.toBeNull();
     });
   });
 });

@@ -9,6 +9,7 @@ import type {
   Fork,
   LedgerEntry,
   Packet,
+  PacketArchiveAudit,
   ReconcilerAlert,
   Review,
 } from "../src/workflow-types";
@@ -134,6 +135,88 @@ function push(
 }
 
 describe("FH-050 packet visibility and claim guard in workerd with offline providers", () => {
+  it("authorizes only owner transitions, refuses unknown packets and enforces POST", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    for (const action of ["archive", "unarchive"]) {
+      for (const token of [f.alpha, f.beta, "invalid"]) {
+        expect((await api(f.id, `/packets/one/${action}`, token, undefined, "POST")).status).toBe(403);
+        expect((await api(f.id, `/packets/missing/${action}`, token, undefined, "POST")).status).toBe(403);
+      }
+      expect((await api(f.id, `/packets/missing/${action}`, OWNER, undefined, "POST")).status).toBe(404);
+      for (const method of ["GET", "DELETE", "PATCH"])
+        expect((await api(f.id, `/packets/one/${action}`, OWNER, undefined, method)).status).toBe(405);
+    }
+    expect((await state(f.id)).packets[0]!.archived).toBeNull();
+  });
+
+  it.each([
+    ["claim:one", { packet: "one", agent: "alpha", repoName: "fixture", paths: ["src"], createdAt: "fixture" }],
+    ["review:open", { packet: "one", promoted: false, stale: false, returned: null }],
+    ["blocker:claimant", { packet: "one", pushingPacket: "other", resolved: null }],
+    ["blocker:pusher", { packet: "other", pushingPacket: "one", resolved: null }],
+    ["entrant:one:alpha", { packet: "one", closedAt: null }],
+  ])("returns HTTP 409 for %s and leaves storage unchanged", async (key, record) => {
+    const f = await fixture();
+    await packet(f.id);
+    let before: Map<string, unknown>;
+    await mutate(f.id, async (_instance, objectState) => {
+      await objectState.storage.put(key as string, record);
+      before = await objectState.storage.list();
+    });
+    expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(409);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.list()).toEqual(before!);
+    });
+  });
+
+  it("serializes idempotent owner archive/unarchive and restores agent claiming", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    const responses = await Promise.all([
+      api(f.id, "/packets/one/archive", OWNER, undefined, "POST"),
+      api(f.id, "/packets/one/archive", OWNER, undefined, "POST"),
+    ]);
+    expect(responses.map(r => r.status)).toEqual([200, 200]);
+    const results = await Promise.all(responses.map(r => r.json<{ packet: Packet }>()));
+    expect(results[0]).toEqual(results[1]);
+    const p = results[0]!.packet;
+    expect(p.archived).toEqual({ at: expect.any(String), by: "owner" });
+    expect((await state(f.id)).packets).toEqual([p]);
+    const denied = await claim(f.id, f.alpha);
+    expect(denied.status).toBe(409);
+    expect(await denied.json()).toEqual({ error: "Packet is archived." });
+    for (let i = 0; i < 2; i++) {
+      const response = await api(f.id, "/packets/one/unarchive", OWNER, undefined, "POST");
+      expect(response.status).toBe(200);
+      expect((await response.json<{ packet: Packet }>()).packet.archived).toBeNull();
+    }
+    await mutate(f.id, async (_instance, objectState) => {
+      const entries = [...(await objectState.storage.list<PacketArchiveAudit>({ prefix: "packetArchive:one:" })).entries()];
+      expect(entries).toHaveLength(2);
+      expect(entries[0]).toEqual([`packetArchive:one:${p.archived!.at}`, { packet: "one", action: "archive", by: "owner", recordedAt: p.archived!.at }]);
+      expect(entries[1]![1]).toMatchObject({ packet: "one", action: "unarchive", by: "owner" });
+    });
+    expect((await claim(f.id, f.alpha)).status).toBe(201);
+  });
+
+  it("archives promoted packet history and leaves all other stored records intact", async () => {
+    const f = await ready();
+    expect((await api(f.id, `/reviews/${f.review.id}/promote`, OWNER, {})).status).toBe(200);
+    let before: Map<string, unknown>;
+    await mutate(f.id, async (_instance, objectState) => { before = await objectState.storage.list(); });
+    for (const action of ["archive", "unarchive"])
+      expect((await api(f.id, `/packets/one/${action}`, OWNER, undefined, "POST")).status).toBe(200);
+    await mutate(f.id, async (_instance, objectState) => {
+      const after = await objectState.storage.list();
+      for (const [key, value] of before!) expect(after.get(key)).toEqual(value);
+      expect([...after.keys()].filter(key => !before!.has(key))).toHaveLength(2);
+      expect([...after.keys()].filter(key => !before!.has(key)).every(key => key.startsWith("packetArchive:one:"))).toBe(true);
+    });
+    expect((await state(f.id)).ledger).toHaveLength(1);
+    expect((await state(f.id)).reviews[0]!.promoted).toBe(true);
+  });
+
   it("creates active packets and returns archive metadata without hiding packet history", async () => {
     const f = await fixture();
     await packet(f.id);
