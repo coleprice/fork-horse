@@ -1,6 +1,8 @@
 /** Persistent public workflow records; none contain Git/API credentials. */
 export interface Packet {
   id: string;
+  /** Absent only in legacy storage; public reads normalize it to standard. */
+  mode?: "standard" | "race";
   title: string;
   goal: string;
   paths: string[];
@@ -18,6 +20,25 @@ export interface Claim {
   repoName: string;
   paths: string[];
   createdAt: string;
+}
+/** Race history is retained at entrant:<packet>:<agent>, including after release. */
+export interface RaceEntrant extends Claim {
+  firstPushAt: string | null;
+  reviewRequestedAt: string | null;
+  receiptPassedAt: string | null;
+  approvedAt: string | null;
+  promotedAt: string | null;
+  place: number | null;
+  closedAt: string | null;
+  closedBy: "release" | "owner" | "race-finished" | null;
+}
+export interface RaceState {
+  packet: string;
+  status: "open" | "finished";
+  finishedAt: string | null;
+  winner: string | null;
+  ledgerEntryId: string | null;
+  entrants: (Omit<RaceEntrant, "packet" | "paths" | "createdAt"> & { claimedAt: string })[];
 }
 /** Durable release history. Claim identity and provenance only; no credentials. */
 export interface ClaimReleaseAudit {
@@ -113,11 +134,12 @@ export interface CommitFile {
 /** Authenticated dashboard/MCP snapshot. Arrays contain public records only. */
 export interface StateSnapshot {
   project: import("./types").Project & { settings: { requireReceipt: boolean } };
-  agents: { name: string }[];
+  agents: { name: string; createdAt: string | null }[];
   forks: (Fork & { head: string })[];
   packets: Packet[];
   /** Only live claims appear. Release removes the claim, but keeps historical reviews. */
   claims: Claim[];
+  races: RaceState[];
   blockers: Blocker[];
   reviews: (Review & { receipt: ReceiptSummary | null })[];
   ledger: LedgerEntry[];

@@ -467,3 +467,39 @@ approval verifies quick module source digests independently; generation, claim,
 CAS and advisory-mode semantics are unchanged. See [receipts](../../docs/receipts.md).
 The workerd suite exercises real local Dynamic Workers with fixture repositories
 and mocked containers. Deployed latency and no-container live smoke remain open.
+
+### Race packets (FH-052)
+
+An owner may set `mode: "race"` on `POST /projects/:id/packets`. Omission and
+legacy records read as `"standard"`; a packet's mode cannot change. Standard
+claims retain their existing `claim:<packet>` storage and workflow rules.
+
+A race supports at most **three distinct entrants ever**, each with one immutable
+caller-owned fork binding. Repeating an open claim is idempotent. Race entrants
+may overlap each other's paths, while claims on other packets retain the existing
+overlap rules. The same-race push exemption applies only to the entrant's bound
+fork; other packet collisions remain blockers.
+
+Entrants live at `entrant:<packet>:<agent>`. Records are never deleted or reused;
+`closedAt === null` means open. Agent `DELETE /packets/:pid/claim` closes only that
+agent's entry. An owner's DELETE requires JSON `{ "agent": "builder" }` for a race.
+A closed entrant cannot re-enter, and still counts toward the cap. Release stales
+only that entrant's reviews. `openEntrants(storage, packet?)` exports the shared
+open-entry rule for other core consumers.
+
+`/state.races` exposes entrants in claim order with `claimedAt`, `firstPushAt`,
+`reviewRequestedAt`, `receiptPassedAt`, `approvedAt`, `promotedAt`, `place`,
+`closedAt`, and `closedBy`. Milestones are first-occurrence timestamps, otherwise
+null. Successful commit API writes and observed pushes on the default branch
+record the first push; queue events predating the claim do not. Receipt milestones
+require an attached passing receipt for the matching entrant/review generation.
+Caller `/me.work` includes open race entries with the existing `next` rules.
+
+FH-052 records `promotedAt` on a successful race promotion, leaving the entrant
+open. Race finish, closure, placings, winner and ledger entry ID belong to FH-053;
+until that integration `/state.races` reports `status: "open"` and null finish
+metadata. This package's fixture tests are offline workerd evidence only.
+
+Agent enrollment, including OAuth's owner-authorized enrollment route, stores
+`createdAt`. Token rotation preserves it. `/state.agents` exposes only `name` and
+`createdAt`; legacy agents report null and are not backfilled. No sequence is stored.
