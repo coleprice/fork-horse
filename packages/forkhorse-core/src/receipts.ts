@@ -1,3 +1,4 @@
+import { claimForAgent, markEntrant } from "./race-entrants";
 import { RpcTarget } from "cloudflare:workers";
 import { Snapshot } from "../../forkhorse-runner/src/snapshot";
 import { loadChecks, MissingChecksError } from "../../forkhorse-runner/src/checks";
@@ -5,7 +6,7 @@ import { receiptJson, requirePassingReceipt, sha256 } from "../../forkhorse-runn
 import type { AuthorizedReview, ReviewAuthority, RunRequest, StoredReceipt } from "../../forkhorse-runner/src/types";
 import { HttpError } from "./http";
 import type { Env, Project } from "./types";
-import type { Claim, ClaimReleaseAudit, Fork, ReceiptSummary, Review } from "./workflow-types";
+import type { ClaimReleaseAudit, Fork, Packet, ReceiptSummary, Review } from "./workflow-types";
 
 export const settings = (project: Project) => project.settings ?? { requireReceipt: false };
 export const publicReview = ({ receiptGeneration: _generation, ...review }: Review) => ({
@@ -85,7 +86,7 @@ export class ReceiptAuthority extends RpcTarget implements ReviewAuthority {
     return this.#storage.transaction(async (txn) => {
       const review = await txn.get<Review>(`review:${run.reviewId}`);
       if (!same(review, run) || !review || review.receiptDigest !== null) return false;
-      const claim = await txn.get<Claim>(`claim:${review.packet}`);
+      const claim = await claimForAgent(txn, review.packet, review.agent);
       // A promoted advisory run may finish after its claim was atomically released,
       // including after a new claim is made. Only its exact promotion audit restores
       // that historical binding; same() still fences stale commits and generations.
@@ -107,6 +108,7 @@ export class ReceiptAuthority extends RpcTarget implements ReviewAuthority {
         checks: checks.map(c => ({ name: c.check.name, tier: c.check.tier, runtime: c.runtime, message: c.message, outcome: c.outcome, durationMs: c.durationMs })),
       };
       await txn.put(`review:${review.id}`, review);
+      if (status === "passed") await markEntrant(txn, review, "receiptPassedAt", finishedAt);
       return true;
     });
   }
@@ -131,7 +133,13 @@ export class Receipts {
       status: "running", trigger, digest: null, startedAt: new Date().toISOString(),
       finishedAt: null, durationMs: null, checks: [],
     };
-    await this.storage.put(`review:${review.id}`, review);
+    if ((await this.storage.get<Packet>(`packet:${review.packet}`))?.mode === "race") {
+      await this.storage.transaction(async txn => {
+        await txn.put(`review:${review.id}`, review);
+        if (trigger === "review-created")
+          await markEntrant(txn, review, "reviewRequestedAt", review.createdAt);
+      });
+    } else await this.storage.put(`review:${review.id}`, review);
     return run;
   }
   start(run: AuthorizedReview, advisory = false): void {

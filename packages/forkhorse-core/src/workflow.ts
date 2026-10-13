@@ -1,3 +1,4 @@
+import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, publicPacket, raceStates, recordPromoteRejected } from "./race-entrants";
 import { ReviewReader } from "./review-detail";
 import { publicReview, readReceipt, settings } from "./receipts";
 import type { Receipts } from "./receipts";
@@ -20,6 +21,8 @@ import type {
   Fork,
   LedgerEntry,
   Packet,
+  RaceEntrant,
+  RaceResult,
   ReconcilerAlert,
   Review,
   StateSnapshot,
@@ -32,6 +35,7 @@ export interface Actor {
 export interface Agent {
   name: string;
   tokenHash: string;
+  createdAt?: string;
 }
 const now = () => new Date().toISOString();
 const shaPattern = /^[0-9a-f]{40}$/;
@@ -88,7 +92,7 @@ export class Workflow {
   ): Promise<{ claim: Claim; fork: Fork }> {
     const fork = await this.fork(project, repoName, agent);
     if (!slug(packet)) throw new HttpError(400, "packet must be a packet ID.");
-    const claim = await this.storage.get<Claim>(`claim:${packet}`);
+    const claim = await claimForAgent(this.storage, packet, agent);
     if (!claim || claim.agent !== agent || claim.repoName !== repoName)
       throw new HttpError(409, "A live matching packet, agent and fork binding is required.");
     return { claim, fork };
@@ -99,17 +103,29 @@ export class Workflow {
     claim: Claim,
     releasedBy: ClaimReleaseAudit["releasedBy"],
     review?: string,
+    at = now(),
   ): Promise<void> {
-    const at = now();
-    await txn.delete(`claim:${claim.packet}`);
+    const race = "closedAt" in claim;
+    if (race) {
+      await txn.put(entrantKey(claim.packet, claim.agent), {
+        ...claim, closedAt: at, closedBy: releasedBy === "promote" || releasedBy === "race-finished"
+          ? "race-finished" : releasedBy === "owner" ? "owner" : "release",
+      });
+    } else await txn.delete(`claim:${claim.packet}`);
     for (const pending of (await txn.list<Review>({ prefix: "review:" })).values()) {
-      if (pending.packet === claim.packet && !pending.promoted)
+      if (pending.packet === claim.packet && !pending.promoted &&
+          (!race || (pending.agent === claim.agent && pending.repoName === claim.repoName)))
         await txn.put(`review:${pending.id}`, { ...pending, stale: true });
     }
     for (const [key, blocker] of await txn.list<StoredBlocker>({ prefix: "blocker:" })) {
-      if ((blocker.packet === claim.packet || blocker.pushingPacket === claim.packet) && !blocker.resolved)
+      // A race packet has several independent claimants/pushers. Closing one entry
+      // must not resolve another entrant's collision or unblock that other fork.
+      const claimantEnded = blocker.packet === claim.packet && (!race || blocker.claimingAgent === claim.agent);
+      const pusherEnded = blocker.pushingPacket === claim.packet && (!race ||
+        (blocker.pushingAgent === claim.agent && blocker.repoName === claim.repoName));
+      if ((claimantEnded || pusherEnded) && !blocker.resolved)
         await txn.put(key, { ...publicBlocker(blocker), resolved: {
-          at, by: releasedBy === "promote" ? "promote" : "release",
+          at, by: releasedBy === "race-finished" ? "race-finished" : releasedBy === "promote" ? "promote" : "release",
         } } satisfies Blocker);
     }
     await txn.put(`claimRelease:${review ?? crypto.randomUUID()}`, {
@@ -121,6 +137,90 @@ export class Workflow {
       ...(review ? { review } : {}),
       recordedAt: at,
     } satisfies ClaimReleaseAudit);
+  }
+
+  /** Called in the ledger transaction, after canonical Git CAS succeeds. */
+  private async finishRace(txn: DurableObjectTransaction, claim: Claim, review: Review, entry: LedgerEntry): Promise<void> {
+    const records = await entrants(txn, claim.packet);
+    const winner = records.find(entrant => entrant.agent === claim.agent);
+    if (!winner || winner.closedAt !== null || winner.repoName !== claim.repoName ||
+        winner.createdAt !== claim.createdAt || await txn.get(`race:${claim.packet}`))
+      throw new Error("Race binding changed during promotion");
+    // The durable intent predates external Git I/O. Finish only after that I/O succeeds,
+    // including milestones reached by advisory receipts while the push was in flight.
+    const finishedAt = now();
+    const placed = placedEntrants(records, winner.agent);
+    for (const [index, entrant] of placed.entries()) {
+      const finished = { ...entrant, place: index + 1,
+        ...(entrant.agent === winner.agent ? { promotedAt: finishedAt } : {}),
+      };
+      if (entrant.closedAt === null) {
+        // The winner retains the promote audit used by late advisory receipts.
+        const winning = entrant.agent === winner.agent;
+        await this.releaseClaim(txn, finished, winning ? "promote" : "race-finished",
+          winning ? review.id : undefined, finishedAt);
+      } else {
+        // Preserve an earlier withdrawal's reason/time; it sorts after all runners.
+        await txn.put(entrantKey(entrant.packet, entrant.agent), finished);
+      }
+    }
+    await txn.put(`race:${claim.packet}`, {
+      winner: winner.agent, places: placed.map((entrant, index) => ({ agent: entrant.agent, place: index + 1 })),
+      finishedAt, ledgerEntryId: entry.id,
+    } satisfies RaceResult);
+  }
+
+  private async rejectRacePromote(project: Project, review: Review, found?: string, rejection = staleBase()): Promise<never> {
+    try {
+      const head = found ?? await this.head(project.repoName, project.defaultBranch);
+      if (head !== review.base || await this.storage.get(`race:${review.packet}`))
+        await recordPromoteRejected(this.storage, review, head);
+    }
+    catch {
+      // Photo-finish bookkeeping must never turn a definite 409 into an uncertain push.
+      console.error(JSON.stringify({ event: "race.promote-rejection-unrecorded" }));
+    }
+    throw rejection;
+  }
+
+  private async raceClaim(request: Request, project: Project, packet: Packet, actor: Actor): Promise<Response> {
+    const data = request.body ? await body(request) : {};
+    if (request.method === "DELETE") {
+      const agent = actor.owner ? data.agent : this.agent(actor);
+      if (!slug(agent, 32)) throw new HttpError(400, "Provide the race entrant's agent.");
+      if (await this.storage.get("promotionPending"))
+        throw new HttpError(409, "Promotion needs owner inspection.");
+      await this.storage.transaction(async txn => {
+        const current = await claimForAgent(txn, packet.id, agent);
+        if (current) await this.releaseClaim(txn, current, actor.owner ? "owner" : "agent");
+      });
+      return json({ released: true });
+    }
+    const agent = this.agent(actor);
+    if (await this.storage.get(`race:${packet.id}`)) throw new HttpError(409, "Race finished.");
+    const current = await this.storage.get<RaceEntrant>(entrantKey(packet.id, agent));
+    if (current) {
+      if (current.closedAt !== null) throw new HttpError(409, "Race entrant is closed.");
+      if (data.repoName !== undefined && data.repoName !== current.repoName)
+        throw new HttpError(409, "Claim is already bound; release it before changing forks.");
+      await this.fork(project, current.repoName, agent);
+      return json({ claim: current });
+    }
+    if ((await entrants(this.storage, packet.id)).length >= MAX_RACE_ENTRANTS)
+      throw new HttpError(409, "Race entrant limit reached.");
+    const repoName = data.repoName ?? await this.storage.get<string>(`latestFork:${agent}`);
+    const fork = await this.fork(project, repoName, agent);
+    if ((await liveClaims(this.storage)).some(claim => claim.packet !== packet.id &&
+        claim.agent !== agent && claim.paths.some(a => packet.paths.some(b => overlaps(a, b)))))
+      throw new HttpError(409, "Paths overlap another agent's live claim.");
+    const entrant: RaceEntrant = {
+      packet: packet.id, agent, repoName: fork.repoName, paths: packet.paths, createdAt: now(),
+      firstPushAt: null, reviewRequestedAt: null, receiptPassedAt: null, approvedAt: null,
+      promotedAt: null, place: null, closedAt: null, closedBy: null,
+    };
+    // Supervisor serializes the cap check, overlap check and immutable binding.
+    await this.storage.put(entrantKey(packet.id, agent), entrant);
+    return json({ claim: entrant }, 201);
   }
 
   private async requireNoBlockers(
@@ -174,12 +274,13 @@ export class Workflow {
       return this.credential(agent, 200);
     }
     if (path === "/packets" && method === "GET")
-      return json({ packets: await list<Packet>(this.storage, "packet:") });
+      return json({ packets: (await list<Packet>(this.storage, "packet:")).map(publicPacket) });
     if (path === "/packets" && method === "POST") {
       this.owner(actor);
       const data = await body(request);
       if (
         !slug(data.id) ||
+        (data.mode !== undefined && data.mode !== "standard" && data.mode !== "race") ||
         !text(data.title, 200) ||
         !text(data.goal, 4000) ||
         !Array.isArray(data.paths) ||
@@ -194,6 +295,7 @@ export class Workflow {
         throw new HttpError(400, "Invalid packet fields.");
       const packet: Packet = {
         id: data.id,
+        mode: data.mode ?? "standard",
         title: data.title,
         goal: data.goal,
         paths: [...new Set(data.paths)],
@@ -210,6 +312,7 @@ export class Workflow {
       const packetId = claiming[1]!;
       const packet = await this.storage.get<Packet>(`packet:${packetId}`);
       if (!packet) throw new HttpError(404, "Packet not found.");
+      if (packet.mode === "race") return this.raceClaim(request, project, packet, actor);
       const current = await this.storage.get<Claim>(`claim:${packetId}`);
       if (method === "DELETE") {
         if (current && !actor.owner && current.agent !== agent)
@@ -240,7 +343,7 @@ export class Workflow {
       }
       const repoName = data.repoName ?? (await this.storage.get<string>(`latestFork:${agent}`));
       const fork = await this.fork(project, repoName, claimingAgent);
-      const claims = await list<Claim>(this.storage, "claim:");
+      const claims = await liveClaims(this.storage);
       if (
         claims.some(
           (claim) =>
@@ -299,6 +402,7 @@ export class Workflow {
         await repo.revokeToken(token.id);
       }
       await this.invalidate(fork.repoName, prepared.sha);
+      await this.storage.transaction(txn => markEntrant(txn, claim, "firstPushAt", now()));
       return json({ repoName: fork.repoName, packet: claim.packet, sha: prepared.sha }, 201);
     }
     if (path === "/blockers" && method === "GET")
@@ -404,6 +508,11 @@ export class Workflow {
       if (await this.storage.get("promotionPending"))
         throw new HttpError(409, "Promotion needs owner inspection.");
       if (review.promoted) throw staleBase();
+      const race = (await this.storage.get<Packet>(`packet:${review.packet}`))?.mode === "race";
+      // Finished entrants have no live binding and their reviews are stale. Preserve
+      // the photo-finish response before those guards hide the canonical CAS loss.
+      if (race && reviewing[2] === "promote" && await this.storage.get(`race:${review.packet}`))
+        return this.rejectRacePromote(project, review);
       const { claim, fork } = await this.binding(project, review.packet, review.repoName, review.agent);
       await this.requireNoBlockers(this.storage, review);
       if (reviewing[2] === "promote") this.diagnostic.stage = "heads";
@@ -430,6 +539,7 @@ export class Workflow {
           await this.requireNoBlockers(txn, current);
           current.approval = { sha: current.sha, receiptDigest: current.receiptDigest };
           await txn.put(`review:${review.id}`, current);
+          await markEntrant(txn, claim, "approvedAt", now());
           return current;
         });
         return json({ review: publicReview(approved) });
@@ -439,8 +549,11 @@ export class Workflow {
         review.approval.sha !== review.sha
       )
         throw new HttpError(409, "Approval does not match the commit.");
-      if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
+      const beforeChecks = await this.head(project.repoName, project.defaultBranch);
+      if (beforeChecks !== review.base) {
+        if (race) return this.rejectRacePromote(project, review, beforeChecks);
         throw staleBase();
+      }
       // Advisory promotion neither invokes nor waits for the check runner. Owner
       // consent binds the commit; required projects establish fresh receipt evidence below.
       let checkedGeneration: string | undefined;
@@ -474,8 +587,11 @@ export class Workflow {
       this.diagnostic.stage = "heads";
       if ((await this.head(review.repoName, project.defaultBranch)) !== review.sha)
         throw new HttpError(409, "Approval is stale; request review again.");
-      if ((await this.head(project.repoName, project.defaultBranch)) !== review.base)
+      const beforePush = await this.head(project.repoName, project.defaultBranch);
+      if (beforePush !== review.base) {
+        if (race) return this.rejectRacePromote(project, review, beforePush);
         throw staleBase();
+      }
       const checked = await this.storage.get<Review>(`review:${review.id}`);
       if (checked?.returned) throw new HttpError(409, "Review was returned to the agent.");
       if (!checked || checked.stale || checked.promoted || checked.sha !== review.sha)
@@ -495,6 +611,7 @@ export class Workflow {
         after: review.sha,
         receiptDigest: review.receiptDigest,
         recordedAt: now(),
+        ...(race ? { race: review.packet } : {}),
       };
       // Persist an intent before external I/O. An uncertain push never gets retried automatically.
       this.diagnostic.stage = "pending";
@@ -514,19 +631,23 @@ export class Workflow {
             // Keep any advisory result attached while the canonical push was in flight.
             [`review:${review.id}`]: { ...latest!, promoted: true },
           });
-          const live = await txn.get<Claim>(`claim:${review.packet}`);
-          // Never erase a replacement binding, even if it names the same packet.
-          if (live && live.agent === claim.agent && live.repoName === claim.repoName &&
-              live.createdAt === claim.createdAt) {
-            await this.releaseClaim(txn, live, "promote", review.id);
+          if (race) await this.finishRace(txn, claim, review, entry);
+          else {
+            const live = await claimForAgent(txn, review.packet, review.agent);
+            // Never erase a replacement binding, even if it names the same packet.
+            if (live && live.agent === claim.agent && live.repoName === claim.repoName &&
+                live.createdAt === claim.createdAt)
+              await this.releaseClaim(txn, live, "promote", review.id);
           }
           await txn.delete("promotionPending");
         });
       } catch (error) {
         // A definite preflight/CAS rejection is safe to retry after a new review.
         // Transport/storage uncertainty keeps the durable intent for inspection/reconciliation.
-        if (error instanceof HttpError && error.status === 409)
+        if (error instanceof HttpError && error.status === 409) {
           await this.storage.delete("promotionPending");
+          if (race) return await this.rejectRacePromote(project, review, undefined, error);
+        }
         throw error;
       } finally {
         // Successful cleanup preserves the original failure stage; cleanup failures identify token.
@@ -547,7 +668,11 @@ export class Workflow {
       [...crypto.getRandomValues(new Uint8Array(32))]
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
-    await this.storage.put(`agent:${agent}`, { name: agent, tokenHash: await digest(apiToken) });
+    const previous = await this.storage.get<Agent>(`agent:${agent}`);
+    await this.storage.put(`agent:${agent}`, {
+      name: agent, tokenHash: await digest(apiToken),
+      ...(previous ? (previous.createdAt ? { createdAt: previous.createdAt } : {}) : { createdAt: now() }),
+    });
     return json({ agent, apiToken }, status);
   }
   private async invalidate(repoName: string, sha: string): Promise<void> {
@@ -588,11 +713,13 @@ export class Workflow {
         after: current,
         reason: "Canonical head differs from the merge ledger.",
       });
+    const packets = (await list<Packet>(this.storage, "packet:")).map(publicPacket);
     return json({
       project: { ...project, settings: settings(project), ...await publicEvents(this.storage, project.repoName) },
-      agents: (await list<Agent>(this.storage, "agent:")).map(({ name }) => ({ name })),
+      agents: (await list<Agent>(this.storage, "agent:")).map(({ name, createdAt }) => ({ name, createdAt: createdAt ?? null })),
       forks: await Promise.all(forks.map(async (fork) => ({ ...fork, ...await publicEvents(this.storage, fork.repoName), head: heads.get(fork.repoName)! }))),
-      packets: await list<Packet>(this.storage, "packet:"),
+      packets,
+      races: await raceStates(this.storage, packets),
       claims: await list<Claim>(this.storage, "claim:"),
       blockers: (await list<StoredBlocker>(this.storage, "blocker:")).map(publicBlocker),
       reviews: reviews.map(publicReview),
@@ -619,7 +746,8 @@ export async function recordWorkflowPush(
   forkHead?: string,
 ): Promise<void> {
   if (entry.agent) {
-    const claims = [...(await txn.list<Claim>({ prefix: "claim:" })).values()];
+    const raceEntrants = await openEntrants(txn);
+    const claims = [...(await txn.list<Claim>({ prefix: "claim:" })).values(), ...raceEntrants];
     const pushingClaims = claims.filter(claim => claim.agent === entry.agent && claim.repoName === entry.repoName);
     // Raw push events name a fork, not a packet. Multiple bindings cannot be attributed safely.
     const pushingPacket = pushingClaims.length === 1 ? pushingClaims[0]!.packet : null;
@@ -627,8 +755,11 @@ export async function recordWorkflowPush(
       const paths = entry.changedPaths.filter((path) =>
         claim.paths.some((claimed) => overlaps(claimed, path)),
       );
-      if (claim.agent !== entry.agent && paths.length) {
-        const id = `${entry.sequence}-${claim.packet}`;
+      const sameRace = raceEntrants.some(entrant => entrant.packet === claim.packet &&
+        entrant.agent === entry.agent && entrant.repoName === entry.repoName);
+      if (claim.agent !== entry.agent && paths.length && !sameRace) {
+        // A colon cannot occur in packet/agent slugs, so race IDs cannot collide with standard packet IDs.
+        const id = `${entry.sequence}-${claim.packet}${"closedAt" in claim ? `:${claim.agent}` : ""}`;
         const blocker: Blocker = {
           id,
           packet: claim.packet,
@@ -645,6 +776,12 @@ export async function recordWorkflowPush(
       }
     }
     if (entry.ref === `refs/heads/${project.defaultBranch}`) {
+      for (const entrant of raceEntrants) {
+        if (entrant.agent === entry.agent && entrant.repoName === entry.repoName &&
+            entry.after !== ZERO_SHA && entry.before !== entry.after &&
+            Date.parse(entry.eventTimestamp) >= Date.parse(entrant.createdAt))
+          await markEntrant(txn, entrant, "firstPushAt", entry.eventTimestamp);
+      }
       // Queue events can arrive after a newer review; prefer the fresh fork head.
       const head = forkHead ?? entry.after;
       for (const review of (await txn.list<Review>({ prefix: "review:" })).values()) {

@@ -35,6 +35,7 @@ import {
   type ViewModel,
 } from "./model.ts";
 import { ReviewView } from "./review.tsx";
+import { ForkGraph } from "./fork-graph.tsx";
 import { NeedsYou } from "./needs-you.tsx";
 import type { OwnerNeed } from "./needs-you-model.ts";
 import type { ReviewDetail, ReviewDiff, Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
@@ -780,6 +781,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
+                      <ForkGraph key={view.project} state={state} owner={actions.owner}
+                        openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />
                       {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
                       <LayerCard className="p-4 project-card">
                         <div className="section-heading">
