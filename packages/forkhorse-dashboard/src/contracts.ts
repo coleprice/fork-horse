@@ -31,10 +31,19 @@ export interface ProjectState {
     claimingAgent?: string;
     pushingAgent?: string;
     sha?: string;
+    repoName?: string;
   }[];
   reviews: Review[];
   ledger: { review: string; sha: string; promotedAt: string; receiptDigest?: string | null }[];
-  reconcilerAlerts: { id?: string; sha: string; message: string }[];
+  reconcilerAlerts: {
+    sha: string;
+    message: string;
+    id?: string;
+    repoName?: string;
+    ref?: string;
+    before?: string;
+    after?: string;
+  }[];
   promotionPending?: LedgerEntry | null;
 }
 
