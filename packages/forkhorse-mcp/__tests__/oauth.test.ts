@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createOAuthHandler } from "../src/oauth";
+import { createOAuthConfiguration, createOAuthHandler } from "../src/oauth";
+import type { ConsentDescription, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { OAuthEnv } from "../src/oauth";
 import { FixtureCore, fixtureContext, fixtureKv } from "./fixtures";
 
@@ -126,6 +127,71 @@ describe("real OAuth provider with labeled in-memory fixtures", () => {
     expect(html).toContain("client.idiot.tax");
     expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
     expect((await fetch(decision(handle, cookie, "approve", false))).status).toBe(403);
+    expect(core.enrollments).toBe(0);
+  });
+  it("keeps the post form and explicit decisions while making denial the first control", async () => {
+    const { html, page, core } = await consent();
+    expect(html.match(/<h1\b/g)).toHaveLength(1);
+    expect(html).toContain('<html lang="en">');
+    expect(html).toContain('name="viewport" content="width=device-width, initial-scale=1"');
+    expect(html).toContain("prefers-color-scheme: dark");
+    expect(html).toContain('role="note"');
+    expect(html).toContain("It can't approve or promote. Those stay with you.");
+    expect(html).toContain("<ul><li>read project state</li>");
+    const form = /<form\b[^>]*>([\s\S]*?)<\/form>/.exec(html)!;
+    expect(html.match(/<form\b/g)).toHaveLength(1);
+    expect(form[0].slice(0, form[0].indexOf(">") + 1)).toBe('<form method="post">');
+    expect(form[1].match(/<input\b[^>]*>/g)).toEqual([
+      expect.stringMatching(/^<input type="hidden" name="handle" value="[^"<>]+">$/),
+    ]);
+    expect(form[1].match(/<button\b[^>]*>[^<]*<\/button>/g)).toEqual([
+      '<button type="submit" name="decision" value="deny">Deny</button>',
+      '<button type="submit" name="decision" value="approve">Allow</button>',
+    ]);
+    expect(html).not.toMatch(/autofocus|<script\b|<link\b|@import|url\(/i);
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    expect(core.enrollments).toBe(0);
+  });
+  it("escapes every metadata and hidden-field context without rendering client URLs", async () => {
+    const hostile = `&<img src=x onerror="fixture">'`;
+    const escaped = "&#38;&#60;img src=x onerror=&#34;fixture&#34;&#62;&#39;";
+    const core = new FixtureCore();
+    const auth = {
+      clientId: "fixture", redirectUri: redirect, responseType: "code",
+      scope: ["mcp:agent"], codeChallenge: "A".repeat(43), codeChallengeMethod: "S256",
+    };
+    const details: ConsentDescription = {
+      clientId: "fixture", clientName: hostile.repeat(40), clientDomain: hostile,
+      redirectHost: hostile, redirectUri: redirect, redirectIsLoopback: true,
+      scope: ["mcp:agent", hostile],
+      clientUri: "https://untrusted.idiot.tax", logoUri: "https://untrusted.idiot.tax/logo",
+    };
+    // Labeled provider fixture lets impossible metadata test every escaping boundary directly.
+    const oauth = {
+      parseAuthRequest: async () => auth,
+      lookupClient: async () => ({ redirectUris: [redirect] }),
+      describeConsent: async () => details,
+      beginConsent: async () => ({ handle: hostile, headers: new Headers() }),
+    } as unknown as OAuthHelpers;
+    const configuration = createOAuthConfiguration({
+      core: core.client, publicOrigin: origin, project: "demo",
+      authorizeOwner: async () => ({ subject: "fixture-owner" }),
+    });
+    const handler = configuration.defaultHandler as {
+      fetch(request: Request, env: OAuthEnv, ctx: ExecutionContext): Promise<Response>;
+    };
+    const response = await handler.fetch(new Request(`${origin}/authorize`), {
+      OAUTH_KV: fixtureKv(), OAUTH_PROVIDER: oauth,
+    }, fixtureContext());
+    const html = await response.text();
+    expect(html).toContain(escaped.repeat(40));
+    expect(html).toContain(`<strong><code>${escaped}</code></strong>`);
+    expect(html).toContain(`Client domain: <code>${escaped}</code>`);
+    expect(html).toContain(`name="handle" value="${escaped}"`);
+    expect(html).toContain(`<code>mcp:agent, ${escaped}</code>`);
+    expect(html).toContain("an app on your computer");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("https://untrusted.idiot.tax");
     expect(core.enrollments).toBe(0);
   });
   it("enforces PKCE, explicit scope, browser-bound consent, denial and replay protection", async () => {

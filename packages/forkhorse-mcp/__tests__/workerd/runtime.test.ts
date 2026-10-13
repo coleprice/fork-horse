@@ -28,12 +28,12 @@ function rpc(method: string, params?: unknown) {
   });
 }
 
-async function authorization(redirectUri: string) {
+async function authorization(redirectUri: string, clientName = "Offline consent fixture") {
   const registered = await request("/oauth/register", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      client_name: "Offline consent fixture",
+      client_name: clientName,
       redirect_uris: [redirectUri],
       grant_types: ["authorization_code"],
       response_types: ["code"],
@@ -116,6 +116,26 @@ describe("offline workerd regression", () => {
     });
     expect(registration.status).toBe(201);
     expect(await registration.json()).toMatchObject({ client_id: expect.any(String) });
+  });
+
+  it("renders escaped consent and the unchanged form under workerd, including the loopback warning", async () => {
+    const clientName = `<img onerror="fixture">&'`;
+    const { query } = await authorization("http://127.0.0.1:1234/callback", clientName);
+    const page = await request(`/authorize?${query}`, {
+      headers: { "x-fixture-owner": "verified" },
+    });
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain("&#60;img onerror=&#34;fixture&#34;&#62;&#38;&#39;");
+    expect(html).not.toMatch(/<img|<script|autofocus|<link|@import|url\(/i);
+    expect(html).toContain('<strong><code>127.0.0.1</code></strong>');
+    expect(html).toContain("an app on your computer");
+    expect(html).toContain('role="note"');
+    expect(html).toContain("prefers-color-scheme: dark");
+    expect(html).toContain('<form method="post"><input type="hidden" name="handle"');
+    expect(html.indexOf('value="deny"')).toBeLessThan(html.indexOf('value="approve"'));
+    expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(outbound).not.toHaveBeenCalled();
   });
 
   it.each(["approve", "deny"] as const)(

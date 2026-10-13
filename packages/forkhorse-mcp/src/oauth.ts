@@ -32,15 +32,145 @@ const grant = z.object({
 const escape = (value: string) =>
   value.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
 function consentPage(details: ConsentDescription, handle: string, project: string) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escape(brand.name)} authorization</title></head><body>
-<h1>Allow ${escape(details.clientName)} to work on ${escape(project)}?</h1>
-<p>This enrolls a new agent with permission to read project state, create its own forks, claim packets, submit work and request review.</p>
-<p>Client names from dynamic registration are self-asserted. Access returns to <strong>${escape(details.redirectHost)}</strong>.</p>
-${details.clientDomain ? `<p>Client domain: ${escape(details.clientDomain)}</p>` : ""}
-${details.redirectIsLoopback ? "<p>This sends access to an app on your computer. Continue only if you started this login.</p>" : ""}
-<p>Scope: ${details.scope.map(escape).join(", ")}</p>
+  // Outside the OS shell: inline token values from design/tokens.json, with system fonts only.
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escape(brand.name)} authorization</title>
+<style>
+:root {
+  color-scheme: light;
+  --color-kumo-base: #fcfcfb;
+  --color-kumo-elevated: #f8f8f7;
+  --color-kumo-tint: #f3f3f1;
+  --color-kumo-brand: #ff4801;
+  --color-kumo-brand-hover: #e03f00;
+  --color-kumo-line: #1411100f;
+  --color-kumo-focus: oklch(15% 0 0);
+  --color-kumo-warning-tint: oklch(92% 0.08 85);
+  --text-color-kumo-default: #1c1a18;
+  --text-color-kumo-strong: #100f0d;
+  --text-color-kumo-subtle: oklch(52% 0.006 60);
+  --text-color-kumo-inverse: #ffffff;
+  --font-sans: "FT Kunst Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", sans-serif;
+  --font-mono: "Apercu Mono Pro", "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --spacing: 0.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-kumo-base: oklch(0.115 0.012 285);
+    --color-kumo-elevated: oklch(0.155 0.011 285);
+    --color-kumo-tint: oklch(0.225 0.025 285);
+    --color-kumo-brand: #b84e00;
+    --color-kumo-brand-hover: #a54200;
+    --color-kumo-line: oklch(0.34 0.022 285);
+    --color-kumo-focus: oklch(93.5% 0 0);
+    --color-kumo-warning-tint: oklch(0.27 0.06 84.429);
+    --text-color-kumo-default: oklch(0.92 0.01 285);
+    --text-color-kumo-strong: oklch(0.92 0.01 285);
+    --text-color-kumo-subtle: oklch(0.66 0.02 285);
+    --text-color-kumo-inverse: #ffffff;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: calc(var(--spacing) * 16) calc(var(--spacing) * 3);
+  background: var(--color-kumo-elevated);
+  color: var(--text-color-kumo-default);
+  font: 14px/20px var(--font-sans);
+}
+.consent { max-width: 32rem; margin: 0 auto; }
+.lockup {
+  margin: 0 0 calc(var(--spacing) * 4);
+  text-align: center;
+  color: var(--text-color-kumo-subtle);
+  font-size: 13px;
+  font-weight: 500;
+}
+.card {
+  padding: calc(var(--spacing) * 6);
+  background: var(--color-kumo-base);
+  border: 1px solid var(--color-kumo-line);
+  border-radius: var(--radius-xl);
+  overflow-wrap: anywhere;
+}
+h1 {
+  margin: 0;
+  color: var(--text-color-kumo-strong);
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+p { margin: 0; }
+.description {
+  margin-top: calc(var(--spacing) * 2);
+  color: var(--text-color-kumo-subtle);
+  font-size: 13px;
+  line-height: 18px;
+  letter-spacing: -0.25px;
+}
+.permissions { margin-top: calc(var(--spacing) * 6); }
+h2 { margin: 0; font-size: 14px; line-height: 20px; font-weight: 500; }
+ul { margin: calc(var(--spacing) * 2) 0; padding-left: calc(var(--spacing) * 5); }
+.limits { color: var(--text-color-kumo-subtle); }
+.warning {
+  display: flex;
+  gap: calc(var(--spacing) * 2);
+  margin-top: calc(var(--spacing) * 6);
+  padding: calc(var(--spacing) * 3);
+  border-radius: var(--radius-lg);
+  background: var(--color-kumo-warning-tint);
+}
+.warning svg { flex: none; margin-top: 2px; }
+.warning p { min-width: 0; }
+code { font-family: var(--font-mono); }
+.context { margin-top: calc(var(--spacing) * 3); }
+.scope { margin-top: calc(var(--spacing) * 6); }
+.scope span { margin-right: calc(var(--spacing) * 2); font-size: 12px; color: var(--text-color-kumo-subtle); }
+form { display: flex; justify-content: flex-end; gap: calc(var(--spacing) * 2); margin-top: calc(var(--spacing) * 6); }
+button {
+  height: 36px;
+  padding: 0 calc(var(--spacing) * 4);
+  border: 1px solid var(--color-kumo-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-kumo-base);
+  color: var(--text-color-kumo-default);
+  font: 500 14px/20px var(--font-sans);
+  cursor: pointer;
+}
+button:hover { background: var(--color-kumo-tint); }
+button[value="approve"] { background: var(--color-kumo-brand); color: var(--text-color-kumo-inverse); border-color: var(--color-kumo-brand); }
+button[value="approve"]:hover { background: var(--color-kumo-brand-hover); border-color: var(--color-kumo-brand-hover); }
+button:focus-visible { outline: 2px solid var(--color-kumo-focus); outline-offset: 2px; }
+@media (max-width: 639px) {
+  body { padding-top: calc(var(--spacing) * 6); }
+  .card { padding: calc(var(--spacing) * 4); }
+}
+</style></head><body>
+<main class="consent">
+<p class="lockup"><span aria-hidden="true">${escape(brand.mark)}</span> ${escape(brand.name)}</p>
+<section class="card" aria-labelledby="consent-title">
+<h1 id="consent-title">Allow ${escape(details.clientName)} to work on ${escape(project)}?</h1>
+<p class="description">It will join as a new agent in this project.</p>
+<div class="permissions">
+<h2>It will be able to</h2>
+<ul>${details.scope.includes(scope) ? "<li>read project state</li><li>create its own forks</li><li>claim packets</li><li>submit work and request review</li>" : ""}</ul>
+<p class="limits">It can't approve or promote. Those stay with you.</p>
+</div>
+<div class="warning" role="note">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5 15 14H1Z" stroke-linejoin="round"/><path d="M8 5.5v4M8 11v.5"/></svg>
+<p>The name &quot;${escape(details.clientName)}&quot; is self-reported by the app. After you choose, you return to <strong><code>${escape(details.redirectHost)}</code></strong>.</p>
+</div>
+${details.clientDomain ? `<p class="context">Client domain: <code>${escape(details.clientDomain)}</code></p>` : ""}
+${details.redirectIsLoopback ? '<p class="context">This sends access to an app on your computer. Continue only if you started this login.</p>' : ""}
+<p class="scope"><span>Scope</span> <code>${details.scope.map(escape).join(", ")}</code></p>
 <form method="post"><input type="hidden" name="handle" value="${escape(handle)}">
-<button name="decision" value="approve">Allow</button><button name="decision" value="deny">Deny</button></form></body></html>`;
+<button type="submit" name="decision" value="deny">Deny</button><button type="submit" name="decision" value="approve">Allow</button></form>
+</section></main></body></html>`;
 }
 
 function configureOAuth(options: OAuthOptions) {
