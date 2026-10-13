@@ -1373,7 +1373,16 @@ describe("FH-039 return and detail API in workerd with offline providers", () =>
     expect((await api(f.id, `/reviews/${f.review.id}/promote`, OWNER, {})).status).toBe(200);
     const detail = await (await api(f.id, route, f.alpha)).json<{ promotion: unknown }>();
     const ledger = (await state(f.id)).ledger[0]!;
-    expect(detail.promotion).toEqual({ before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest });
+    expect(detail.promotion).toEqual({ before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt,
+      receiptDigest: ledger.receiptDigest, requireReceipt: false });
+    await mutate(f.id, async (_instance, objectState) => {
+      const legacy = { ...ledger };
+      delete legacy.requireReceipt;
+      await objectState.storage.put(`ledger:${ledger.id}`, legacy);
+    });
+    const legacyDetail = await (await api(f.id, route, f.alpha)).json<{ promotion: unknown }>();
+    expect(legacyDetail.promotion).toEqual({ before: ledger.before, after: ledger.after,
+      recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest });
   });
 
   it("normalizes legacy returned state and sanitizes failed provider reads", async () => {

@@ -125,9 +125,19 @@ export interface LedgerEntry {
   before: string;
   after: string;
   receiptDigest: string | null;
+  /** Gate used by this promotion; absent on legacy entries whose policy is unknown. */
+  requireReceipt?: boolean;
   recordedAt: string;
   /** Packet ID linking this promotion to race:<packet>; absent on standard entries. */
   race?: string;
+}
+export interface SettingsChange {
+  setting: "requireReceipt";
+  before: boolean;
+  after: boolean;
+  by: "owner";
+  via: "access" | "owner-api";
+  recordedAt: string;
 }
 export interface Blocker {
   id: string;
@@ -166,6 +176,8 @@ export interface StateSnapshot {
   blockers: Blocker[];
   reviews: (Review & { receipt: ReceiptSummary | null })[];
   ledger: LedgerEntry[];
+  /** Actual owner changes only; legacy policy is never backfilled. */
+  settingsChanges: SettingsChange[];
   /** Most recent 100 entries in ascending receive sequence. */
   activity: import("./types").Activity[];
   reconcilerAlerts: ReconcilerAlert[];

@@ -285,6 +285,23 @@ reserves a generation and starts the runner in the background through a trusted
 capability, not an agent-editable HTTP field. New projects require passing real
 check receipts for approval by default; legacy records without settings default
 to false until the owner opts in. See [receipts](../../docs/receipts.md).
+The owner can change the gate with `PATCH /projects/:id/settings` and the exact
+JSON body `{requireReceipt: boolean}`. Success returns `200 {settings}`; agents
+receive 403, invalid bodies 400, and any unresolved `promotionPending` intent
+409 (including same-value requests). The Supervisor serializes settings with
+approve and promote, so an in-flight promotion finishes before a toggle can run.
+The new value governs the next approve or promote; existing receipts remain stored.
+
+Every actual change atomically stores the project setting and
+`settingsChange:<recordedAt>` as `{setting:"requireReceipt", before, after,
+by:"owner", via:"access"|"owner-api", recordedAt}`. The source comes from verified
+Access/private owner RPC or owner API token authentication, never request fields.
+Same-value requests succeed without adding a change. `/state.settingsChanges`
+exposes this history. Each new ledger entry and pending intent stores the boolean
+`requireReceipt` used by that promotion; review detail includes it in `promotion`.
+Later toggles do not alter these stamps. Legacy ledger entries remain unstamped
+because their historical gate is unknown; no history or timestamps are invented.
+
 Approval records `{sha,receiptDigest}`, including null, but advisory projects never
 use receipts to gate approval or promotion. Null means **no check receipt**, not
 passing checks. Moving the fork head or releasing its claim invalidates an
