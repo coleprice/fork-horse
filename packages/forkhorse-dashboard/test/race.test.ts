@@ -69,6 +69,14 @@ test("race projection retains exact ledger reference, enrollment time and reject
   assert.equal(state.races![0].ledgerEntryId, "ledger-race-1");
   assert.equal(state.ledger[0].id, "ledger-race-1");
   assert.equal(state.ledger[0].before, "a".repeat(40));
+  assert.equal(state.ledger[0].race, "race-01");
+  assert.deepEqual(state.races![0].places, [
+    { agent: "cedar", place: 1 },
+    { agent: "birch", place: 2 },
+    { agent: "amber", place: 3 },
+  ]);
+  assert.equal(state.reviews[0].receipt?.checks[0].tier, "quick");
+  assert.equal(state.reviews[0].receipt?.checks[0].runtime, "dynamic-worker");
   assert.equal(state.races![0].entrants[2].promoteRejected?.found, "c".repeat(40));
   assert.equal(state.agents[0].createdAt, "2026-10-13T14:00:00Z");
 });
@@ -93,7 +101,11 @@ test("same-time bootstrap enrollment tie-breaks alphabetically and lane order is
   assert.equal(saddlecloth(state, "birch"), 2);
   const race = state.races![0];
   race.entrants[1].claimedAt = race.entrants[2].claimedAt;
+  // Fork aliases must not override core's agent tie-break at an equal claim time.
+  race.entrants[1].repoName = "aaa-fork";
+  race.entrants[2].repoName = "zzz-fork";
   const before = raceEntrants(race).map((entrant) => entrant.agent);
+  assert.deepEqual(before, ["birch", "cedar", "amber"]);
   race.entrants.reverse();
   assert.deepEqual(
     raceEntrants(race).map((entrant) => entrant.agent),
@@ -187,13 +199,22 @@ test("failed check details and later retry count come only from the entrant's ow
   )!;
   assert.match(
     hurdle.getAttribute("aria-label")!,
-    /brand · failed · 13 s; retried, passed at \+09:00/,
+    /brand · failed · 13 s; retried, passed at \+09:00\.0/,
   );
   assert.match(dom.window.document.querySelector(".race-results")!.textContent!, /1 of 2/);
 });
 test("missing ledger and activity never invent before/after or push counts", () => {
   const value = view("race-photo");
-  value.state!.ledger[0].id = "different-entry";
+  // An unrelated first entry must not replace the exact ledger id binding.
+  value.state!.ledger.unshift({
+    ...value.state!.ledger[0],
+    id: "unrelated",
+    before: "e".repeat(40),
+    sha: "f".repeat(40),
+  });
+  assert.match(html(value), /aaaaaaa → ccccccc/);
+  assert.doesNotMatch(html(value), /eeeeeee → fffffff/);
+  value.state!.ledger[1].id = "different-entry";
   value.activity = [];
   assert.doesNotMatch(html(value), /aaaaaaa → ccccccc|<th[^>]*>Pushes/);
 });

@@ -257,14 +257,16 @@ only. Design PASS and independent code acceptance remain external handback gates
 
 Race packets open a read-only full-width page at `#race/<packet>` in either host.
 The track is a semantic table and becomes stacked lanes below 640px. It shows only
-recorded milestones in claim order: Claimed, First push, Review requested, Checks
+recorded milestones in claim order (equal timestamps sort by agent): Claimed, First push, Review requested, Checks
 passed, Approved, Promoted. The shared race clock starts at the earliest claim;
 there is no running timer or estimated progress. Results use core's recorded places.
 
 The optional FH-052/053 projection carries `races`, agent enrollment `createdAt`,
 and `ledgerEntryId` (the exact string `ledger[].id`). Legacy agents are numbered
 alphabetically first, then enrolled agents by `createdAt`; response order never
-assigns identity. The reviewed `race-silk-*`, `race-cloth-ink`, and
+assigns identity. Fixture race, enrollment, ledger and review slices are checked
+against the core public types, including recorded `places` and quick receipts.
+The reviewed `race-silk-*`, `race-cloth-ink`, and
 `race-hurdle-ink` values live in `src/host-tokens.json`, with identity always carried
 by the number. Missing ledger evidence or activity counts are omitted.
 

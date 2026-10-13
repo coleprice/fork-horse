@@ -49,6 +49,7 @@ export interface ProjectState {
     sha: string;
     promotedAt: string;
     receiptDigest?: string | null;
+    race?: string;
   }[];
   reconcilerAlerts: {
     sha: string;
@@ -87,7 +88,14 @@ export interface ReceiptSummary {
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
-  checks: { name: string; tier: "full"; outcome: ReceiptStatus; durationMs: number | null }[];
+  checks: {
+    name: string;
+    tier: "full" | "quick";
+    runtime?: "container" | "dynamic-worker";
+    message?: string;
+    outcome: ReceiptStatus;
+    durationMs: number | null;
+  }[];
 }
 /** Stored runner receipt returned by the owner-only endpoint. No bearer token plumbing. */
 export interface OwnerReceipt {
@@ -226,6 +234,7 @@ export interface LedgerEntry {
   after: string;
   receiptDigest: string | null;
   recordedAt: string;
+  race?: string;
 }
 
 /** FH-039 fixed bounded detail contract. Public reads never contain logs or tokens. */
@@ -286,4 +295,5 @@ export interface Race {
   winner?: string | null;
   /** Exact string reference to ledger[].id; never an array position. */
   ledgerEntryId?: string | null;
+  places?: { agent: string; place: number }[];
 }

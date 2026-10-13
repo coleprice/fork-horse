@@ -1,4 +1,4 @@
-import type { RaceEntrant, StateResponse } from "../src/contracts.ts";
+import type { Race, RaceEntrant, StateResponse } from "../src/contracts.ts";
 import { fixtureReceipt, fixtureState, HEAD } from "./fixtures.ts";
 
 export const raceScenarios = [
@@ -14,8 +14,11 @@ export const raceScenarios = [
   "race-advisory",
 ];
 const at = (seconds: number) =>
-  new Date(Date.parse("2026-10-13T14:02:00Z") + seconds * 1000).toISOString().replace(".000Z", "Z");
-const entrant = (agent: string, claimed: number): RaceEntrant => ({
+  new Date(Date.parse("2026-10-13T14:02:00Z") + seconds * 1000).toISOString();
+const entrant = (
+  agent: string,
+  claimed: number,
+): RaceEntrant & { closedBy: null | "release" | "owner" | "race-finished" } => ({
   agent,
   repoName: `race--${agent}-1`,
   claimedAt: at(claimed),
@@ -29,9 +32,28 @@ const entrant = (agent: string, claimed: number): RaceEntrant => ({
   closedBy: null,
   promoteRejected: null,
 });
+// The contract test checks these slices against core's public declarations without
+// pulling the Worker environment into the browser package's compiler.
+export type RaceFixture = StateResponse & {
+  agents: { name: string; createdAt: string | null }[];
+  races: (Race &
+    Required<Pick<Race, "finishedAt" | "winner" | "ledgerEntryId" | "places">> & {
+      entrants: ReturnType<typeof entrant>[];
+    })[];
+  reviews: (StateResponse["reviews"][number] & {
+    receipt: NonNullable<StateResponse["reviews"][number]["receipt"]>;
+    returned: null;
+  })[];
+};
 /** Fixed offline FH-052/053 snapshots. Never implies an enrolled/live race. */
-export function raceFixtureState(scenario = "race-open"): StateResponse {
-  const state = fixtureState("quiet");
+export function raceFixtureState(scenario = "race-open"): RaceFixture {
+  const state: RaceFixture = {
+    ...fixtureState("quiet"),
+    agents: [],
+    races: [],
+    ledger: [],
+    reviews: [],
+  };
   state.project.id = scenario;
   state.project.repoName = "race-fixture";
   state.project.settings = { requireReceipt: scenario !== "race-advisory" };
@@ -66,12 +88,19 @@ export function raceFixtureState(scenario = "race-open"): StateResponse {
     approvedAt: at(600),
   });
   const finished = ["race-finished", "race-photo", "race-photo-unattempted"].includes(scenario);
-  const race = {
+  const race: RaceFixture["races"][number] = {
     packet: "race-01",
     status: finished ? ("finished" as const) : ("open" as const),
     finishedAt: finished ? at(720) : null,
     winner: finished ? "cedar" : null,
     ledgerEntryId: finished ? "ledger-race-1" : null,
+    places: finished
+      ? [
+          { agent: "cedar", place: 1 },
+          { agent: "birch", place: 2 },
+          { agent: "amber", place: 3 },
+        ]
+      : [],
     entrants: [amber, cedar, birch],
   };
   if (finished) {
@@ -110,6 +139,7 @@ export function raceFixtureState(scenario = "race-open"): StateResponse {
         after: "c".repeat(40),
         receiptDigest: "d".repeat(64),
         recordedAt: at(720),
+        race: race.packet,
       },
     ];
   }
@@ -145,7 +175,13 @@ export function raceFixtureState(scenario = "race-open"): StateResponse {
       receipt.finishedAt = entry.receiptPassedAt ?? at(600);
       receipt.durationMs = Date.parse(receipt.finishedAt) - Date.parse(receipt.startedAt);
       receipt.checks = [
-        { name: "brand", tier: "full", outcome: receipt.status, durationMs: 13000 },
+        {
+          name: "brand",
+          tier: "quick",
+          runtime: "dynamic-worker",
+          outcome: receipt.status,
+          durationMs: 13000,
+        },
       ];
       return {
         id: `race-review-${entry.agent}`,
@@ -159,6 +195,7 @@ export function raceFixtureState(scenario = "race-open"): StateResponse {
         approval: entry.approvedAt ? { sha: fork.head, receiptDigest: receipt.digest } : null,
         stale: finished && !entry.promotedAt,
         promoted: !!entry.promotedAt,
+        returned: null,
         createdAt: entry.reviewRequestedAt!,
       };
     });

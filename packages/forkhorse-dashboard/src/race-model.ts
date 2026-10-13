@@ -18,7 +18,7 @@ export function raceEntrants(race: Race): RaceEntrant[] {
   return race.entrants.toSorted(
     (a, b) =>
       (timestamp(a.claimedAt) ?? Infinity) - (timestamp(b.claimedAt) ?? Infinity) ||
-      a.repoName.localeCompare(b.repoName),
+      a.agent.localeCompare(b.agent),
   );
 }
 export function raceStart(race: Race): number | undefined {
