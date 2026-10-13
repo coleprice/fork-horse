@@ -12,7 +12,7 @@ export function ArchivedBadge({ at }: { at: string }) {
       content={`Archived · ${relativeTime(at)}`}
       render={<span tabIndex={0} aria-label={`Archived · ${relativeTime(at)}`} />}
     >
-      <Badge variant="neutral">Archived</Badge>
+      <Badge variant="secondary">Archived</Badge>
     </Tooltip>
   );
 }
