@@ -163,7 +163,7 @@ export function stateView(wire: StateResponse): ProjectState {
     agents: wire.agents,
     races: wire.races,
     forks: wire.forks,
-    packets: wire.packets,
+    packets: wire.packets.map((packet) => ({ ...packet, archived: packet.archived ?? null })),
     claims: wire.claims.map((claim) => ({ ...claim, active: true })),
     blockers: wire.blockers.map(blockerView),
     reviews: wire.reviews.map((review) =>
@@ -191,6 +191,7 @@ export function stateView(wire: StateResponse): ProjectState {
 export function reviewQueue(state: ProjectState): Review[] {
   return state.reviews.filter(
     (review) =>
+      !isArchived(state, review.packet) &&
       review.status !== "promoted" &&
       !(
         review.status === "stale" &&
@@ -286,6 +287,38 @@ export function reviewView(
           ? "approved"
           : "pending",
   };
+}
+
+/** Archive hides work projections; historical receipts and ledger still use the full state. */
+export function isArchived(state: ProjectState, packet: string): boolean {
+  return !!state.packets.find((entry) => entry.id === packet)?.archived;
+}
+export function workPackets(state: ProjectState, showArchived = false) {
+  const active = state.packets.filter((packet) => !packet.archived);
+  if (!showArchived) return active;
+  const archived = state.packets
+    .filter((packet) => packet.archived)
+    .toSorted((a, b) => b.archived!.at.localeCompare(a.archived!.at) || a.id.localeCompare(b.id));
+  return [...active, ...archived];
+}
+
+/** Mirrors FH-050 against raw core flags, never derived stale/display states. */
+export function canArchive(state: ProjectState, packet: string): boolean {
+  return (
+    state.packets.some((entry) => entry.id === packet && !entry.archived) &&
+    !state.claims.some((claim) => claim.packet === packet && claim.active) &&
+    !state.races?.some(
+      (race) => race.packet === packet && race.entrants.some((entrant) => entrant.closedAt === null),
+    ) &&
+    !state.reviews.some(
+      (review) => review.packet === packet &&
+        !review.promoted && !review.stale && !review.returned,
+    ) &&
+    !state.blockers.some(
+      (blocker) => !blocker.resolved &&
+        (blocker.packet === packet || blocker.pushingPacket === packet),
+    )
+  );
 }
 
 /** One projection for state and review detail; legacy missing resolution remains open. */

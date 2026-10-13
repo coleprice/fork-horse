@@ -1,3 +1,5 @@
+import { archiveScenarios } from "../test/archive-fixtures.ts";
+
 import { usageScenarios } from "../test/usage-fixtures.ts";
 import { collisionScenarios } from "../test/collision-fixtures.ts";
 import { raceScenarios } from "../test/race-fixtures.ts";
@@ -63,6 +65,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
     ...[
+      ...archiveScenarios,
       ...raceScenarios,
       ...reviewScenarios,
       ...usageScenarios,

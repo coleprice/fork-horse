@@ -1,3 +1,4 @@
+import { ArchivedBadge } from "./archive.tsx";
 import { RaceCompare } from "./race-usage.tsx";
 import { BudgetUsage, UsageFigures } from "./usage.tsx";
 import { LaneRunner, laneSilkStyle, LaneMarker, LaneConnector } from "./lane.tsx";
@@ -261,11 +262,16 @@ export function RaceView({
   const now = Date.now();
   return (
     <article className="race-page" aria-labelledby="race-title">
-      {back}
+      <div className="race-navigation flex items-center gap-3">
+        {back}
+        {work && actions.showPacket && <Button variant="ghost" size="sm"
+          onClick={() => actions.showPacket!(packet)}>Packet details</Button>}
+      </div>
       <header className="race-header">
         <div>
           <h2 ref={title} tabIndex={-1} id="race-title" className="heading-1">
-            {work?.title ?? packet}
+            {work?.title ?? packet}{" "}
+            {work?.archived && <ArchivedBadge at={work.archived.at} />}
           </h2>
           <p className="race-flag">
             ⚑ {race.status === "finished" ? "Finished" : "Racing"}
@@ -306,7 +312,7 @@ export function RaceView({
                 hour12: false,
               })}
             </strong>
-            {race.finishedAt && (
+            {race.finishedAt && race.winner && (
               <>
                 <span className="caption muted">Won in</span>
                 <strong>{raceSplit(race.finishedAt, start)}</strong>

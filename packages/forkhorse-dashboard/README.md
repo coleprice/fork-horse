@@ -252,6 +252,38 @@ non-stale reconciler/pending-promotion variants. Open their detail at
 `#review/review-1` or queue at `#review`. These fixtures establish offline rendering
 only. Design PASS and independent code acceptance remain external handback gates.
 
+## FH-051 archive (FH-050 integrated; final acceptance pending)
+
+The owner sees Archive in the packet details header only when the public core
+fields allow it: no live standard claim or open race entrant, no raw open review
+(`promoted`, `stale`, `returned`), and no unresolved blocker on either its claiming
+or pushing packet. A derived Main moved or invalid-approval display state does
+not close a raw core review. Legacy absent archive/resolution fields remain
+unarchived/open. Agents see the archived list without write controls.
+
+Optional `archivePacket` and `unarchivePacket` transport capabilities use owner
+`POST /projects/:id/packets/:pid/archive` and `…/unarchive`, then reload the
+snapshot. The packet panel stays open and focus follows Archive/Unarchive.
+Conflicts re-fetch without retrying and show the panel's sanitized Warning line;
+a missing packet closes its panel. Archived packets leave Work, Review, Needs
+you and the Open packets count. The ghost Show archived toggle is local view
+state, resets on reload, and appends archived rows newest-first with neutral
+badges, full-contrast text and polite announcements.
+
+Recent receipts, promoted review bookmarks, Last promotion and the ledger retain
+all historical evidence. Activity remains Git-push-only: FH-050's private keyed
+archive audit is not exposed by `/state`, and this UI adds no feed events. The
+archived panel caption and badge tooltip read `archived.at` from the packet.
+
+`archive-*` scenarios are labeled offline fixtures checked against the merged FH-050/FH-052 public contract, including
+standard claim, race entrant, raw open review, non-stale Main moved, pushing
+blocker and archive 409/404/error. Package tests and local captures establish
+fixture behavior only. The normal merge retains FH-049 collision history and the
+accepted race, graph and token projections. Active race rows still open the track;
+Packet details opens the existing panel for archiving, and archived race rows
+open the panel directly for Unarchive. Reserved root/fresh-clone/D5 acceptance,
+Saddler's design PASS and Superprime's code review
+remain separate handback gates.
 ## FH-049 collision resolution (FH-048 integrated; final acceptance pending)
 
 Owner-only `POST /projects/:id/blockers/:bid/resolve` sends `{reason}` (1–200 characters, with non-whitespace content) through the same-origin session. Agents have no control or request. The dialog shows paths and editable secondary quick-reason buttons in a wrapping row, supports Cmd/Ctrl+Enter, and refreshes authoritative state after success or uncertainty without retrying a write. A repeat uses the returned resolution cause. The resolution record supplies the audit history; no activity event is assumed.

@@ -52,3 +52,31 @@ packages/forkhorse-dashboard/test/usage.test.ts
 packages/forkhorse-dashboard/test/captures/fh-062b/.gitignore
 packages/forkhorse-dashboard/test/captures/fh-062b/README.md
 ```
+
+## Accepted-main merge and registered fork
+
+After explicit resume authority, fresh accepted `origin/main` and canonical main
+verified as `d1ded9e0c43ec1276ebb8fd03ab3fe7852272051`. Normal merge first parent
+`ab64eafbe466f87a8c95a52249cf4abb09d21184`, second parent that accepted head.
+The merge is conflict-free; the FH-062b source, fixture and test files match the
+saved candidate. All candidate differences from accepted main stay within the
+registered four path entries (five files). No authored changes outside that scope.
+
+Registered packet `fh-062b` was verified before joining. Join occurred once,
+returning `forkhorse--codex-11`, then the claim explicitly bound that same fork.
+No FH-065 fork was used. The token remains outside files and reports.
+
+Post-merge focused usage/race tests: exit 0, 36 passed, 0 failed. Dashboard types
+and scoped lint: exit 0. The initial commands triggered pnpm dependency restoration
+because accepted main changed the workspace lockfile; sandbox registry failures
+were stopped (intentional exits 130). A frozen, filtered dependency install then
+completed exit 0; no lockfile or upstream edits. These are setup/focused checks,
+not root tests/lint or D5. Existing offline capture remains source-valid because
+its three source/fixture/test files are unchanged by integration.
+
+The operator explicitly owns fresh acceptance and requires no additional builder
+root test/lint/full D5. No such heavy suite ran. Exact own-fork push, read-back Git
+proof, review id and Saddler status belong in the subsequent operator handback;
+this tracked receipt does not claim them before the publication attempt. A false
+canonical catch-up blocker must be reported to FH-068/operator without blind
+retry. No alternate publication route, Board edit, deploy or live Cloudflare work.

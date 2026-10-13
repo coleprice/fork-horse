@@ -59,15 +59,7 @@ export interface ProjectState {
   recentActivity?: Activity[];
   agents: { name: string; createdAt?: string | null }[];
   forks: { agent: string; repoName: string; head: string; events?: "pending" | "active" }[];
-  packets: {
-    id: string;
-    title: string;
-    goal: string;
-    paths: string[];
-    acceptance: string[];
-    mode?: "standard" | "race";
-    tokenBudget?: number | null;
-  }[];
+  packets: Packet[];
   claims: {
     packet: string;
     agent: string;
@@ -101,6 +93,18 @@ export interface ProjectState {
   promotionPending?: LedgerEntry | null;
 }
 
+export interface Packet {
+  id: string;
+  title: string;
+  goal: string;
+  paths: string[];
+  acceptance: string[];
+  mode?: "standard" | "race";
+  tokenBudget?: number | null;
+  /** Absent legacy records are treated as null. */
+  archived?: null | { at: string; by: "owner" };
+}
+
 export interface Review {
   id: string;
   repoName: string;
@@ -112,6 +116,8 @@ export interface Review {
   approvedAt?: string | null;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
+  /** Raw core flag, independent of the derived display status. */
+  promoted?: boolean;
   stale?: boolean;
   returned?: null | { reason: string; at: string };
   approval?: { sha: string; receiptDigest: string | null } | null;
@@ -192,6 +198,8 @@ export interface DashboardTransport {
     review: string,
     reason: string,
   ): Promise<{ review: StateResponse["reviews"][number] }>;
+  archivePacket?(project: string, packet: string): Promise<{ packet: Packet }>;
+  unarchivePacket?(project: string, packet: string): Promise<{ packet: Packet }>;
   resolveBlocker?(project: string, blocker: string, reason: string): Promise<{ blocker: WireBlocker }>;
   getState(project: string): Promise<ProjectState>;
   getActivity(project: string, after?: number): Promise<ActivityPage>;

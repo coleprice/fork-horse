@@ -1,0 +1,15 @@
+{
+  "name": "forkhorse-stable",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "types:check": "tsc -p tsconfig.json",
+    "lint": "vp lint src test",
+    "test": "node --test test/*.test.ts"
+  },
+  "engines": { "node": ">=24.19.0" }
+}
