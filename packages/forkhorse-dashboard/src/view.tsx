@@ -1,3 +1,5 @@
+import { UsageFigures } from "./usage.tsx";
+import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Badge,
@@ -26,6 +28,8 @@ import {
   ReceiptDetails,
 } from "./receipts.tsx";
 import {
+  isArchived,
+  workPackets,
   blockerGatesReview,
   promotionReceipt,
   recentReceipts,
@@ -35,6 +39,7 @@ import {
   reviewQueue,
   type ViewModel,
 } from "./model.ts";
+import { ArchiveControl, ArchivedBadge } from "./archive.tsx";
 import { CollisionBanner, CollisionRows, ResolveCollisionDialog } from "./collisions.tsx";
 import { RaceView } from "./race.tsx";
 import { ReviewView } from "./review.tsx";
@@ -56,6 +61,8 @@ export interface ViewActions {
   getReview?(id: string): Promise<ReviewDetail>;
   getDiff?(id: string, path: string): Promise<ReviewDiff>;
   returnReview?(id: string, reason: string): Promise<boolean>;
+  archivePacket?(id: string): Promise<boolean>;
+  unarchivePacket?(id: string): Promise<boolean>;
   section: Section;
   setSection(section: Section): void;
   owner: boolean;
@@ -240,9 +247,11 @@ export function ReviewActions({
   const otherEntrants = race?.entrants.filter((entrant) => entrant.repoName !== review.repoName && !entrant.closedAt).map((entrant) => entrant.agent) ?? [];
   const rechecking =
     required && review.receipt?.status === "running" && review.receipt.trigger === "before-promote";
-  if (!actions.owner) return null;
+  const usageCaption = usagePromotionCaption(review, view.state!);
+  if (!actions.owner) return usageCaption ? <p className="caption muted usage-promotion-caption">{usageCaption}</p> : null;
   return (
     <>
+      {usageCaption && <p className="caption muted usage-promotion-caption">{usageCaption}</p>}
       {gate.approve && (
         <Button
           size="sm"
@@ -409,19 +418,33 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveAnnouncement, setArchiveAnnouncement] = useState("");
+  const [packetError, setPacketError] = useState<string>();
   const collisionHeading = useRef<HTMLHeadingElement>(null);
   const collisionOrigin = useRef<HTMLElement | null>(null);
   const [highlightedCollision, setHighlightedCollision] = useState<string>();
   const [collision, setCollision] = useState<import("./contracts.ts").BlockerView>();
   useEffect(() => { setCollision(undefined); setHighlightedCollision(undefined); }, [view.project]);
   const [packetId, setPacketId] = useState<string>();
+  useEffect(() => {
+    setShowArchived(false);
+    setArchiveAnnouncement("");
+    setPacketId(undefined);
+    setPacketError(undefined);
+  }, [view.project]);
   const [reviewId, setReviewId] = useState<string>();
   const [receiptPanel, setReceiptPanel] = useState(false);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string>();
   const toggleRef = useRef<HTMLButtonElement>(null);
   const state = view.state;
-  const blockers = state?.blockers.filter((b) => !b.resolved) ?? [];
+  const blockers = state?.blockers.filter(
+    (b) => !b.resolved && !isArchived(state, b.packet) &&
+      !(b.pushingPacket && isArchived(state, b.pushingPacket)),
+  ) ?? [];
+  const packets = state ? workPackets(state, showArchived) : [];
+  const archivedCount = state?.packets.filter((p) => p.archived).length ?? 0;
   const reviews = state ? reviewQueue(state) : [];
   const reviewCount = reviews.filter(
     (r) => !r.returned && (r.status === "pending" || r.status === "approved"),
@@ -429,7 +452,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const history = state ? recentReceipts(state) : [];
   const lastPromotion = state?.ledger.at(-1);
   const lastReceipt = state && lastPromotion ? promotionReceipt(state, lastPromotion) : undefined;
-  const claims = state?.claims.filter((c) => c.active) ?? [];
+  const claims = state?.claims.filter((c) => c.active && !isArchived(state, c.packet)) ?? [];
   const selected = state?.packets.find((p) => p.id === packetId);
   const selectedReview = state?.reviews.find((r) => r.id === reviewId);
   function toggle(value: boolean) {
@@ -441,14 +464,17 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
       /* Keep the in-frame preference. */
     }
   }
-  function showPacket(id: string) {
-    if (state?.packets.find((entry) => entry.id === id)?.mode === "race") {
+  function showPacket(id: string, details = false) {
+    setPacketError(undefined);
+    const packet = state?.packets.find((entry) => entry.id === id);
+    if (!details && !packet?.archived && packet?.mode === "race") {
       setPacketId(undefined);
       setReviewId(undefined);
       actions.openRace?.(id);
       return;
     }
     setReceiptPanel(false);
+    if (details && actions.raceId) actions.openRace?.();
     setPacketId(id);
     setReviewId(undefined);
     toggle(true);
@@ -567,10 +593,35 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
         />
       ) : selected || selectedReview ? (
         <>
-          <h3>{selected?.title ?? selectedReview?.packet}</h3>
+          <div className="section-heading archive-heading">
+            <h3>
+              {selected?.title ?? selectedReview?.packet}{" "}
+              {selected?.archived && <ArchivedBadge at={selected.archived.at} />}
+            </h3>
+            {selected && state && (
+              <ArchiveControl
+                key={`${view.project}:${selected.id}`}
+                packet={selected}
+                state={state}
+                owner={actions.owner}
+                busy={view.busy}
+                archive={actions.archivePacket}
+                unarchive={actions.unarchivePacket}
+                missing={(message) => {
+                  setPacketId(undefined);
+                  setPacketError(message);
+                }}
+              />
+            )}
+          </div>
           {selected && (
             <>
               <p className="caption muted">{selected.id}</p>
+              {selected.archived && (
+                <p className="caption muted">
+                  Archived · {relative(selected.archived.at)} by {actions.owner ? "you" : "the owner"}
+                </p>
+              )}
               <p>{selected.goal}</p>
             </>
           )}
@@ -801,6 +852,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {askError && <p>{askError}</p>}
                 </div>
               )}
+              {packetError && <Banner variant="error" role="alert" description={packetError} />}
               {view.error && !actions.raceId && (
                 <Banner
                   variant="error"
@@ -817,7 +869,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   }
                 />
               )}
-              {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={actions} /> : !state ? (
+              {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={{ ...actions, showPacket: (id) => showPacket(id, true) }} /> : !state ? (
                 !view.busy &&
                 !view.error &&
                 empty(view.project ? "No snapshot loaded." : "Select a configured project.")
@@ -845,7 +897,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
-                      <ForkGraph key={view.project} state={state} owner={actions.owner}
+                      <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
                         openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />
                       {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
                       <LayerCard className="p-4 project-card">
@@ -913,7 +965,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       </LayerCard>
                       <section className="metrics" aria-label="Project summary">
                         {[
-                          ["Open packets", state.packets.length],
+                          ["Open packets", workPackets(state).length],
                           ["Active claims", claims.length],
                           ["In review", reviewCount],
                           ["Blockers", blockers.length],
@@ -959,12 +1011,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       )}
                       <section id="packets">
                         <h2>Packets and claims</h2>
-                        {state.packets.length ? (
+                        {packets.length ? (
                           <DataTable
                             kind="work"
                             headings={["Packet", "State", "Claimed by", "Fork", "Paths", "Claimed"]}
                           >
-                            {state.packets.map((p) => {
+                            {packets.map((p) => {
                               const live = claims.filter((c) => c.packet === p.id);
                               const race = state.races?.find((entry) => entry.packet === p.id);
                               return (
@@ -989,8 +1041,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     <div className="caption muted">{p.id}</div>
                                   </Table.Cell>
                                   <Table.Cell>
-                                    <Status {...packetStatus(p.id, state)} />
-                                    {race?.status === "finished" && race.winner && <div className="caption muted">Won by {race.winner}</div>}
+                                    {p.archived ? <ArchivedBadge at={p.archived.at} /> : <Status {...packetStatus(p.id, state)} />}
+                                    {!p.archived && race?.status === "finished" && race.winner && <div className="caption muted">Won by {race.winner}</div>}
                                     <div className="caption muted folded">
                                       {live
                                         .filter((c) => c.createdAt)
@@ -1006,7 +1058,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       content={p.mode === "race" ? race?.entrants.map((entrant) => entrant.agent).join(", ") || "No entrants yet" : live.map((c) => c.agent).join(", ") || "Unclaimed"}
                                       render={<span className="truncated-name" />}
                                     >
-                                      {p.mode === "race" ? (race?.entrants.length ? `${race.entrants.length} entrants` : "No entrants yet") : live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                      {p.mode === "race" ? (race?.entrants.length ? `${race.entrants.length} ${race.entrants.length === 1 ? "entrant" : "entrants"}` : "No entrants yet") : live.map((c) => c.agent).join(", ") || "Unclaimed"}
                                     </Tooltip>
                                     <div className="caption muted folded">
                                       {live.map((c) => (
@@ -1036,8 +1088,26 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             })}
                           </DataTable>
                         ) : (
-                          empty("No packets created.")
+                          empty(archivedCount ? "No active packets." : "No packets created.")
                         )}
+                        {archivedCount > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            data-action="toggle-archived"
+                            aria-pressed={showArchived}
+                            onClick={() => {
+                              setShowArchived(!showArchived);
+                              setArchiveAnnouncement(showArchived
+                                ? "Archived packets hidden" : `${archivedCount} archived packets shown`);
+                            }}
+                          >
+                            {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+                          </Button>
+                        )}
+                        <span className="sr-only" role="status" aria-live="polite">
+                          {archiveAnnouncement}
+                        </span>
                       </section>
                     </>,
                   )}
@@ -1055,12 +1125,19 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                               "Fork head",
                               "State",
                               "Receipts",
+                              ...(reviews.some((queued) => usageValues(queued.usageAtReview).length) ? ["Tokens"] : []),
                               "Requested",
                               ...(actions.owner ? ["Actions"] : []),
                             ]}
                           >
                             {reviews.map((r) => {
                               const gate = reviewGate(r, state, actions.owner);
+                              const receiptCaption = receiptGateCaption(r, state.project.settings?.requireReceipt === true);
+                              // Usage refusals replace Promote in Actions, never repeat them in State.
+                              const hasStateCaption = receiptCaption || (!gate.approve && !gate.promote && gate.reason);
+                              const stateCaption = hasStateCaption
+                                ? (gate.reason === usagePromotionCaption(r, state) ? receiptCaption : gate.reason || receiptCaption)
+                                : "";
                               const cause = reviewState(r, state);
                               const stale = !!cause.banner;
                               return (
@@ -1116,17 +1193,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       </div>
                                     )}
                                     {!stale && !r.returned &&
-                                      (receiptGateCaption(
-                                        r,
-                                        state.project.settings?.requireReceipt === true,
-                                      ) ||
-                                        (!gate.approve && !gate.promote && gate.reason)) && (
+                                      stateCaption && (
                                         <div className="caption muted state-reason">
-                                          {gate.reason ||
-                                            receiptGateCaption(
-                                              r,
-                                              state.project.settings?.requireReceipt === true,
-                                            )}
+                                          {stateCaption}
                                           {actions.owner &&
                                             r.receipt?.status === "infrastructure-error" && (
                                               <Button
@@ -1148,6 +1217,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       open={() => showReceipt(r.id)}
                                     />
                                   </Table.Cell>
+                                  {reviews.some((queued) => usageValues(queued.usageAtReview).length) && <Table.Cell className="column-tokens"><UsageFigures usage={r.usageAtReview} agent={r.agent} brand={view.brand} compact /></Table.Cell>}
                                   <Table.Cell className="column-requested">
                                     {r.requestedAt && (
                                       <span className="caption muted">
@@ -1246,10 +1316,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     "agents",
                     <section id="lanes">
                       <h2 id="agents-heading" tabIndex={-1}>Agents</h2>
+                      <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>
                       {state.agents.length ? (
                         <DataTable
                           kind="agents"
-                          headings={["Agent", "Fork", "Last push", "Claim", "Events"]}
+                          headings={["Agent", "Fork", "Last push", "Claim", "Events", "Tokens"]}
                         >
                           {state.agents.flatMap((agent) => {
                             const forks = state.forks.filter((f) => f.agent === agent.name);
@@ -1268,6 +1339,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     </Tooltip>
                                     <div className="caption muted folded">
                                       {fork && <TruncatedCode value={fork.repoName} />}
+                                      <UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} />
                                     </div>
                                   </Table.Cell>
                                   <Table.Cell className="column-fork">
@@ -1308,6 +1380,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell>
                                     <Events value={fork?.events} />
                                   </Table.Cell>
+                                  <Table.Cell className="column-tokens"><UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} /></Table.Cell>
                                 </Table.Row>
                               );
                             });

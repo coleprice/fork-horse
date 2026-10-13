@@ -5,6 +5,7 @@ import brand from "../../../brand.json";
 import { boundedCall, CALL_TIMEOUT_MS, MAX_BYTES, PublicError, readBounded } from "./core";
 import type { CoreClient, CoreOperation } from "./core";
 import { callerUsage, tokenCount } from "./usage";
+import { callerRaces, raceBinding, raceLine, raceSnapshot } from "./races";
 
 const slug = z
   .string()
@@ -118,15 +119,15 @@ const schemas = {
 };
 const descriptions: Record<keyof typeof schemas, string> = {
   get_context:
-    "Read the project snapshot, caller's myWork resume summary and myUsage with core budget states. Reported usage is self-reported. Follow each item's next; never join again to resume.",
+    "Read packet modes, the project snapshot, caller's myRaces standings, myWork resume summary and myUsage with core budget states. Reported usage is self-reported. Follow each item's next; never join again to resume.",
   status:
-    "Read the project state, caller's myWork resume summary and myUsage with core budget states. Reported usage is self-reported; one next-step line per work item.",
+    "Read packet modes, caller's myRaces standings (entrants, milestones and places), myWork resume summary and myUsage with core budget states. Reported usage is self-reported; one next-step line per work item.",
   refresh_token:
     "Issue a write token for an existing caller-owned fork in the authenticated project (default TTL 3600 seconds). Never print or log the token; use it only as an http.extraHeader. Never join again to refresh a token. Do not retry blindly.",
   activity: "Read recorded activity after a cursor (up to 100 entries).",
   join: "Create a new caller-owned fork. Pass its repoName explicitly to claim. Do not retry blindly.",
   claim:
-    "Claim packet paths and bind a fork. Pass the repoName returned by join; omitted means the latest successfully registered fork. Binding is immutable for the claim's life.",
+    "Claim packet paths and bind your own fork. Standard is the default packet mode. A race permits one entrant per agent, at most three distinct agents ever; closed entrants cannot re-enter and finished races refuse entry. Pass the repoName returned by join; omitted means the latest successfully registered fork. Binding is immutable for the claim's life.",
   report_usage:
     "Report cumulative self-reported input/output token usage (each integer 0–1000000000) for the caller's live packet claim or race entrant. Counts may not decrease. Report before every request_review and when asked. Inspect status after an uncertain result before retrying.",
   request_review:
@@ -265,16 +266,23 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
                         );
                       const myWork = summary.data.work;
                       const myUsage = callerUsage(snapshot, identity.agent);
+                      const raceState = raceSnapshot(snapshot);
+                      const myRaces = callerRaces(raceState.races, identity.agent);
+                      const context = {
+                        ...snapshot,
+                        ...(raceState.packets === undefined ? {} : { packets: raceState.packets }),
+                        myWork,
+                        myRaces,
+                        myUsage,
+                      };
                       return {
                         content: [
-                          {
-                            type: "text" as const,
-                            text: JSON.stringify({ ...snapshot, myWork, myUsage }),
-                          },
+                          { type: "text" as const, text: JSON.stringify(context) },
                           ...myWork.map((item) => ({
                             type: "text" as const,
                             text: `${item.packet.id} on ${item.repoName} → next: ${item.next} — ${item.hint.replace(/[\r\n\u2028\u2029]/g, " ")}`,
                           })),
+                          ...myRaces.map((state) => ({ type: "text" as const, text: raceLine(state) })),
                         ],
                       };
                     }
@@ -308,6 +316,7 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
                       const input = schemas.submit_work.parse(args);
                       const snapshot = z
                         .object({ claims: z.array(z.object({ packet, agent, repoName })) })
+                        .passthrough()
                         .parse(
                           await options.core.execute(
                             token,
@@ -315,9 +324,14 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
                             signal,
                           ),
                         );
-                      const matches = snapshot.claims.filter(
-                        (claim) => claim.packet === input.packet && claim.agent === identity.agent,
+                      const raceClaim = raceBinding(
+                        raceSnapshot(snapshot), input.packet, identity.agent,
                       );
+                      const matches = raceClaim
+                        ? [raceClaim]
+                        : snapshot.claims.filter(
+                            (claim) => claim.packet === input.packet && claim.agent === identity.agent,
+                          );
                       if (matches.length !== 1)
                         throw new PublicError(
                           409,

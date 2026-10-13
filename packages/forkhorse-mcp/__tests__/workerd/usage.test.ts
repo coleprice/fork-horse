@@ -22,6 +22,29 @@ const work = [
   },
 ];
 
+/** Complete FH-054 standings with optional FH-060 usage fields supplied by each test. */
+function race(packet: string, entrants: Record<string, unknown>[]) {
+  return {
+    packet,
+    status: "open",
+    finishedAt: null,
+    winner: null,
+    ledgerEntryId: null,
+    entrants: entrants.map((entry) => ({
+      claimedAt: at,
+      firstPushAt: null,
+      reviewRequestedAt: null,
+      receiptPassedAt: null,
+      approvedAt: null,
+      promotedAt: null,
+      place: null,
+      closedAt: null,
+      closedBy: null,
+      ...entry,
+    })),
+  };
+}
+
 /** Labeled FH-060 HTTP contract fixture; core owns storage, monotonicity and budget enforcement. */
 function fixture() {
   const calls: { path: string; method: string; bearer: boolean; body: unknown }[] = [];
@@ -204,9 +227,7 @@ describe("FH-061 offline workerd with FH-060 contract fixtures", () => {
       ],
       reviews: [review],
       races: states.map((budget, index) => ({
-        packet: `race-${index}`,
-        tokenBudget: 1000,
-        entrants: [
+        ...race(`race-${index}`, [
           {
             agent: "builder",
             repoName: `demo--builder-${index + 2}`,
@@ -214,7 +235,8 @@ describe("FH-061 offline workerd with FH-060 contract fixtures", () => {
             budget,
           },
           { agent: "other", repoName: "demo--other-1", usage, budget: "near" },
-        ],
+        ]),
+        tokenBudget: 1000,
       })),
     };
     for (const name of ["get_context", "status"]) {
@@ -222,6 +244,10 @@ describe("FH-061 offline workerd with FH-060 contract fixtures", () => {
       expect(body?.result.isError).toBeUndefined();
       const snapshot = JSON.parse(body!.result.content[0]!.text);
       expect(snapshot.myWork).toEqual(work);
+      expect(snapshot.myRaces.map((entry: { packet: string }) => entry.packet)).toEqual(
+        states.map((_, index) => `race-${index}`),
+      );
+      expect(snapshot.myRaces[0].entrants[0].usage).toEqual({ reported, metered });
       expect(snapshot.reviews).toEqual([review]);
       expect(snapshot.myUsage).toEqual([
         {
@@ -255,7 +281,7 @@ describe("FH-061 offline workerd with FH-060 contract fixtures", () => {
   it("keeps legacy reports unknown and refuses missing or malformed budget state", async () => {
     const { call, controls } = fixture();
     const claim = { packet: "legacy", agent: "builder", repoName: "demo--builder-1" };
-    controls.state = { claims: [claim], races: [{ packet: "legacy-race", entrants: [claim] }] };
+    controls.state = { claims: [claim], races: [race("legacy-race", [claim])] };
     const { body } = await call("status", { project: "demo" });
     expect(JSON.parse(body!.result.content[0]!.text).myUsage).toEqual(
       ["legacy", "legacy-race"].map((packet) => ({
@@ -272,9 +298,10 @@ describe("FH-061 offline workerd with FH-060 contract fixtures", () => {
         claims: [],
         races: [
           {
-            packet: "budgeted",
+            ...race("budgeted", [
+              { ...claim, budget: "unchecked", usage: { reported: null, metered: null } },
+            ]),
             tokenBudget: 1000,
-            entrants: [{ ...claim, budget: "unchecked", usage: { reported: null, metered: null } }],
           },
         ],
       },
@@ -283,7 +310,7 @@ describe("FH-061 offline workerd with FH-060 contract fixtures", () => {
       expect((await call("get_context", { project: "demo" })).body?.result.isError).toBeUndefined();
     }
     for (const state of [
-      { claims: [], races: [{ packet: "budgeted", tokenBudget: 1000, entrants: [claim] }] },
+      { claims: [], races: [{ ...race("budgeted", [claim]), tokenBudget: 1000 }] },
       {
         claims: [
           { ...claim, usage: { reported: { ...reported, source: "metered" }, metered: null } },
@@ -291,9 +318,7 @@ describe("FH-061 offline workerd with FH-060 contract fixtures", () => {
       },
       {
         claims: [],
-        races: [
-          { packet: "budgeted", tokenBudget: 1000, entrants: [{ ...claim, budget: "safe" }] },
-        ],
+        races: [{ ...race("budgeted", [{ ...claim, budget: "safe" }]), tokenBudget: 1000 }],
       },
     ]) {
       controls.state = state;

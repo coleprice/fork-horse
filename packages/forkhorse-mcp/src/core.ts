@@ -11,6 +11,8 @@ export interface ClaimBinding {
 }
 export interface StateSnapshot {
   claims: ClaimBinding[];
+  packets?: { id: string; mode?: "standard" | "race"; [key: string]: unknown }[];
+  races?: import("./races").RaceState[];
   [key: string]: unknown;
 }
 export interface WorkFile {

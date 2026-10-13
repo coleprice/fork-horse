@@ -125,6 +125,7 @@ describe("FH-042 offline workerd with FH-041 contract fixtures", () => {
         fixture: "FH-041 contract",
         myWork: work,
         myUsage: [],
+        myRaces: [],
       });
       expect(content.slice(1).map((item) => item.text)).toEqual(
         work.map(

@@ -1,3 +1,16 @@
+/** FH-060 cumulative snapshots; absent fields preserve legacy state compatibility. */
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  model?: string;
+  source: "reported" | "metered";
+  at: string;
+}
+export interface UsageSources {
+  reported: Usage | null;
+  metered: Usage | null;
+}
+export type TokenBudgetState = "unchecked" | "within" | "near" | "over";
 export interface BlockerResolution {
   at: string;
   by: "release" | "promote" | "owner";
@@ -46,20 +59,14 @@ export interface ProjectState {
   recentActivity?: Activity[];
   agents: { name: string; createdAt?: string | null }[];
   forks: { agent: string; repoName: string; head: string; events?: "pending" | "active" }[];
-  packets: {
-    id: string;
-    title: string;
-    goal: string;
-    paths: string[];
-    acceptance: string[];
-    mode?: "standard" | "race";
-  }[];
+  packets: Packet[];
   claims: {
     packet: string;
     agent: string;
     repoName: string;
     paths: string[];
     active: boolean;
+    usage?: UsageSources;
     createdAt?: string;
   }[];
   blockers: BlockerView[];
@@ -86,6 +93,18 @@ export interface ProjectState {
   promotionPending?: LedgerEntry | null;
 }
 
+export interface Packet {
+  id: string;
+  title: string;
+  goal: string;
+  paths: string[];
+  acceptance: string[];
+  mode?: "standard" | "race";
+  tokenBudget?: number | null;
+  /** Absent legacy records are treated as null. */
+  archived?: null | { at: string; by: "owner" };
+}
+
 export interface Review {
   id: string;
   repoName: string;
@@ -97,10 +116,13 @@ export interface Review {
   approvedAt?: string | null;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
+  /** Raw core flag, independent of the derived display status. */
+  promoted?: boolean;
   stale?: boolean;
   returned?: null | { reason: string; at: string };
   approval?: { sha: string; receiptDigest: string | null } | null;
   receipt?: ReceiptSummary | null;
+  usageAtReview?: UsageSources;
 }
 
 /** FH-032 fixed public wire summary: logs belong only to the owner receipt endpoint. */
@@ -176,6 +198,8 @@ export interface DashboardTransport {
     review: string,
     reason: string,
   ): Promise<{ review: StateResponse["reviews"][number] }>;
+  archivePacket?(project: string, packet: string): Promise<{ packet: Packet }>;
+  unarchivePacket?(project: string, packet: string): Promise<{ packet: Packet }>;
   resolveBlocker?(project: string, blocker: string, reason: string): Promise<{ blocker: WireBlocker }>;
   getState(project: string): Promise<ProjectState>;
   getActivity(project: string, after?: number): Promise<ActivityPage>;
@@ -212,11 +236,12 @@ export interface StateResponse {
     events?: "pending" | "active";
   }[];
   packets: ProjectState["packets"];
-  claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string }[];
+  claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string; usage?: UsageSources }[];
   blockers: WireBlocker[];
   races?: Race[];
   reviews: {
     approvedAt?: string | null;
+    usageAtReview?: UsageSources;
     id: string;
     packet: string;
     agent: string;
@@ -255,7 +280,7 @@ export interface LedgerEntry {
   race?: string;
 }
 
-/** FH-039 fixed bounded detail contract. Public reads never contain logs or tokens. */
+/** FH-039 fixed bounded detail contract. Public reads never contain logs or authentication credentials. */
 export interface ReviewDetail {
   review: StateResponse["reviews"][number];
   packet: ProjectState["packets"][number];
@@ -292,6 +317,8 @@ export interface ReviewDiff {
 
 /** Optional FH-052/053 read projection; absent evidence is never synthesized. */
 export interface RaceEntrant {
+  usage?: UsageSources;
+  budget?: TokenBudgetState;
   agent: string;
   repoName: string;
   claimedAt: string;
@@ -308,6 +335,7 @@ export interface RaceEntrant {
 export interface Race {
   packet: string;
   status: "open" | "finished";
+  tokenBudget?: number | null;
   entrants: RaceEntrant[];
   finishedAt?: string | null;
   winner?: string | null;

@@ -9,16 +9,16 @@ const record = z.object({
   source: z.enum(["reported", "metered"]),
   at: z.string(),
 });
-const usage = z.object({
+export const usageSourcesSchema = z.object({
   reported: record.extend({ source: z.literal("reported") }).nullable(),
   metered: record.extend({ source: z.literal("metered") }).nullable(),
 });
-const budget = z.enum(["unchecked", "within", "near", "over"]);
+export const budgetStateSchema = z.enum(["unchecked", "within", "near", "over"]);
 const binding = z.object({
   agent: z.string(),
   repoName: z.string(),
   // Older core records have no usage fields. Missing means unreported, never zero.
-  usage: usage.optional(),
+  usage: usageSourcesSchema.optional(),
 });
 const usageState = z.object({
   claims: z.array(binding.extend({ packet: z.string() })),
@@ -27,7 +27,7 @@ const usageState = z.object({
       z.object({
         packet: z.string(),
         tokenBudget: z.number().int().positive().nullable().optional(),
-        entrants: z.array(binding.extend({ budget: budget.optional() })),
+        entrants: z.array(binding.extend({ budget: budgetStateSchema.optional() })),
       }),
     )
     .default([]),

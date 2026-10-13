@@ -1,5 +1,6 @@
 export { createMcpHandler } from "./mcp";
 export type { McpOptions } from "./mcp";
+export type { RaceState } from "./races";
 export { createOAuthConfiguration, createOAuthHandler } from "./oauth";
 export type { OAuthEnv, OAuthOptions } from "./oauth";
 export { createCoreClient, coreRequest, PublicError } from "./core";
