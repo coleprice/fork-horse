@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import brand from "../../../brand.json";
 import { markIconUrl } from "../../forkhorse-dashboard/src/mark";
+import type { WorkItem } from "../src/workflow-types";
+import { BEFORE } from "./fixtures";
 
 const origin = "https://api.idiot.tax";
 const issuer = "https://fixture.cloudflareaccess.com";
@@ -167,7 +169,47 @@ describe("public core integration with offline signed JWTs, KV, DO and built das
     });
     const stateResult = await state.json<{ result: { isError?: boolean; content: { text: string }[] } }>();
     expect(stateResult.result.isError).not.toBe(true);
-    expect(JSON.parse(stateResult.result.content[0]!.text)).toMatchObject({ project: { id: "mcp-fixture" } });
+    expect(JSON.parse(stateResult.result.content[0]!.text)).toMatchObject({
+      project: { id: "mcp-fixture" }, myWork: [],
+    });
+
+    // Exercise FH-041's real /me implementation, with only Artifacts remaining offline.
+    // Create a real registered fork/claim through core; do not supply a hand-made work summary.
+    const post = (path: string, token: string, data: unknown) => call(`/projects/mcp-fixture${path}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+    expect((await post("/packets", ownerToken, {
+      id: "resume", title: "Resume integration", goal: "Continue claimed work",
+      paths: ["src/**"], acceptance: ["Check resume summary"],
+    })).status).toBe(201);
+    const joined = await post("/join", agentToken, { agent: "alpha" });
+    expect(joined.status).toBe(201);
+    const { repoName } = await joined.json<{ repoName: string }>();
+    expect((await post("/packets/resume/claim", agentToken, { repoName })).status).toBe(201);
+    const me = await call("/projects/mcp-fixture/me", {
+      headers: { authorization: `Bearer ${agentToken}` },
+    });
+    expect(me.status).toBe(200);
+    const { work } = await me.json<{ work: WorkItem[] }>();
+    expect(work).toEqual([{
+      packet: { id: "resume", title: "Resume integration" }, repoName,
+      claimedAt: expect.any(String), forkHead: BEFORE, canonicalHead: BEFORE,
+      review: null, next: "push", hint: "Push your changes to the claimed fork.",
+    }]);
+    for (const name of ["status", "get_context"]) {
+      const resumed = await rpc(agentToken, "tools/call", { name, arguments: { project: "mcp-fixture" } });
+      expect(resumed.status).toBe(200);
+      const { result: summary } = await resumed.json<{ result: { isError?: boolean; content: { text: string }[] } }>();
+      expect(summary.isError).not.toBe(true);
+      expect(JSON.parse(summary.content[0]!.text)).toMatchObject({
+        project: { id: "mcp-fixture" }, myWork: work,
+      });
+      expect(summary.content.slice(1)).toEqual([{
+        type: "text", text: `resume on ${repoName} → next: push — ${work[0]!.hint}`,
+      }]);
+    }
     const denied = await rpc(agentToken, "tools/call", {
       name: "join",
       arguments: { project: "mcp-fixture", agent: "beta" },
