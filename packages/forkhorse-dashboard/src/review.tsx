@@ -591,9 +591,7 @@ export function ReviewView({
                 </>
               )}
             </button>
-          ) : (
-            <p className="caption muted">No receipt</p>
-          )}
+          ) : null}
           {snapshot?.project.settings?.requireReceipt === false && receipt?.status === "failed" && (
             <p className="caption muted">Advisory: this didn't block approval.</p>
           )}
@@ -654,7 +652,11 @@ export function ReviewView({
               )}
             </button>
           ) : (
-            <p className="caption muted">No ledger entry recorded.</p>
+            <p className="caption muted">
+              {review.status === "promoted"
+                ? "No ledger entry recorded."
+                : "No promotion recorded."}
+            </p>
           )}
         </div>
       </div>

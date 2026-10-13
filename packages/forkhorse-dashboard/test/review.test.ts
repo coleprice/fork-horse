@@ -145,6 +145,10 @@ test("missing diff capability uses product copy and missing receipt/ledger evide
   try {
     await until(() => c.root.querySelector(".review-file-toggle"));
     assert.match(c.root.textContent!, /No receipt/);
+    assert.equal(
+      c.root.querySelectorAll(".review-milestone")[0].textContent!.match(/No receipt/g)?.length,
+      1,
+    );
     assert.match(c.root.textContent!, /No ledger entry recorded\./);
     c.root.querySelector<HTMLButtonElement>(".review-file-toggle")!.click();
     await until(() => c.root.textContent!.includes("Couldn't load this diff."));
@@ -168,6 +172,10 @@ test("detail route replaces queue, retains activity, three independent evidence 
     assert.equal(c.root.querySelector("#reviews"), null);
     assert.equal(c.root.querySelectorAll(".review-milestone").length, 3);
     assert.match(c.root.textContent!, /Checks passed.*Not approved yet.*Not promoted yet/s);
+    assert.match(
+      c.root.querySelectorAll(".review-milestone")[2].textContent!,
+      /No promotion recorded\./,
+    );
     assert.ok(c.root.querySelector(".review-acceptance li"));
     assert.match(
       c.root.querySelector(".plain-text")!.textContent!,
