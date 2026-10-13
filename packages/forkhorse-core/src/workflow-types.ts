@@ -55,6 +55,29 @@ export interface Review {
   returned: null | { reason: string; at: string };
   createdAt: string;
 }
+/** Caller-owned live work only; review execution identities and credentials are omitted. */
+export interface WorkItem {
+  packet: Pick<Packet, "id" | "title">;
+  repoName: string;
+  claimedAt: string;
+  forkHead: string;
+  canonicalHead: string;
+  review:
+    | null
+    | (Pick<Review, "id" | "sha" | "stale" | "returned" | "promoted"> & {
+        receipt: ReceiptSummary | null;
+        approved: boolean;
+      });
+  next:
+    | "push"
+    | "request_review"
+    | "wait_for_checks"
+    | "fix_checks"
+    | "address_return"
+    | "wait_for_owner"
+    | "done";
+  hint: string;
+}
 export interface LedgerEntry {
   id: string;
   review: string;
