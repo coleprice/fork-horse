@@ -5,13 +5,19 @@ export type ContainerPort = Pick<Container,
 export type ForkRepository = Pick<ArtifactsRepo,
   "createToken" | "revokeToken" | "readCommit" | "readTree" | "readBlob" | typeof Symbol.dispose
 >;
-export interface Check {
+export interface FullCheck {
   name: string;
   tier: "full";
   /** Key in the owner's configured container.images map. */
   image: string;
   run: string;
 }
+export interface QuickCheck {
+  name: string;
+  tier: "quick";
+  module: string;
+}
+export type Check = FullCheck | QuickCheck;
 export interface RunRequest {
   reviewId: string;
   trigger: "review-created" | "before-promote";
@@ -33,14 +39,17 @@ export interface CheckReceipt {
   outcome: "passed" | "failed" | "infrastructure-error" | "timed-out";
   startedAt: string;
   finishedAt: string;
-  durationMs: number;
+  durationMs: number | null;
+  /** Absent only in receipts written before quick-tier support. */
+  runtime?: "dynamic-worker" | "container";
+  message?: string;
   logs: { stdout: string; stderr: string; truncated: boolean };
   /** SHA-256 of JSON.stringify(logs), with the field order above. */
   logDigest: string;
 }
 export interface Receipt {
   schema: 1;
-  evidence: "mocked-container-port" | "container";
+  evidence: "mocked-container-port" | "container" | "dynamic-worker" | "mixed" | "mocked-worker-loader";
   projectId: string;
   reviewId: string;
   forkRepoName: string;
@@ -65,7 +74,8 @@ export interface ReviewAuthority {
 export interface RunnerPorts {
   authority: ReviewAuthority;
   getFork(name: string): Promise<ForkRepository>;
-  container: ContainerPort;
+  container?: ContainerPort;
+  quick?: import("./quick").QuickPorts;
   gitGateway(remote: string): Fetcher;
   /** Set by the adapter, never by a RunRequest. */
   evidence: Receipt["evidence"];

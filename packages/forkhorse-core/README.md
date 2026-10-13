@@ -267,7 +267,7 @@ A review must name the current fork default-branch head and a live matching clai
 It captures the canonical base at submission. `receiptDigest` starts null; FH-032
 reserves a generation and starts the runner in the background through a trusted
 capability, not an agent-editable HTTP field. New projects require passing real
-container receipts for approval by default; legacy records without settings default
+check receipts for approval by default; legacy records without settings default
 to false until the owner opts in. See [receipts](../../docs/receipts.md).
 Approval records `{sha,receiptDigest}`, including null, but advisory projects never
 use receipts to gate approval or promotion. Null means **no check receipt**, not
@@ -387,3 +387,14 @@ uncertain outcomes without creating another subscription. Missing credentials st
 pending. Legacy repositories need owner inventory/backfill; active records are not
 periodically reconciled against external deletions. See [core integration](../../docs/core-integration.md)
 for exact Wrangler schema, limits, first-deploy secrets files and the separate live gate.
+
+## Quick checks (FH-010)
+
+Core also exports `QuickFiles` and declares a `LOADER` Worker Loader binding.
+Quick modules execute before full container checks, using exact-reviewed-commit
+Artifacts reads through a bounded, revocable RPC loopback. Receipt summaries
+preserve each check's actual tier/runtime and skipped-check message. Required
+approval verifies quick module source digests independently; generation, claim,
+CAS and advisory-mode semantics are unchanged. See [receipts](../../docs/receipts.md).
+The workerd suite exercises real local Dynamic Workers with fixture repositories
+and mocked containers. Deployed latency and no-container live smoke remain open.

@@ -14,6 +14,7 @@
     "images": { "default": { "dockerfile": "../forkhorse-runner/container/Dockerfile" } },
     "observability": { "logs": { "enabled": false } }
   }],
+  "worker_loaders": [{ "binding": "LOADER" }],
   "artifacts": [{ "binding": "ARTIFACTS", "namespace": "default" }],
   "vars": { "ARTIFACTS_NAMESPACE": "default" }
   // The deployment generator requires OWNER_API_TOKEN_HASH and CF_EVENTS_API_TOKEN

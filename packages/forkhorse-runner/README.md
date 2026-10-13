@@ -1,6 +1,7 @@
-# Container test receipts
+# Check receipts
 
-FH-007 runner with FH-032 core integration, **offline implementation**. The acceptance suite uses an explicitly
+FH-007 runner with FH-032 core integration and FH-010 quick checks, **offline implementation**.
+Quick checks execute in real local Dynamic Workers; Artifacts reads are fixtures. The acceptance suite uses an explicitly
 **mocked container port**. No container was started, no Cloudflare service was
 called, and no live receipt is claimed. Live acceptance remains locked pending
 separate FH-032L authorization and the specified budget alert.
@@ -23,7 +24,13 @@ The exact authorized commit's `.forkhorse/checks` is a UTF-8 JSON array:
 ```
 
 There must be 1–16 uniquely named checks; the file is limited to 32 KiB. Unknown
-fields, non-full tiers, empty commands, and symlink files/directories fail closed.
+fields, unsupported tiers, empty commands, and symlink files/directories fail closed.
+A quick check instead has exactly `name`, `tier:"quick"`, and
+`module:".forkhorse/quick/<file>.js"`; no image or command. It exports an async
+function taking bounded `ctx.read`/`ctx.list` at the reviewed commit. Quick checks
+run first in a sealed Worker Loader isolate with a 10-second deadline. Any quick
+failure skips all full checks; quick-only suites never start containers. See
+[the complete quick contract](../../docs/receipts.md#quick-checks-fh-010).
 `image` names an owner-configured `container.images` entry that must resolve to
 an immutable `@sha256:` reference. A project cannot supply an arbitrary image URL.
 The owner must build the image with its dependencies already present, Git,
@@ -139,3 +146,11 @@ exact fetch/checkout, configured image digests, log bounds, deadlines, startup a
 checkout failures, cleanup failures, stale-review attachment, both triggers,
 multiple checks, approval defaults, and narrow Git egress. Root checks also run
 existing packages' local Worker tests; these are not container acceptance.
+
+The production `QuickFiles` loopback returns only text/path arrays from a revocable
+per-check snapshot. It holds no Git token. Core exports it alongside the runner
+and configures `LOADER`. New receipts carry per-check runtime and module source
+digests; the required gate independently verifies exact-commit module provenance.
+Real local loader tests cover networking isolation and RPC startup/execution;
+explicit fake-loader coverage checks cancellation signaling. Neither is live
+Cloudflare or container acceptance. Old full receipts keep their digest encoding.

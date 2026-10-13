@@ -34,7 +34,7 @@ export function fixture() {
       return { id: "token-1", plaintext: TOKEN, scope: "read" as const, expiresAt: "2099-01-01T00:00:00Z" };
     }),
     revokeToken: vi.fn(async () => { events.push("revoke"); return true; }),
-    readCommit: vi.fn(async () => ({
+    readCommit: vi.fn(async (_commit: string) => ({
       hash: COMMIT, treeHash: "c".repeat(40), message: "fixture", parents: [],
       author: { name: "fixture", email: "fixture@idiot.tax" },
       committer: { name: "fixture", email: "fixture@idiot.tax" }, authoredAt: 0, committedAt: 0,
@@ -42,7 +42,7 @@ export function fixture() {
     readTree: vi.fn(async (hash: string): Promise<ArtifactsTreeEntry[]> => hash === "c".repeat(40)
       ? [{ name: ".forkhorse", type: "tree", mode: "40000", hash: "d".repeat(40) }]
       : [{ name: "checks", type: "blob", mode: "100644", hash: "e".repeat(40) }]),
-    readBlob: vi.fn(async () => new Blob([JSON.stringify([check])])),
+    readBlob: vi.fn(async (_hash: string) => new Blob([JSON.stringify([check])])),
     [Symbol.dispose]: vi.fn(() => events.push("dispose")),
   } satisfies ForkRepository;
   const container = {
