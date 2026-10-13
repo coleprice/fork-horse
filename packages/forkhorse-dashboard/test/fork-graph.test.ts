@@ -5,7 +5,13 @@ import { test } from "node:test";
 import { createRoot } from "react-dom/client";
 import { createElement, act } from "react";
 import { TooltipProvider } from "@cloudflare/kumo";
-import { forkGraph, foldMarks, collisionLink } from "../src/fork-graph-model.ts";
+import {
+  forkGraph,
+  foldMarks,
+  collisionLink,
+  mainShaLabels,
+  tableEvents,
+} from "../src/fork-graph-model.ts";
 import { agentIdentities, saddlecloth } from "../src/lane.tsx";
 import { ForkGraph } from "../src/fork-graph.tsx";
 import { stateView } from "../src/model.ts";
@@ -85,6 +91,29 @@ test("folding at measured width preserves every event and prioritizes checks ove
   assert.ok(cluster.events.some((e) => e.kind === "approved"));
   assert.equal(folded.flatMap((g) => g.events).length, lane.events.length);
 });
+test("main SHA labels favor the newest mark and pack older labels only in remaining space", () => {
+  const marks = [
+    { id: "older", at: 1, x: 110 },
+    { id: "middle", at: 2, x: 185 },
+    { id: "newest", at: 3, x: 195 },
+  ];
+  assert.deepEqual([...mainShaLabels(marks, 300).keys()], ["newest", "older"]);
+  assert.equal(mainShaLabels([{ id: "edge", at: 4, x: 290 }], 300).get("edge"), 210);
+  assert.deepEqual([...mainShaLabels(marks.toReversed(), 300)], [...mainShaLabels(marks, 300)]);
+  assert.equal(mainShaLabels(marks, 90).size, 0);
+});
+test("table cells cap all event kinds to their latest three and retain earlier facts", () => {
+  const events = forkGraph(fixture("fork-history"), now).lanes.find(
+    (l) => l.packet === "fixture-02",
+  )!.events;
+  for (const kinds of [["push"], ["review"], ["passed", "failed"], ["approved"]]) {
+    const matching = events.filter((event) => kinds.includes(event.kind));
+    const { shown, earlier } = tableEvents(events.toReversed(), kinds);
+    assert.equal(shown.length, 3);
+    assert.ok(earlier.length > 0);
+    assert.deepEqual([...earlier, ...shown], matching);
+  }
+});
 test("collision rings sit beside the pushing lane and links break around unrelated lanes", () => {
   assert.deepEqual(collisionLink(80, 208, [80, 144, 208]), {
     ringY: 112,
@@ -140,8 +169,9 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
       ),
     ),
   );
-  const unknownStart = document.querySelector<HTMLButtonElement>("button.fork-stub")!;
-  assert.equal(unknownStart.textContent, "‹");
+  const unknownStart = document.querySelector<HTMLButtonElement>("button.fork-start")!;
+  assert.equal(unknownStart.textContent, "Fork start");
+  assert.equal(document.querySelectorAll(".fork-lead-in").length, 1);
   assert.equal(unknownStart.getAttribute("aria-label"), "Started before the loaded history");
   for (const [word, tone] of [
     ["Approved", "success"],
@@ -174,9 +204,15 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
   assert.equal(table.getAttribute("hidden"), null);
   assert.equal(table.getAttribute("aria-hidden"), null);
   const disclosure = document.querySelector<HTMLButtonElement>(".fork-disclosure")!;
+  assert.equal(getComputedStyle(table).position, "absolute");
+  assert.equal(getComputedStyle(table).width, "1px");
+  assert.equal(getComputedStyle(table).clipPath, "inset(50%)");
+  assert.ok([...table.querySelectorAll("button")].every((button) => button.tabIndex === -1));
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
   await act(async () => disclosure.click());
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+  assert.equal(table.style.clipPath, "");
+  assert.ok([...table.querySelectorAll("button")].every((button) => button.tabIndex === 0));
   await act(async () =>
     [...document.querySelectorAll<HTMLButtonElement>(".fork-lane-label")]
       .find((b) => b.textContent!.includes("fixture-01"))!
@@ -206,12 +242,36 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
   );
   assert.ok(oldHistory.length);
   for (const history of oldHistory) {
-    assert.match(history.querySelector(".fork-stub")!.textContent!, /^‹ since \d{2}:\d{2}$/);
+    assert.match(history.querySelector(".fork-stub")!.textContent!, /^since \d{2}:\d{2}$/);
     assert.equal(
       history.querySelector(".fork-stub")!.nextElementSibling!.textContent,
       "Earlier pushes not shown",
     );
   }
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ForkGraph, {
+          state: fixture("fork-history"),
+          owner: false,
+          openReview: () => {},
+          openPacket: () => {},
+          openReceipt: () => {},
+          now,
+        }),
+      ),
+    ),
+  );
+  const capped = [...document.querySelectorAll(".fork-earlier-events")];
+  assert.ok(capped.length >= 4);
+  for (const hint of capped) {
+    assert.match(hint.textContent!, /\+\d+ earlier/);
+    assert.equal((hint.parentElement!.textContent!.match(/\d{2}:\d{2}/g) ?? []).length, 3);
+    assert.equal((hint as HTMLElement).tabIndex, 0);
+  }
+  // The no-layout DOM shim cannot measure SHA-label space; real-bundle captures check geometry.
   await act(async () => root.unmount());
   dom.window.close();
 });
