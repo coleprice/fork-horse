@@ -41,8 +41,9 @@ acceptance.
 The owner-only **Needs you** card routes to evidence, with no approval or promotion
 controls. It lists uncertain promotions, reconciler alerts, open collisions,
 failed required receipts, then reviews ready to promote or approve. Readiness
-uses the review panel's shared gate; stale, returned and promoted reviews are
-excluded. Five rows show initially, with expansion in place and a persistent
+uses FH-045's shared state derivation and review gate; Returned, Fork moved,
+Main moved, Out of date and promoted reviews are excluded, including approved
+reviews whose core stale flag is false. Five rows show initially, with expansion in place and a persistent
 empty state. Agent connections render no card.
 
 Review rows use the existing detail route; hosts without detail reads fall back
@@ -56,7 +57,9 @@ supplied order and available evidence.
 
 The loopback fixture harness includes `needs-all`, `needs-promotion`,
 `needs-reconciler`, `needs-blocker`, `needs-failed`, `needs-promote`,
-`needs-approve`, `needs-advisory`, and `needs-empty`. Use `role=agent` to check
+`needs-approve`, `needs-advisory`, `needs-empty`, and `needs-main-moved`. The last
+fixture pairs a nonstale approved Main moved review with a ready-to-promote
+review, showing only the latter in the card. Use `role=agent` to check
 absence and `host=queue-only` to check the capability fallback. These snapshots
 are synthetic, and fixture routes are excluded from production assets.
 

@@ -41,7 +41,7 @@ export function NeedsYou({
           <h2 id="needs-you-title" className="heading-3">
             Needs you
           </h2>
-          {items.length > 0 && <Badge variant="neutral">{items.length}</Badge>}
+          {items.length > 0 && <Badge variant="secondary">{items.length}</Badge>}
         </div>
         {items.length ? (
           <>

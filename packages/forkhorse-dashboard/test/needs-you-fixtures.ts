@@ -12,6 +12,7 @@ export const needsScenarios = [
   "needs-approve",
   "needs-advisory",
   "needs-empty",
+  "needs-main-moved",
 ];
 export function needsFixtureState(id: string): StateResponse {
   const state = fixtureState("quiet");
@@ -113,5 +114,23 @@ export function needsFixtureState(id: string): StateResponse {
   if (all || id === "needs-failed") review("fixture-03", "failed");
   if (all || id === "needs-promote") review("fixture-04", "approved");
   if (all || id === "needs-approve" || id === "needs-advisory") review("fixture-05", "pending");
+  if (id === "needs-main-moved") {
+    review("fixture-main-moved", "approved");
+    const currentMain = "7".repeat(40);
+    const ready = review("fixture-ready", "approved");
+    ready.base = currentMain;
+    state.ledger = [
+      {
+        id: "fixture-main-promotion",
+        review: "fixture-other-review",
+        repoName: state.project.repoName,
+        ref: "refs/heads/main",
+        before: HEAD,
+        after: currentMain,
+        receiptDigest: null,
+        recordedAt: "2026-10-13T12:01:00Z",
+      },
+    ];
+  }
   return state;
 }

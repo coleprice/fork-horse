@@ -1,5 +1,5 @@
 import type { Brand, ProjectState } from "./contracts.ts";
-import { reviewGate } from "./model.ts";
+import { reviewGate, reviewState } from "./model.ts";
 import { duration } from "./receipts.tsx";
 import { relativeTime } from "./time.ts";
 
@@ -100,9 +100,8 @@ export function ownerNeeds(state: ProjectState, brand: Brand, now = Date.now()):
   const reviews = state.reviews
     .filter(
       (review) =>
-        !review.returned &&
+        reviewState(review, state).kind === "current" &&
         review.status !== "stale" &&
-        review.status !== "promoted" &&
         state.forks.find((f) => f.repoName === review.repoName)?.head === review.sha,
     )
     .toSorted(

@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mountDashboard } from "../src/dashboard.ts";
-import { stateView } from "../src/model.ts";
+import { reviewState, stateView } from "../src/model.ts";
 import { ownerNeeds, copyText } from "../src/needs-you-model.ts";
 import { createHttpTransport } from "../src/transport.ts";
 import { needsFixtureState } from "./needs-you-fixtures.ts";
@@ -123,6 +123,28 @@ test("required interrupted checks get one evidence row, advisory failures stay r
   const state = stateView(needsFixtureState("needs-failed"));
   state.reviews[0].receipt!.checks = [state.reviews[0].receipt!.checks[0]];
   assert.match(copyText(ownerNeeds(state, brand)[0].why), /^1 of 1 check failed/);
+});
+
+test("FH-045 derived Main moved excludes the nonstale approved loser and keeps the ready review", () => {
+  const wire = needsFixtureState("needs-main-moved");
+  assert.equal(wire.reviews[0].stale, false);
+  assert.ok(wire.reviews[0].approval);
+  const state = stateView(wire);
+  assert.equal(reviewState(state.reviews[0], state).kind, "main-moved");
+  assert.equal(reviewState(state.reviews[1], state).kind, "current");
+  const items = ownerNeeds(state, brand, now);
+  assert.deepEqual(
+    items.map((item) => copyText(item.title)),
+    ["Promote fixture-ready to main"],
+  );
+  state.reviews[0].receipt = fixtureReceipt("failed");
+  assert.deepEqual(
+    ownerNeeds(state, brand, now).map((item) => item.id),
+    [items[0].id],
+  );
+  state.reviews[1].stale = true;
+  assert.equal(reviewState(state.reviews[1], state).kind, "out-of-date");
+  assert.equal(ownerNeeds(state, brand, now).length, 0);
 });
 
 async function until(check: () => boolean) {
