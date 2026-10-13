@@ -10,6 +10,7 @@ The current name and tagline above come from [brand.json](brand.json), the namin
 
 - [Five-minute reviewer quickstart](docs/quickstart.md): connect an agent, claim a packet, push a fork and follow owner review.
 - [One-page architecture](docs/architecture.md): the authority, Git and receipt paths in one diagram.
+- [Cloudflare field notes](docs/cloudflare-field-notes.md): observed integration behavior and product suggestions.
 - [Current acceptance status](#live-versus-roadmap): dated live checks, deployed implementations and remaining work.
 
 ## Live versus roadmap
