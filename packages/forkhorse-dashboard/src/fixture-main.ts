@@ -88,4 +88,9 @@ accent.addEventListener("click", () => {
   applyAppTheme({ mode: "light", accentColor: themeFixture.accent });
 });
 controls.append(accent);
+// Capture controls can be hidden through the fixture UI so they never cover evidence.
+const hide = document.createElement("button");
+hide.textContent = "Hide fixture controls";
+hide.addEventListener("click", () => controls.remove());
+controls.append(hide);
 document.body.append(controls);

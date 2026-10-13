@@ -1,4 +1,9 @@
-import { reviewScenarios, reviewFixtureState, reviewFixtureDetail, reviewFixtureDiff } from "./review-fixtures.ts";
+import {
+  reviewScenarios,
+  reviewFixtureState,
+  reviewFixtureDetail,
+  reviewFixtureDiff,
+} from "./review-fixtures.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { fixtureOwnerReceipt, fixtureReceipt, fixtureState } from "./fixtures.ts";
 
@@ -30,7 +35,10 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
     }
-    const detailRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+)(?:\/(diff|return|approve|promote|receipt))?)$/.exec(url.pathname);
+    const detailRoute =
+      /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+)(?:\/(diff|return|approve|promote|receipt))?)$/.exec(
+        url.pathname,
+      );
     if (detailRoute && reviewScenarios.includes(detailRoute[1])) {
       const id = detailRoute[1];
       if (!states.has(id)) states.set(id, reviewFixtureState(id));
@@ -38,40 +46,81 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       const review = state.reviews[0];
       const route = detailRoute[2];
       const action = detailRoute[4];
-      if (route === "state") { send(state); return; }
-      if (route === "activity") { send({ activity: state.activity, nextAfter: state.activity.at(-1)?.sequence ?? 0 }); return; }
-      if (detailRoute[3] !== review.id) { send({error: "Review not found."}, 404); return; }
+      if (route === "state") {
+        send(state);
+        return;
+      }
+      if (route === "activity") {
+        send({ activity: state.activity, nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+        return;
+      }
+      if (detailRoute[3] !== review.id) {
+        send({ error: "Review not found." }, 404);
+        return;
+      }
       if (!action) {
         if (id === "review-error") send({ error: "Fixture detail unavailable" }, 503);
-        else if (id === "review-not-found") send({error: "Review not found."}, 404);
+        else if (id === "review-not-found") send({ error: "Review not found." }, 404);
         else if (id === "review-loading") setTimeout(() => send(reviewFixtureDetail(state)), 8000);
         else send(reviewFixtureDetail(state));
         return;
       }
       if (action === "diff") {
         const path = url.searchParams.get("path") ?? "";
-        if (path === "missing.txt" || !reviewFixtureDetail(state).changes.files.some(f => f.path === path)) send({error: "Path not in changes"}, 404);
+        if (
+          path === "missing.txt" ||
+          !reviewFixtureDetail(state).changes.files.some((f) => f.path === path)
+        )
+          send({ error: "Path not in changes" }, 404);
         else send(reviewFixtureDiff(path));
         return;
       }
-      if (action === "receipt") { send(fixtureOwnerReceipt(review)); return; }
-      if (request.method !== "POST") { send({ error: "Method not allowed" }, 405); return; }
+      if (action === "receipt") {
+        send(fixtureOwnerReceipt(review));
+        return;
+      }
+      if (request.method !== "POST") {
+        send({ error: "Method not allowed" }, 405);
+        return;
+      }
       if (action === "return") {
         let body = "";
-        request.on("data", chunk => { body += chunk; });
+        request.on("data", (chunk) => {
+          body += chunk;
+        });
         request.on("end", () => {
-          if (id === "review-conflict" || review.promoted) { send({ error: "Review promoted." }, 409); return; }
+          if (id === "review-conflict" || review.promoted) {
+            // Synthetic other-tab promotion becomes authoritative before the conflict response.
+            review.promoted = true;
+            review.approval = { sha: review.sha, receiptDigest: review.receiptDigest };
+            state.ledger = reviewFixtureState("review-promoted").ledger;
+            send({ error: "Review promoted." }, 409);
+            return;
+          }
           try {
             const { reason } = JSON.parse(body);
-            if (typeof reason !== "string" || reason.length < 1 || reason.length > 2000) throw new Error("Invalid reason");
-            review.returned = { reason, at: new Date().toISOString() }; send({ review });
-          } catch { send({ error: "Invalid reason" }, 400); }
+            if (typeof reason !== "string" || reason.length < 1 || reason.length > 2000)
+              throw new Error("Invalid reason");
+            review.returned = { reason, at: new Date().toISOString() };
+            send({ review });
+          } catch {
+            send({ error: "Invalid reason" }, 400);
+          }
         });
         return;
       }
-      if (review.returned) { send({error: "Review was returned to the agent."}, 409); return; }
-      if (action === "approve") { review.approval = { sha: review.sha, receiptDigest: review.receiptDigest }; send({review}); return; }
-      review.promoted = true; send({sha: review.sha}); return;
+      if (review.returned) {
+        send({ error: "Review was returned to the agent." }, 409);
+        return;
+      }
+      if (action === "approve") {
+        review.approval = { sha: review.sha, receiptDigest: review.receiptDigest };
+        send({ review });
+        return;
+      }
+      review.promoted = true;
+      send({ sha: review.sha });
+      return;
     }
     const match =
       /^\/projects\/(demo|quiet|large|first|partial|truncated|superseded|paused|deleted|error|loading|receipts|advisory|recheck|rerun-failed|gating-recheck|history-required|history-advisory)\/(state|activity|settings|reviews\/([^/]+)\/(approve|promote|receipt))$/.exec(

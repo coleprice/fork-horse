@@ -677,6 +677,9 @@ footer {
 .diff-hunk { color: var(--text-color-kumo-subtle); }
 .review-acceptance { list-style: disc; padding-left: calc(var(--spacing) * 5); }
 .review-commit { padding-block: calc(var(--spacing) * 2); border-bottom: 1px solid var(--color-kumo-line); }
+.review-commit-caption { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing); }
+.review-claimed-paths { min-width: 0; }
+.review-claimed-paths code { overflow-wrap: anywhere; }
 .review-skeleton { height: calc(var(--spacing) * 12); max-width: 60%; background: var(--color-kumo-recessed); border-radius: var(--radius-lg); }
 @media (max-width: 639px) {
   .review-header { flex-direction: column; }

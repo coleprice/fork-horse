@@ -199,12 +199,20 @@ test("return required labelled reason, counter, escaped multiline owner and agen
   }
 });
 
-test("return 409 stays in dialog with one warning, uncertain writes are never retried", async () => {
-  for (const response of [
-    () => Promise.resolve(Response.json({ error: "Review promoted." }, { status: 409 })),
-    () => Promise.reject(new Error("connection closed")),
-  ]) {
-    const c = setup("review-current", true, "#review/review-1", { returning: response });
+test("return 409 focuses Close with a read-only reason and refetches authoritative promotion or return; uncertain writes are never retried", async () => {
+  for (const race of ["promoted", "returned", "network"] as const) {
+    const c = setup("review-current", true, "#review/review-1", {
+      returning: async () => {
+        if (race === "network") throw new Error("connection closed");
+        if (race === "promoted") c.wire.reviews[0].promoted = true;
+        else
+          c.wire.reviews[0].returned = {
+            reason: "Other tab returned this review",
+            at: "2026-10-13T08:00:00Z",
+          };
+        return Response.json({ error: "Review promoted." }, { status: 409 });
+      },
+    });
     try {
       await until(() => button(c, "Return to agent"));
       button(c, "Return to agent").click();
@@ -223,6 +231,26 @@ test("return 409 stays in dialog with one warning, uncertain writes are never re
         /This review was promoted, so it can.t be returned\.|Couldn.t return this review/,
       );
       assert.doesNotMatch(c.root.textContent!, /Review promoted\./);
+      if (race !== "network") {
+        await until(() => c.dom.window.document.activeElement?.textContent === "Close");
+        assert.equal(
+          !!c.dom.window.document.querySelector('[data-action="confirm-return"]'),
+          false,
+        );
+        const reason = c.dom.window.document.querySelector("textarea");
+        assert.equal(reason.value, "Fix");
+        assert.equal(reason.readOnly, true);
+        await until(() =>
+          c.root.textContent!.includes(
+            race === "promoted" ? "Promoted to main" : "Other tab returned this review",
+          ),
+        );
+        assert.equal(c.calls.filter((r) => r.url.pathname.endsWith("/state")).length >= 2, true);
+        assert.equal(
+          c.calls.filter((r) => r.url.pathname.endsWith("/reviews/review-1")).length >= 2,
+          true,
+        );
+      }
     } finally {
       c.close();
     }
@@ -237,13 +265,14 @@ test("diffs are lazy, several expand, text escaped, binary and truncated and 404
       c.calls.some((r) => r.url.pathname.endsWith("/diff")),
       false,
     );
-    assert.equal(c.root.querySelectorAll(".review-file-toggle").length, 200);
+    assert.equal(c.root.querySelectorAll(".review-file-toggle").length, 20);
+    assert.ok(button(c, "Show 180 more files"));
+    assert.doesNotMatch(c.root.textContent!, /Showing 200 of 400 files\./);
     const paths = reviewFixtureDetail(c.wire).changes.files.map((f) => f.path);
     assert.deepEqual(
       paths,
       paths.toSorted((a, b) => a.localeCompare(b)),
     );
-    assert.match(c.root.textContent!, /Showing 200 of 400 files\./);
     const rows = c.root.querySelectorAll<HTMLButtonElement>(".review-file-toggle");
     for (const i of [0, 1, 2, 3]) rows[i].click();
     await until(
@@ -260,6 +289,15 @@ test("diffs are lazy, several expand, text escaped, binary and truncated and 404
     assert.equal(c.root.querySelector(".review-diff script"), null);
     assert.match(c.root.textContent!, /Patch truncated at 64 KB\./);
     assert.equal(c.calls.filter((r) => r.url.pathname.endsWith("/diff")).length, 4);
+    button(c, "Show 180 more files").click();
+    await until(() => c.root.querySelectorAll(".review-file-toggle").length === 200);
+    assert.equal(
+      c.dom.window.document.activeElement === c.root.querySelectorAll(".review-file-toggle")[20],
+      true,
+    );
+    assert.equal(c.root.querySelectorAll('.review-file-toggle[aria-expanded="true"]').length, 4);
+    assert.equal(c.calls.filter((r) => r.url.pathname.endsWith("/diff")).length, 4);
+    assert.match(c.root.textContent!, /Showing 200 of 400 files\./);
     rows[0].click();
     rows[0].click();
     await new Promise((r) => setTimeout(r, 20));
@@ -303,6 +341,68 @@ test("approved/promoted/stale/advisory milestones and owner gates reflect indepe
     } finally {
       c.close();
     }
+  }
+});
+
+test("compact commit copies the full SHA, approval focuses its row, and file names separate status/path", async () => {
+  const c = setup("review-approved");
+  const prior = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  let copied = "";
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (value: string) => {
+        copied = value;
+      },
+    },
+  });
+  try {
+    await until(() => c.root.querySelector(".review-commit-caption"));
+    assert.equal(!!c.root.querySelector("#approved-commit"), false);
+    assert.equal(!!c.root.querySelector('.review-commit [aria-label="Copy to clipboard"]'), false);
+    const sha = c.wire.reviews[0].sha;
+    c.root
+      .querySelector<HTMLButtonElement>(`[aria-label="Copy commit ${sha.slice(0, 7)}"]`)!
+      .click();
+    await until(() => copied === sha);
+    c.root
+      .querySelector<HTMLButtonElement>('[aria-label="Approved. Inspect the approved commit."]')!
+      .click();
+    assert.equal(c.dom.window.document.activeElement.id, `review-commit-${sha}`);
+    const row = [...c.root.querySelectorAll(".review-file-toggle")].find((row) =>
+      row.textContent!.includes("src/review.tsx"),
+    )!;
+    assert.equal(row.textContent!.trim(), "Modified, src/review.tsx");
+    assert.equal(row.getAttribute("aria-label"), "Modified, src/review.tsx");
+  } finally {
+    if (prior) Object.defineProperty(navigator, "clipboard", prior);
+    else Reflect.deleteProperty(navigator, "clipboard");
+    c.close();
+  }
+});
+
+test("Request preserves full exact glob paths and folds only after twenty", async () => {
+  const c = setup("review-current", true, "#review/review-1", {
+    detail: async () => {
+      const detail = reviewFixtureDetail(c.wire);
+      detail.packet.paths = Array.from(
+        { length: 25 },
+        (_, i) => `packages/very/long/claimed/path-${i}/**`,
+      );
+      return Response.json(detail);
+    },
+  });
+  try {
+    await until(() => c.root.querySelector(".review-claimed-paths"));
+    assert.equal(c.root.querySelectorAll(".review-claimed-paths li").length, 20);
+    assert.equal(
+      c.root.querySelector(".review-claimed-paths code")!.textContent,
+      "packages/very/long/claimed/path-0/**",
+    );
+    button(c, "Show all 25 paths").click();
+    await until(() => c.root.querySelectorAll(".review-claimed-paths li").length === 25);
+  } finally {
+    c.close();
   }
 });
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Banner, Button, ClipboardText, Dialog, Tooltip, Textarea } from "@cloudflare/kumo";
-import { ArrowUUpLeft, Warning } from "@phosphor-icons/react";
+import { ArrowUUpLeft, Copy, Warning } from "@phosphor-icons/react";
 import type { Review, ReviewDetail, ReviewDiff } from "./contracts.ts";
 import { reviewView, type ViewModel } from "./model.ts";
 import { type ViewActions, ReviewActions, Paths } from "./view.tsx";
@@ -165,12 +165,14 @@ function FileDiff({
       <button
         type="button"
         className="review-file-toggle"
+        aria-label={`${file.status[0].toUpperCase() + file.status.slice(1)}, ${file.path}`}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
         <span className="caption file-status">
           {file.status[0].toUpperCase() + file.status.slice(1)}
         </span>
+        <span className="sr-only">, </span>
         <Tooltip content={file.path} render={<code className="review-file-path" />}>
           {file.path}
         </Tooltip>
@@ -202,6 +204,100 @@ function FileDiff({
   );
 }
 
+function ClaimedPaths({ paths }: { paths: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      <ul className="review-claimed-paths">
+        {paths.slice(0, expanded ? paths.length : 20).map((path, i) => (
+          <li key={i}>
+            <code>{path}</code>
+          </li>
+        ))}
+      </ul>
+      {!expanded && paths.length > 20 && (
+        <Button variant="ghost" size="sm" onClick={() => setExpanded(true)}>
+          Show all {paths.length} paths
+        </Button>
+      )}
+    </>
+  );
+}
+
+function CommitCopy({ sha }: { sha: string }) {
+  const [message, setMessage] = useState("");
+  return (
+    <>
+      <Tooltip
+        content="Copy full SHA"
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            shape="square"
+            aria-label={`Copy commit ${sha.slice(0, 7)}`}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(sha);
+                setMessage("Full SHA copied.");
+              } catch {
+                setMessage("Couldn't copy the full SHA. Check clipboard access.");
+              }
+            }}
+          />
+        }
+      >
+        <Copy size={16} aria-hidden="true" />
+      </Tooltip>
+      <span role="status" className="sr-only">
+        {message}
+      </span>
+    </>
+  );
+}
+
+function Changes({
+  changes,
+  id,
+  actions,
+}: {
+  changes: ReviewDetail["changes"];
+  id: string;
+  actions: ViewActions;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const rows = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (expanded)
+      rows.current?.querySelectorAll<HTMLButtonElement>(".review-file-toggle")[20]?.focus();
+  }, [expanded]);
+  return (
+    <>
+      <div ref={rows}>
+        {changes.files.slice(0, expanded ? changes.files.length : 20).map((file) => (
+          <FileDiff
+            key={`${changes.base}:${changes.head}:${file.status}:${file.path}`}
+            file={file}
+            revision={changes.head}
+            id={id}
+            actions={actions}
+          />
+        ))}
+      </div>
+      {!expanded && changes.files.length > 20 && (
+        <Button variant="ghost" size="sm" onClick={() => setExpanded(true)}>
+          Show {changes.files.length - 20} more files
+        </Button>
+      )}
+      {changes.truncated && (expanded || changes.files.length <= 20) && (
+        <p className="caption muted">
+          Showing {changes.files.length} of {changes.fileCount} files.
+        </p>
+      )}
+    </>
+  );
+}
+
 function ReturnAction({
   review,
   view,
@@ -217,7 +313,12 @@ function ReturnAction({
   const [reason, setReason] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
+  const [conflict, setConflict] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const close = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (conflict) close.current?.focus();
+  }, [conflict]);
   const canReturn =
     actions.owner &&
     actions.returnReview &&
@@ -238,6 +339,7 @@ function ReturnAction({
           onClick={() => {
             setReason("");
             setError(undefined);
+            setConflict(false);
             setOpen(true);
           }}
         >
@@ -267,6 +369,7 @@ function ReturnAction({
             value={reason}
             aria-describedby="return-counter"
             disabled={sending}
+            readOnly={conflict}
             onChange={(e) => setReason(e.target.value)}
           />
           <p id="return-counter" className="caption muted" aria-live="polite">
@@ -279,33 +382,41 @@ function ReturnAction({
             </p>
           )}
           <div className="dialog-actions">
-            <Button variant="secondary" disabled={sending} onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
             <Button
-              variant="primary"
-              data-action="confirm-return"
-              disabled={sending || !canReturn || reason.length < 1 || reason.length > 2000}
-              onClick={async () => {
-                if (sending || !actions.returnReview) return;
-                setSending(true);
-                setError(undefined);
-                try {
-                  if (await actions.returnReview(review.id, reason)) setOpen(false);
-                  else setError("Review changed. Close and review again.");
-                } catch (e) {
-                  setError(
-                    e instanceof ApiError && e.status === 409
-                      ? "This review was promoted, so it can't be returned."
-                      : "Couldn't return this review. Refresh and review again.",
-                  );
-                } finally {
-                  setSending(false);
-                }
-              }}
+              ref={close}
+              variant="secondary"
+              disabled={sending}
+              onClick={() => setOpen(false)}
             >
-              {sending ? "Returning…" : "Return to agent"}
+              {conflict ? "Close" : "Cancel"}
             </Button>
+            {!conflict && (
+              <Button
+                variant="primary"
+                data-action="confirm-return"
+                disabled={sending || !canReturn || reason.length < 1 || reason.length > 2000}
+                onClick={async () => {
+                  if (sending || !actions.returnReview) return;
+                  setSending(true);
+                  setError(undefined);
+                  try {
+                    if (await actions.returnReview(review.id, reason)) setOpen(false);
+                    else setError("Review changed. Close and review again.");
+                  } catch (e) {
+                    setConflict(e instanceof ApiError && e.status === 409);
+                    setError(
+                      e instanceof ApiError && e.status === 409
+                        ? "This review was promoted, so it can't be returned."
+                        : "Couldn't return this review. Refresh and review again.",
+                    );
+                  } finally {
+                    setSending(false);
+                  }
+                }}
+              >
+                {sending ? "Returning…" : "Return to agent"}
+              </Button>
+            )}
           </div>
         </Dialog>
       </Dialog.Root>
@@ -511,7 +622,9 @@ export function ReviewView({
               type="button"
               className="review-evidence caption"
               aria-label="Approved. Inspect the approved commit."
-              onClick={() => document.getElementById("approved-commit")?.focus()}
+              onClick={() =>
+                document.getElementById(`review-commit-${review.approval!.sha}`)?.focus()
+              }
             >
               at <code>{review.approval.sha.slice(0, 7)}</code>
             </button>
@@ -556,12 +669,6 @@ export function ReviewView({
           <p className="plain-text">{review.returned.reason}</p>
           <p className="caption muted">Returned {relativeTime(review.returned.at)}</p>
         </blockquote>
-      )}
-      {approval && (
-        <div id="approved-commit" tabIndex={-1}>
-          <p className="caption muted">Approved commit</p>
-          <ClipboardText text={review.approval!.sha} size="sm" />
-        </div>
       )}
       {promotion && (
         <Dialog.Root open={ledger} onOpenChange={setLedger}>
@@ -614,34 +721,33 @@ export function ReviewView({
           ))}
         </ul>
         <p className="caption muted">Claimed paths</p>
-        <Paths paths={detail.packet.paths} />
+        <ClaimedPaths key={id} paths={detail.packet.paths} />
       </section>
       <section>
         <h2>Changes</h2>
         <p className="caption muted">
           {detail.changes.fileCount} {detail.changes.fileCount === 1 ? "file" : "files"} changed
         </p>
-        {detail.changes.files.map((file) => (
-          <FileDiff
-            key={`${detail.changes.base}:${detail.changes.head}:${file.status}:${file.path}`}
-            file={file}
-            revision={detail.changes.head}
-            id={id}
-            actions={actions}
-          />
-        ))}
-        {detail.changes.truncated && (
-          <p className="caption muted">Showing 200 of {detail.changes.fileCount} files.</p>
-        )}
+        <Changes
+          key={`${id}:${detail.changes.base}:${detail.changes.head}`}
+          changes={detail.changes}
+          id={id}
+          actions={actions}
+        />
       </section>
       <section>
         <h2>Commits</h2>
         {detail.commits.map((commit) => (
-          <div key={commit.sha} className="review-commit">
+          <div
+            key={commit.sha}
+            id={`review-commit-${commit.sha}`}
+            tabIndex={-1}
+            className="review-commit"
+          >
             <p>{commit.subject}</p>
-            <div className="caption muted">
-              <ClipboardText text={commit.sha.slice(0, 7)} textToCopy={commit.sha} size="sm" /> ·{" "}
-              {commit.authorName} ·{" "}
+            <div className="caption muted review-commit-caption">
+              <code>{commit.sha.slice(0, 7)}</code>
+              <CommitCopy sha={commit.sha} /> · {commit.authorName} ·{" "}
               {commit.packetTrailer && (
                 <Badge variant="secondary">Packet {commit.packetTrailer}</Badge>
               )}{" "}
