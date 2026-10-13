@@ -34,6 +34,8 @@ import {
   type ViewModel,
 } from "./model.ts";
 import { ReviewView } from "./review.tsx";
+import { NeedsYou } from "./needs-you.tsx";
+import type { OwnerNeed } from "./needs-you-model.ts";
 import type { ReviewDetail, ReviewDiff, Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
 import { relativeTime as relative } from "./time.ts";
 
@@ -424,6 +426,26 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     setPacketId(undefined);
     toggle(true);
   }
+  function openNeed(target: OwnerNeed["target"]) {
+    if ("review" in target) {
+      if (actions.getReview) actions.openReview(target.review);
+      else actions.setSection("review");
+    } else if ("packet" in target) {
+      actions.setSection("work");
+      showPacket(target.packet);
+    } else if ("repo" in target) {
+      actions.setSection("agents");
+      requestAnimationFrame(() => {
+        const row = [...document.querySelectorAll<HTMLElement>("[data-agent-repo]")]
+          .find((entry) => entry.dataset.agentRepo === target.repo);
+        (row ?? document.getElementById("agents-heading"))?.focus();
+        row?.scrollIntoView({ block: "nearest" });
+      });
+    } else {
+      actions.setSection("overview");
+      requestAnimationFrame(() => document.getElementById("last-promotion")?.focus());
+    }
+  }
   function back() {
     setReceiptPanel(false);
     setPacketId(undefined);
@@ -733,6 +755,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                 empty(view.project ? "No snapshot loaded." : "Select a configured project.")
               ) : (
                 <>
+                  {state.promotionPending && (
+                    <Banner variant="error" className="text-kumo-default" icon={<Warning size={20} />}
+                      title="Canonical reconciliation alert"
+                      description={<>Promotion outcome pending owner inspection. {short(state.promotionPending.after)}</>} />
+                  )}
                   {state.reconcilerAlerts.map((alert, index) => (
                     <Banner
                       key={index}
@@ -750,6 +777,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
+                      {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
                       <LayerCard className="p-4 project-card">
                         <div className="section-heading">
                           <h2>
@@ -764,7 +792,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         {state.project.remote && (
                           <ClipboardText text={state.project.remote} size="sm" />
                         )}
-                        <p className="muted">
+                        <p className="muted" id="last-promotion" tabIndex={-1}>
                           {state.ledger.length ? (
                             <>
                               Last promotion:{" "}
@@ -1169,7 +1197,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "agents",
                     <section id="lanes">
-                      <h2>Agents</h2>
+                      <h2 id="agents-heading" tabIndex={-1}>Agents</h2>
                       {state.agents.length ? (
                         <DataTable
                           kind="agents"
@@ -1182,7 +1210,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                 fork ? e.repoName === fork.repoName : e.agent === agent.name,
                               );
                               return (
-                                <Table.Row key={`${agent.name}-${fork?.repoName ?? "none"}`}>
+                                <Table.Row key={`${agent.name}-${fork?.repoName ?? "none"}`} data-agent-repo={fork?.repoName} tabIndex={-1}>
                                   <Table.Cell>
                                     <Tooltip
                                       content={agent.name}

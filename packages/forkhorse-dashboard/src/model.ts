@@ -131,17 +131,12 @@ export function stateView(wire: StateResponse): ProjectState {
       promotedAt: entry.recordedAt,
       receiptDigest: entry.receiptDigest,
     })),
-    reconcilerAlerts: [
-      ...wire.reconcilerAlerts.map((alert) => ({ sha: alert.after, message: alert.reason })),
-      ...(wire.promotionPending
-        ? [
-            {
-              sha: wire.promotionPending.after,
-              message: "Promotion outcome pending owner inspection.",
-            },
-          ]
-        : []),
-    ],
+    reconcilerAlerts: wire.reconcilerAlerts.map((alert) => ({
+      ...alert,
+      sha: alert.after,
+      message: alert.reason,
+    })),
+    promotionPending: wire.promotionPending,
   };
 }
 

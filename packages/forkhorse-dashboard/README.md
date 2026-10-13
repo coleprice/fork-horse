@@ -36,6 +36,30 @@ Restart the dev server (or POST to its test-only `/__fixtures/reset`) to reset f
 are local. Passing these checks is not Access, Cloudflare, deployment or live Git
 acceptance.
 
+## Owner decisions on Overview
+
+The owner-only **Needs you** card routes to evidence, with no approval or promotion
+controls. It lists uncertain promotions, reconciler alerts, open collisions,
+failed required receipts, then reviews ready to promote or approve. Readiness
+uses the review panel's shared gate; stale, returned and promoted reviews are
+excluded. Five rows show initially, with expansion in place and a persistent
+empty state. Agent connections render no card.
+
+Review rows use the existing detail route; hosts without detail reads fall back
+to the review queue. Collisions open Work packet details, and reconciler rows
+focus the matching Agents row (or the Agents heading when the canonical repo
+has no agent row). Promotion intents without a review route focus Last promotion.
+Within each kind, review request times and Core's receive-sequence alert/collision
+IDs provide oldest-first ordering. A current-head alert without a sequence follows
+the recorded alerts; older capability snapshots without metadata retain their
+supplied order and available evidence.
+
+The loopback fixture harness includes `needs-all`, `needs-promotion`,
+`needs-reconciler`, `needs-blocker`, `needs-failed`, `needs-promote`,
+`needs-approve`, `needs-advisory`, and `needs-empty`. Use `role=agent` to check
+absence and `host=queue-only` to check the capability fallback. These snapshots
+are synthetic, and fixture routes are excluded from production assets.
+
 ## Host composition
 
 Serve `dist/index.html` for `/app` and `/app/` (or redirect `/app` to `/app/`), and

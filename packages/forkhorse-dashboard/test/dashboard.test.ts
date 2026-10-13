@@ -396,7 +396,8 @@ test("wire normalization preserves live fork bindings and refuses a changed appr
   assert.equal(reviewGate(view.reviews[0], view).promote, false);
   assert.equal(view.reviews[0].status, "stale");
   assert.equal(view.canonicalHead, undefined);
-  assert.match(view.reconcilerAlerts[0].message, /pending owner inspection/);
+  assert.deepEqual(view.promotionPending, wire.promotionPending);
+  assert.equal(view.reconcilerAlerts.length, 0);
 });
 
 test("activity request follows the recent snapshot cursor instead of showing the first page", async () => {
