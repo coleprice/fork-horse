@@ -8,6 +8,7 @@ import type {
   ClaimReleaseAudit,
   Fork,
   LedgerEntry,
+  Packet,
   ReconcilerAlert,
   Review,
 } from "../src/workflow-types";
@@ -40,6 +41,7 @@ async function mutate(
   });
 }
 interface State {
+  packets: Packet[];
   claims: Claim[];
   forks: (Fork & { head: string })[];
   reviews: Review[];
@@ -130,6 +132,67 @@ function push(
     metadata: { eventTimestamp: "2026-10-12T00:00:00Z" },
   };
 }
+
+describe("FH-050 packet visibility and claim guard in workerd with offline providers", () => {
+  it("creates active packets and returns archive metadata without hiding packet history", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await packet(f.id, "two", ["docs"]);
+    expect((await state(f.id)).packets.every(p => p.archived === null)).toBe(true);
+    const archived = { at: "2026-10-13T14:11:00.000Z", by: "owner" as const };
+    await mutate(f.id, async (_instance, objectState) => {
+      const p = (await objectState.storage.get<Packet>("packet:one"))!;
+      await objectState.storage.put("packet:one", { ...p, archived });
+    });
+    for (const token of [OWNER, f.alpha]) {
+      const packets = (await (await api(f.id, "/packets", token)).json<{ packets: Packet[] }>()).packets;
+      expect(packets).toHaveLength(2);
+      expect(packets.find(p => p.id === "one")!.archived).toEqual(archived);
+      expect(packets.find(p => p.id === "two")!.archived).toBeNull();
+      const snapshot = await (await api(f.id, "/state", token)).json<State>();
+      expect(snapshot.packets).toEqual(packets);
+    }
+  });
+
+  it("reads legacy packets as active without rewriting them and permits a claim", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await mutate(f.id, async (_instance, objectState) => {
+      const p = { ...(await objectState.storage.get<Packet>("packet:one"))! } as Partial<Packet>;
+      delete p.archived;
+      await objectState.storage.put("packet:one", p);
+    });
+    const packets = (await (await api(f.id, "/packets")).json<{ packets: Packet[] }>()).packets;
+    expect(packets[0]!.archived).toBeNull();
+    expect((await state(f.id)).packets[0]!.archived).toBeNull();
+    expect((await claim(f.id, f.alpha)).status).toBe(201);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get("packet:one")).not.toHaveProperty("archived");
+    });
+  });
+
+  it.each([false, true])("refuses archived claims even with an existing claim: %s", async existing => {
+    const f = await fixture();
+    await packet(f.id);
+    if (existing) expect((await claim(f.id, f.alpha)).status).toBe(201);
+    const before = (await state(f.id)).claims;
+    await mutate(f.id, async (_instance, objectState) => {
+      const p = (await objectState.storage.get<Packet>("packet:one"))!;
+      await objectState.storage.put("packet:one", { ...p, archived: { at: "2026-10-13T14:11:00.000Z", by: "owner" } });
+    });
+    for (const token of [f.alpha, f.beta]) {
+      const response = await claim(f.id, token);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "Packet is archived." });
+    }
+    expect((await claim(f.id, OWNER)).status).toBe(403);
+    expect((await claim(f.id, "invalid")).status).toBe(403);
+    expect((await claim(f.id, f.alpha, "missing")).status).toBe(404);
+    expect((await state(f.id)).claims).toEqual(before);
+    expect((await api(f.id, "/packets/one/claim", f.alpha, undefined, "DELETE")).status).toBe(200);
+    expect((await state(f.id)).claims).toEqual([]);
+  });
+});
 
 describe("workflow in real Durable Objects, with explicitly offline Git/Artifacts fixtures", () => {
   it.each(["owner", "agent"] as const)("audits %s release, invalidates reviews and keeps repeated release idempotent", async (role) => {

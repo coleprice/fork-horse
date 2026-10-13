@@ -206,6 +206,12 @@ Public record types, including `StateSnapshot`, are exported from
 validation, JSON responses and no-store header as the original routes. Owner
 credentials cannot impersonate an agent on claim creation, commit or review requests.
 
+Packets expose `archived: null | {at, by: "owner"}` in `GET /packets` and
+`/state.packets`. Legacy packets without the field read as `null` without a storage
+migration. Both lists retain archived packets and their metadata for clients to
+filter. Claim creation on an archived packet returns 409 `Packet is archived.`;
+an existing claim may still be released.
+
 | Method and suffix under `/projects/:id` | Role | Body / response |
 | --- | --- | --- |
 | `POST /agents` | Owner | `{agent}` → `{agent, apiToken}` (201, returned once) |

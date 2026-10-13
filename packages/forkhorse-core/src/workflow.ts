@@ -10,6 +10,7 @@ import { staleBase } from "./git";
 import type { GitOperations } from "./git";
 import { ZERO_SHA } from "./trees";
 import { capActivity } from "./activity";
+import { publicPacket } from "./packets";
 import type { StoredActivity } from "./activity";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import type {
@@ -149,7 +150,7 @@ export class Workflow {
       return this.credential(agent, 200);
     }
     if (path === "/packets" && method === "GET")
-      return json({ packets: await list<Packet>(this.storage, "packet:") });
+      return json({ packets: (await list<Packet>(this.storage, "packet:")).map(publicPacket) });
     if (path === "/packets" && method === "POST") {
       this.owner(actor);
       const data = await body(request);
@@ -173,6 +174,7 @@ export class Workflow {
         goal: data.goal,
         paths: [...new Set(data.paths)],
         acceptance: data.acceptance as string[],
+        archived: null,
       };
       if (await this.storage.get(`packet:${packet.id}`))
         throw new HttpError(409, "Packet already exists.");
@@ -203,6 +205,7 @@ export class Workflow {
       }
       // POST still requires an agent; owner authority is limited to DELETE here.
       const claimingAgent = this.agent(actor);
+      if (packet.archived) throw new HttpError(409, "Packet is archived.");
       const data = request.body ? await body(request) : {};
       if (current) {
         if (
@@ -545,7 +548,7 @@ export class Workflow {
       project: { ...project, settings: settings(project), ...await publicEvents(this.storage, project.repoName) },
       agents: (await list<Agent>(this.storage, "agent:")).map(({ name }) => ({ name })),
       forks: await Promise.all(forks.map(async (fork) => ({ ...fork, ...await publicEvents(this.storage, fork.repoName), head: heads.get(fork.repoName)! }))),
-      packets: await list<Packet>(this.storage, "packet:"),
+      packets: (await list<Packet>(this.storage, "packet:")).map(publicPacket),
       claims: await list<Claim>(this.storage, "claim:"),
       blockers: await list<Blocker>(this.storage, "blocker:"),
       reviews: reviews.map(publicReview),
