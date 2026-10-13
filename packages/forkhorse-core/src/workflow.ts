@@ -1,5 +1,6 @@
 import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, raceStates, recordPromoteRejected } from "./race-entrants";
 import { ReviewReader } from "./review-detail";
+import { ReviewCache } from "./review-cache";
 import { requireTokenBudget, tokenCount, usageSources } from "./usage";
 import { publicReview, readReceipt, settings } from "./receipts";
 import type { Receipts } from "./receipts";
@@ -527,10 +528,16 @@ export class Workflow {
       if (!review) throw new HttpError(404, "Review not found.");
       if (!actor.owner && actor.agent !== review.agent)
         throw new HttpError(403, "Review belongs to another agent.");
-      using repo = await this.env.ARTIFACTS.get(review.repoName);
-      const reader = new ReviewReader(repo);
-      const changes = await reader.changes(review.base, review.sha);
-      if (detail[2]) return json(await reader.diff(new URL(request.url).searchParams.get("path") ?? "", changes));
+      const cache = new ReviewCache(this.storage);
+      if (detail[2]) {
+        const path = new URL(request.url).searchParams.get("path") ?? "";
+        return json(await cache.diff(review.base, review.sha, path, async () => {
+          using repo = await this.env.ARTIFACTS.get(review.repoName);
+          const reader = new ReviewReader(repo);
+          const changes = await reader.changes(review.base, review.sha);
+          return { patch: await reader.diff(path, changes), complete: !changes.public.truncated };
+        }));
+      }
       const packet = await this.storage.get<Packet>(`packet:${review.packet}`);
       if (!packet) throw new HttpError(404, "Packet not found.");
       // Historical stores can grow indefinitely; fail closed instead of scanning without a budget.
@@ -539,9 +546,15 @@ export class Workflow {
       if (ledgerEntries.size > 2048 || blockerEntries.size > 2048)
         throw new HttpError(413, "Review exceeds the bounded read limit.");
       const ledger = [...ledgerEntries.values()].find(entry => entry.review === review.id);
+      const gitDetail = await cache.detail(review.base, review.sha, async () => {
+        using repo = await this.env.ARTIFACTS.get(review.repoName);
+        const reader = new ReviewReader(repo);
+        const changes = await reader.changes(review.base, review.sha);
+        return { changes: changes.public, ...await reader.history(review.base, review.sha) };
+      });
       return json({ review: publicReview(review),
         packet: { id: packet.id, title: packet.title, goal: packet.goal, paths: packet.paths, acceptance: packet.acceptance },
-        changes: changes.public, ...await reader.history(review.base, review.sha),
+        ...gitDetail,
         promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest,
           ...(ledger.requireReceipt === undefined ? {} : { requireReceipt: ledger.requireReceipt }),
         } : null,
