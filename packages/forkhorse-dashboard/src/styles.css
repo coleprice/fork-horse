@@ -1149,8 +1149,12 @@ footer {
 
 /* FH-062 quantity gauges use semantic host colors and never encode work progress. */
 .usage-figures, .usage-source, .budget-usage, .token-budget { display: inline-flex; flex-direction: column; gap: 3px; }
-.usage-source { white-space: nowrap; }
-.token-budget { width: 150px; max-width: 100%; }
+.usage-figure, .usage-source .usage-freshness, .usage-source .usage-model, .usage-missing { white-space: nowrap; }
+.usage-split { display: flex; flex-wrap: wrap; gap: 0 4px; white-space: normal; }
+.usage-split > span { white-space: nowrap; }
+.usage-compact { font-size: 12px; }
+.usage-compact .usage-figure:focus-visible { outline: 2px solid var(--color-kumo-ring); outline-offset: 2px; }
+.token-budget { width: 200px; max-width: 100%; }
 .token-budget meter { width: 100%; height: 5px; accent-color: var(--text-color-kumo-subtle); }
 .token-budget-near { color: var(--text-color-kumo-warning); }
 .token-budget-over { color: var(--text-color-kumo-danger); }
@@ -1160,14 +1164,16 @@ footer {
 .token-budget meter::-webkit-meter-optimum-value { background: var(--text-color-kumo-subtle); }
 .token-budget-near meter::-webkit-meter-optimum-value { background: var(--text-color-kumo-warning); }
 .token-budget-over meter::-webkit-meter-optimum-value { background: var(--text-color-kumo-danger); }
-.review-usage { margin-top: 8px; }
+.review-usage { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 8px; }
+.review-usage > span:first-child { white-space: nowrap; }
 .race-usage { margin-bottom: 24px; }
 .race-usage table { width: 100%; border-collapse: collapse; }
 .race-usage th, .race-usage td { padding: 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--color-kumo-line); }
 .race-compare { min-width: 520px; }
 .race-compare .caption { display: block; }
+.race-compare .usage-source, .race-compare .status-dot { display: inline-flex; }
 .race-usage h3 { margin-top: 20px; }
-.column-tokens { min-width: 165px; }
+.column-tokens { min-width: 0; }
 /* Existing tables allocated all width to their original columns. Reserve usage explicitly. */
 .table-agents th:nth-child(1) { width: 17%; }
 .table-agents th:nth-child(2) { width: 19%; }
@@ -1189,12 +1195,12 @@ footer {
   .table-agents th:nth-child(3) { width: 32%; }
   .table-agents th:nth-child(4) { width: 16%; }
   .table-agents th:nth-child(5) { width: 17%; }
-  .table-review:has(.column-tokens) table { min-width: 620px; }
+
 }
 @media (max-width: 639px) {
   .table-agents .column-tokens { display: none; }
   .fork-table td:nth-child(9)::before { content: "Tokens"; }
-  .race-usage .table-scroll { overflow-x: auto; }
+
 }
 
 /* FH-055: full-width recorded race lanes; silks are reviewed identity tokens. */
@@ -1541,10 +1547,51 @@ footer {
 
 /* Usage is an extra facts column; FH-055's milestone geometry and glyph rules stay authoritative. */
 .race-track thead th:first-child, .race-track thead th:last-child { width: 16%; }
-.race-track thead .race-tokens-heading { width: 170px; text-align: left; }
+.race-track thead .race-tokens-heading { width: 220px; text-align: left; }
 .race-track .race-tokens { padding: 20px 8px; vertical-align: top; text-align: left; }
 @media (max-width: 639px) {
   .race-track .race-tokens { display: block; padding: 16px 0; }
   .race-tokens > .race-phone-label { margin-bottom: 8px; }
   .race-track-empty thead .race-tokens-heading { display: none; }
+}
+
+/* Dense usage facts fit the pane with the activity panel docked. */
+.table-review .usage-source .usage-figure,
+.table-review .usage-missing { white-space: nowrap; }
+.table-review .usage-promotion-caption { white-space: normal; }
+@container (max-width: 999px) {
+  .table-review:has(.column-tokens) .column-receipts,
+  .table-review:has(.column-tokens) .column-requested { display: none; }
+  .table-review:has(.column-tokens) .folded { display: block; }
+  .table-review:has(.column-tokens) th:nth-child(1) { width: 14%; }
+  .table-review:has(.column-tokens) th:nth-child(2) { width: 18%; }
+  .table-review:has(.column-tokens) th:nth-child(3) { width: 12%; }
+  .table-review:has(.column-tokens) th:nth-child(4) { width: 21%; }
+  .table-review:has(.column-tokens) th:nth-child(6) { width: 15%; }
+  .table-review:has(.column-tokens) th:nth-child(8) { width: 20%; }
+}
+.fork-table:has(.usage-compact) th:nth-child(1) { width: 12%; }
+.fork-table:has(.usage-compact) th:nth-child(2) { width: 12%; }
+.fork-table:has(.usage-compact) th:nth-child(3) { width: 9%; }
+.fork-table:has(.usage-compact) th:nth-child(4) { width: 11%; }
+.fork-table:has(.usage-compact) th:nth-child(5) { width: 10%; }
+.fork-table:has(.usage-compact) th:nth-child(6) { width: 12%; }
+.fork-table:has(.usage-compact) th:nth-child(7) { width: 9%; }
+.fork-table:has(.usage-compact) th:nth-child(8) { width: 9%; }
+.fork-table:has(.usage-compact) th:nth-child(9) { width: 16%; }
+.compare-entrant { display: none; }
+.compare-value { display: block; }
+@media (max-width: 639px) {
+  .race-usage .table-scroll { overflow: visible; }
+  .race-compare { min-width: 0; }
+  .race-compare, .race-compare tbody, .race-compare tr { display: block; }
+  .race-compare thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .race-compare tr { padding-block: 12px; border-bottom: 1px solid var(--color-kumo-line); }
+  .race-compare th { display: block; padding: 0 0 8px; border: 0; }
+  .race-compare td { display: grid; grid-template-columns: minmax(88px, 1fr) minmax(0, 2fr); gap: 8px; padding: 8px 0; border: 0; }
+  .compare-entrant { display: flex; gap: 6px; align-items: flex-start; min-width: 0; }
+  .compare-entrant > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .compare-entrant .race-saddlecloth { flex: 0 0 22px; width: 22px; height: 22px; font-size: 12px; }
+  .compare-value { min-width: 0; }
+  .race-compare .usage-source, .race-compare .token-budget-state, .race-compare .usage-freshness { font-size: 12px; }
 }

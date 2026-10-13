@@ -635,7 +635,7 @@ export function ForkGraph({
                         ? "Released"
                         : "Not yet"}
                 </td>
-                <td>{brand ? <UsageFigures usage={laneUsage(state, lane)} agent={lane.agent} brand={brand} /> : <span className="caption muted">Not reported</span>}</td>
+                <td>{brand ? <UsageFigures usage={laneUsage(state, lane)} agent={lane.agent} brand={brand} compact focusable={effectiveOpen} /> : <span className="caption muted">Not reported</span>}</td>
               </tr>
             ))}
           </tbody>

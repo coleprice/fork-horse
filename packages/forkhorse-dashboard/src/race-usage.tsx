@@ -1,10 +1,11 @@
 import { assertDetail } from "./review.tsx";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Brand, ProjectState, Race, ReviewDetail } from "./contracts.ts";
-import { raceEntrants, raceStart, raceSplit } from "./race-model.ts";
+import { entrantChecks, raceEntrants, raceStart, raceSplit } from "./race-model.ts";
 import { oldestLoadedActivity, packetPushes, timestamp } from "./fork-graph-model.ts";
 import { BudgetUsage } from "./usage.tsx";
 import { totalTokens } from "./usage.ts";
+import { agentIdentities, Saddlecloth, type AgentIdentity } from "./lane.tsx";
 
 const elapsed = (start: number | undefined, end?: string | null) => {
   const at = Date.parse(end ?? "");
@@ -15,7 +16,15 @@ const elapsed = (start: number | undefined, end?: string | null) => {
 const best = (values: (number | undefined)[], index: number) =>
   values.length > 1 &&
   values.every((value) => value !== undefined) &&
+  new Set(values).size > 1 &&
   values[index] === Math.min(...(values as number[]));
+
+function CompareCell({ agent, identity, children }: { agent: string; identity?: AgentIdentity; children: ReactNode }) {
+  return <td>
+    <span className="compare-entrant" aria-hidden="true"><Saddlecloth identity={identity} /><span title={agent}>{agent}</span></span>
+    <span className="compare-value">{children}</span>
+  </td>;
+}
 
 /** Facts below the accepted FH-055 track, using its claim order and recorded race clock. */
 export function RaceCompare({
@@ -102,6 +111,7 @@ export function RaceCompare({
       </>
     );
   };
+  const identities = agentIdentities(state.agents);
   return (
     <section className="race-usage" aria-labelledby="race-compare-title">
       <h3 id="race-compare-title">Compare</h3>
@@ -131,48 +141,44 @@ export function RaceCompare({
               <tr key={label}>
                 <th scope="row">{label}</th>
                 {values.map((_value, i) => (
-                  <td key={race.entrants[i].repoName}>
+                  <CompareCell key={race.entrants[i].repoName} agent={race.entrants[i].agent} identity={identities.get(race.entrants[i].agent)}>
                     {raceSplit(race.entrants[i][key], start) || "Not yet"}
                     {best([...values], i) && <span className="caption muted">fastest</span>}
-                  </td>
+                  </CompareCell>
                 ))}
               </tr>
             ))}
             <tr>
               <th scope="row">Checks passed</th>
-              {reviews.map((r, i) => (
-                <td key={race.entrants[i].repoName}>
-                  {r?.receipt
-                    ? `${r.receipt.checks.filter((c) => c.outcome === "passed").length} of ${r.receipt.checks.length}`
-                    : "No receipt"}
-                </td>
+              {race.entrants.map((e) => (
+                <CompareCell key={e.repoName} agent={e.agent} identity={identities.get(e.agent)}>{entrantChecks(state, race, e)}</CompareCell>
               ))}
             </tr>
             <tr>
               <th scope="row">Files changed</th>
               {changes.map((value, i) => (
-                <td key={race.entrants[i].repoName}>
+                <CompareCell key={race.entrants[i].repoName} agent={race.entrants[i].agent} identity={identities.get(race.entrants[i].agent)}>
                   {value ?? "Unavailable"}
                   {best(changes, i) && <span className="caption muted">fewest</span>}
-                </td>
+                </CompareCell>
               ))}
             </tr>
             {pushesAvailable && <tr>
               <th scope="row">Recorded pushes</th>
               {race.entrants.map((e) => (
-                <td key={e.repoName}>
+                <CompareCell key={e.repoName} agent={e.agent} identity={identities.get(e.agent)}>
                   {packetPushes(
                     activity, e.repoName, state.project.defaultBranch,
                     timestamp(e.claimedAt) ?? Infinity,
                     timestamp(e.closedAt) ?? timestamp(race.finishedAt) ?? now,
                   ).length}
-                </td>
+                </CompareCell>
               ))}
             </tr>}
             <tr>
               <th scope="row">Tokens</th>
               {race.entrants.map((e, i) => (
-                <td key={e.repoName}>{tokens(i)}</td>
+                <CompareCell key={e.repoName} agent={e.agent} identity={identities.get(e.agent)}>{tokens(i)}</CompareCell>
               ))}
             </tr>
           </tbody>

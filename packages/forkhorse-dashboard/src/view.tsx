@@ -1037,6 +1037,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           >
                             {reviews.map((r) => {
                               const gate = reviewGate(r, state);
+                              const receiptCaption = receiptGateCaption(r, state.project.settings?.requireReceipt === true);
+                              // Usage refusals replace Promote in Actions, never repeat them in State.
+                              const hasStateCaption = receiptCaption || (!gate.approve && !gate.promote && gate.reason);
+                              const stateCaption = hasStateCaption
+                                ? (gate.reason === usagePromotionCaption(r, state) ? receiptCaption : gate.reason || receiptCaption)
+                                : "";
                               const cause = reviewState(r, state);
                               const stale = !!cause.banner;
                               return (
@@ -1092,17 +1098,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       </div>
                                     )}
                                     {!stale && !r.returned &&
-                                      (receiptGateCaption(
-                                        r,
-                                        state.project.settings?.requireReceipt === true,
-                                      ) ||
-                                        (!gate.approve && !gate.promote && gate.reason)) && (
+                                      stateCaption && (
                                         <div className="caption muted state-reason">
-                                          {gate.reason ||
-                                            receiptGateCaption(
-                                              r,
-                                              state.project.settings?.requireReceipt === true,
-                                            )}
+                                          {stateCaption}
                                           {actions.owner &&
                                             r.receipt?.status === "infrastructure-error" && (
                                               <Button
@@ -1124,7 +1122,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       open={() => showReceipt(r.id)}
                                     />
                                   </Table.Cell>
-                                  {reviews.some((queued) => usageValues(queued.usageAtReview).length) && <Table.Cell className="column-tokens"><UsageFigures usage={r.usageAtReview} agent={r.agent} brand={view.brand} /></Table.Cell>}
+                                  {reviews.some((queued) => usageValues(queued.usageAtReview).length) && <Table.Cell className="column-tokens"><UsageFigures usage={r.usageAtReview} agent={r.agent} brand={view.brand} compact /></Table.Cell>}
                                   <Table.Cell className="column-requested">
                                     {r.requestedAt && (
                                       <span className="caption muted">

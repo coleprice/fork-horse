@@ -10,6 +10,7 @@ import { duration, receiptWord } from "./receipts.tsx";
 import { oldestLoadedActivity, packetPushes } from "./fork-graph-model.ts";
 import {
   entrantResult,
+  entrantChecks,
   entrantReviews,
   ordinal,
   photoFinish,
@@ -374,9 +375,6 @@ export function RaceView({
             </thead>
             <tbody>
               {[...placed, ...entrants.filter((entry) => entry.place === null)].map((entrant) => {
-                const receipts = entrantReviews(state, race, entrant).flatMap((review) =>
-                  review.receipt ? [review.receipt] : [],
-                );
                 const pushes = packetPushes(
                   view.activity, entrant.repoName, state.project.defaultBranch,
                   timestamp(entrant.claimedAt) ?? Infinity,
@@ -395,9 +393,7 @@ export function RaceView({
                     </td>
                     {pushesAvailable && <td data-label="Pushes">{pushes}</td>}
                     <td data-label="Checks passed">
-                      {receipts.length
-                        ? `${receipts.filter((receipt) => receipt.status === "passed").length} of ${receipts.length}`
-                        : "—"}
+                      {entrantChecks(state, race, entrant)}
                     </td>
                     <td data-label="Tokens"><UsageFigures usage={entrant.usage} agent={entrant.agent} brand={view.brand} /></td>
                     <td data-label="Result">{entrantResult(entrant, actions.owner)}</td>

@@ -229,7 +229,7 @@ function resultsPushes(value: ViewModel) {
   const pushRow = [...compare.querySelectorAll("tbody tr")].find((row) =>
     row.querySelector("th")?.textContent === "Recorded pushes",
   )!;
-  const counts = [...pushRow.querySelectorAll("td")].map((cell) => cell.textContent);
+  const counts = [...pushRow.querySelectorAll(".compare-value")].map((cell) => cell.textContent);
   const results = [...dom.window.document.querySelectorAll(".race-results tbody tr")].map((row) => [
     row.querySelector(".race-runner strong")!.textContent,
     row.querySelector('[data-label="Pushes"]')?.textContent,

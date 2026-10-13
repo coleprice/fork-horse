@@ -188,6 +188,13 @@ Board edit, extra agent, or core change occurred. FH-060 remains pending; FH-049
 only integrates after accepted-main authority if it lands. FH-062 Saddler PASS
 and operator/owner acceptance remain open.
 
+## Eight-item design return
+
+The latest local follow-up starts at `08bbe827c5cb66f0edd8531a8a4d7c1ca697a690`.
+See [return-1/README.md](return-1/README.md) for the eight changes, six new offline
+captures, measured table/phone bounds, and latest 80-test commands/exits.
+The preceding fifteen captures remain unchanged and describe earlier stages.
+
 ## Candidate changed paths
 
 Complete candidate delta against accepted FH-057d main `1749a394caa4f78b7fbf6a1645659e89e78e9b99`:
@@ -198,6 +205,7 @@ packages/forkhorse-dashboard/src/contracts.ts
 packages/forkhorse-dashboard/src/fixture-main.ts
 packages/forkhorse-dashboard/src/fork-graph.tsx
 packages/forkhorse-dashboard/src/model.ts
+packages/forkhorse-dashboard/src/race-model.ts
 packages/forkhorse-dashboard/src/race-usage.tsx
 packages/forkhorse-dashboard/src/race.tsx
 packages/forkhorse-dashboard/src/review.tsx
@@ -217,6 +225,13 @@ packages/forkhorse-dashboard/test/captures/fh-062/phone-agent-totals.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/photo-finish-integration.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/race-dark.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/race-light.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/return-1/README.md
+packages/forkhorse-dashboard/test/captures/fh-062/return-1/fork-table.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/return-1/over-review.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/return-1/phone-agent-race.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/return-1/race-dark.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/return-1/race-light.jpg
+packages/forkhorse-dashboard/test/captures/fh-062/return-1/unchecked-queue.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/reused-forks-pushes.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/unbudgeted-promote.jpg
 packages/forkhorse-dashboard/test/captures/fh-062/unbudgeted-race.jpg

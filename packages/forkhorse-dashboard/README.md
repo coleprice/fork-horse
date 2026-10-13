@@ -347,7 +347,8 @@ from production assets and prove offline bundle behavior only.
 
 The optional FH-060 wire projection keeps reported and metered cumulative snapshots
 separate on claims, race entrants, and `usageAtReview`. Every token figure carries
-its source and report freshness. Review detail uses the immutable review snapshot;
+its source. Full figures show report freshness on a separate caption line; dense
+queue/graph cells show a compact figure with freshness and full details in the Tooltip. Review detail uses the immutable review snapshot;
 promotion gates use the current entrant's core-computed budget state. Over-budget
 and unchecked budgeted entrants have no Promote control. Unbudgeted legacy races
 and ordinary packets need no usage report. An explicit core `budget: "unchecked"`
@@ -357,13 +358,19 @@ There is no new Needs you kind.
 The accepted FH-055 race view includes Tokens before Result in its milestone track
 and results table, with a facts-only Compare section directly below the track.
 Compare uses FH-055 claim order and its shared recorded race clock. Checks
-come from public receipts, files from exact review detail, and push counts from
+count passing receipts out of the entrant's receipts in both Compare and Results.
+Files come from exact review detail, and push counts from
 the shared FH-055b `packetPushes` interval helper. Results omits its Pushes column
 and Compare omits its Recorded pushes row when loaded history does not cover every
 entrant's claim. Counts end at entrant close, race finish, or now. No score, inferred line count,
 price, or automatic ranking is computed. Missing detail is Unavailable. The queue's
 Tokens column appears only when at least one queued review has a snapshot. Fork
 usage appears only in label tooltips and the table twin, never lane geometry.
+Budget figures appear once per source as a ratio; only core's selected source gets
+the true-ratio meter and state. Within budget has no dot. Full ties receive no
+fastest/fewest caption. Below 640px Compare stacks by fact and entrant, with no
+sideways scrolling. Usage refusals appear only in queue Actions. Compact usage
+cells and folded metadata keep the queue and graph table within a docked pane.
 
 Agents totals select the latest snapshot per packet/fork/source, across live claims,
 entrants, and retained reviews, before summing. The local-day window selects reports

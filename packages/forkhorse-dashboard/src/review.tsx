@@ -549,7 +549,7 @@ export function ReviewView({
             <code>{detail.packet.id}</code> · by {review.agent} · <code>{review.repoName}</code>
             {review.requestedAt && ` · requested ${relativeTime(review.requestedAt)}`}
           </p>
-          <div className="review-usage caption"><strong>Usage</strong> · Tokens to this review: <UsageFigures usage={review.usageAtReview} agent={review.agent} brand={view.brand} split /></div>
+          <div className="review-usage caption"><span><strong>Usage</strong> · Tokens to this review:</span><UsageFigures usage={review.usageAtReview} agent={review.agent} brand={view.brand} split /></div>
         </div>
         {snapshot && (
           <div className="actions review-actions">

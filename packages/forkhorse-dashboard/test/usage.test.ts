@@ -17,6 +17,7 @@ import {
   usageTooltip,
 } from "../src/usage.ts";
 import { BudgetUsage, UsageFigures } from "../src/usage.tsx";
+import type { StateResponse } from "../src/contracts.ts";
 import { usageFixtureState, usageFixtureDetail } from "./usage-fixtures.ts";
 const brand = { name: "Fixture product", tagline: "Fixture" };
 const { JSDOM } = createRequire(import.meta.url)("jsdom");
@@ -29,13 +30,14 @@ async function until(fn: () => unknown) {
   }
   assert.fail("Usage DOM did not settle");
 }
-function setup(scenario = "usage-race", route = "#race/FH-040", owner = true, noDetail = false) {
+function setup(scenario = "usage-race", route = "#race/FH-040", owner = true, noDetail = false, amend?: (wire: StateResponse) => void) {
   const dom = new JSDOM('<div id="dashboard"></div>', {
     url: `https://fixture.idiot.tax/${route}`,
   });
   installDom(dom.window);
   const root = dom.window.document.getElementById("dashboard")! as HTMLElement;
   const wire = usageFixtureState(scenario);
+  amend?.(wire);
   const calls: { url: URL; method: string }[] = [];
   const transport = createHttpTransport({
     origin: "https://fixture.idiot.tax",
@@ -191,7 +193,7 @@ test("race Compare is factual and read-only for both roles, with true ratio mete
           [1000000, 1000000],
         ],
       );
-      assert.match(c.root.textContent!, /1.1M \/ 1M · reported/);
+      assert.match(c.root.textContent!, /1.1M \/ 1M tokens · reported/);
       assert.match(c.root.textContent!, /Near budget/);
       assert.match(c.root.textContent!, /Over budget/);
       assert.match(
@@ -231,6 +233,12 @@ test("queue Tokens column is conditional; over and unchecked hide Promote in que
             : c.root.querySelector(".review-detail")!;
         assert.ok(scope.textContent!.includes(caption));
         assert.equal(scope.querySelector('[data-action="promote"]'), null);
+        if (route === "#review") {
+          assert.equal(scope.textContent!.split(caption).length - 1, 1);
+          assert.equal(scope.querySelectorAll(".usage-promotion-caption").length, 1);
+          assert.doesNotMatch(scope.querySelectorAll("td")[3].textContent!, /Report usage first|Over its token budget/);
+          assert.equal(scope.querySelector(".column-tokens .usage-freshness"), null);
+        }
         if (route !== "#review") {
           assert.match(scope.textContent!, /Usage.*Tokens to this review/s);
           assert.equal(scope.querySelectorAll(".review-milestone").length, 3);
@@ -287,14 +295,17 @@ test("fork graph keeps tokens in tooltip and table, without figures on lane labe
         c.root.querySelector(".fork-card")!.textContent!,
       /Tokens/,
     );
-    assert.match(c.root.querySelector(".fork-card")!.textContent!, /420k tokens · reported/);
+    assert.match(c.root.querySelector(".fork-card")!.textContent!, /420k reported/);
     const table = c.root.querySelector<HTMLElement>(".fork-table")!;
+    assert.equal(table.querySelector(".usage-figure")!.getAttribute("tabindex"), "-1");
+    assert.match(table.querySelector(".usage-figure")!.getAttribute("aria-label")!, /420,000 tokens: 400,000 in · 20,000 out · reported · fixture-model \(reported\) · as of/);
     assert.equal(table.style.clipPath, "inset(50%)");
     assert.ok([...table.querySelectorAll("button")].every((button) => button.tabIndex === -1));
     c.root.querySelector<HTMLButtonElement>(".fork-disclosure")!.click();
     await until(() => table.style.clipPath === "");
     assert.ok([...table.querySelectorAll("button")].every((button) => button.tabIndex === 0));
-    assert.match(table.textContent!, /420k tokens · reported/);
+    assert.match(table.textContent!, /420k reported/);
+    assert.equal(table.querySelector(".usage-figure")!.getAttribute("tabindex"), "0");
   } finally {
     c.close();
   }
@@ -348,8 +359,8 @@ test("budget boundary labels come from core and the gauge selects metered before
     ),
   );
   assert.match(html, /value="25000"/);
-  assert.match(html, /25,000 \/ 1M · metered/);
-  assert.match(html, /1M tokens.*reported/s);
+  assert.match(html, /25,000 \/ 1M tokens · metered/);
+  assert.match(html, /1M \/ 1M tokens · reported/s);
 });
 test("automatic budget rejection creates no new Needs you item and removes the existing Promote need", () => {
   const state = fixture("usage-unchecked");
@@ -436,4 +447,43 @@ test("track, Compare, and results share accepted claim order with Tokens before 
   } finally {
     c.close();
   }
+});
+
+test("budget figures appear once per source with separate freshness and no within-budget dot", () => {
+  const state = fixture("usage-both");
+  const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+    createElement(BudgetUsage, { usage: state.races![0].entrants[0].usage, budget: 1000000, status: "within", agent: "fixture-agent", brand }),
+  ));
+  const dom = new JSDOM(html);
+  const figures = [...dom.window.document.querySelectorAll(".usage-figure")].map((el) => el.textContent);
+  assert.deepEqual(figures, ["420k / 1M tokens · reported", "250k / 1M tokens · metered"]);
+  assert.equal(dom.window.document.querySelectorAll("meter").length, 1);
+  assert.equal(dom.window.document.querySelector("meter")!.value, 250000);
+  assert.equal(dom.window.document.querySelector(".token-budget-state")!.textContent, "Within budget");
+  assert.ok([...dom.window.document.querySelectorAll(".usage-freshness")].every((el) => el.textContent!.startsWith("as of ")));
+});
+
+test("Compare and Results count passing receipts rather than checks; full ties have no best caption", async () => {
+  const c = setup("usage-race", "#race/FH-040", true, false, (wire) => {
+    const race = wire.races![0];
+    const r = wire.reviews[0];
+    // One passed receipt has three passing checks; a second failed receipt makes it 1 of 2.
+    wire.reviews.push({ ...structuredClone(r), id: "previous-receipt", createdAt: race.entrants[0].claimedAt,
+      receipt: { ...structuredClone(r.receipt!), status: "failed" } });
+    for (const e of race.entrants) {
+      e.approvedAt = race.entrants[0].approvedAt;
+      e.usage = structuredClone(race.entrants[0].usage);
+    }
+  });
+  try {
+    await until(() => c.calls.filter((call) => call.url.pathname.includes("/reviews/")).length === 3 &&
+      [...c.root.querySelectorAll(".race-compare tbody tr")].find((row) => row.querySelector("th")?.textContent === "Files changed")?.textContent?.includes("4"));
+    const facts = [...c.root.querySelectorAll(".race-compare tbody tr")];
+    const checks = facts.find((row) => row.querySelector("th")?.textContent === "Checks passed")!;
+    assert.deepEqual([...checks.querySelectorAll(".compare-value")].map((cell) => cell.textContent), ["1 of 2", "1 of 1", "1 of 1"]);
+    assert.deepEqual([...c.root.querySelectorAll('.race-results [data-label="Checks passed"]')].map((cell) => cell.textContent), ["1 of 2", "1 of 1", "1 of 1"]);
+    assert.doesNotMatch(c.root.querySelector(".race-compare")!.textContent!, /fewest|fastest/);
+    assert.equal(c.root.querySelectorAll(".compare-entrant .race-saddlecloth").length, facts.length * 3);
+    assert.deepEqual([...facts[0].querySelectorAll(".compare-entrant > span:last-child")].map((el) => el.textContent), ["fixture-agent", "fixture-peer", "fixture-third"]);
+  } finally { c.close(); }
 });
