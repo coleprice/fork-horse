@@ -148,10 +148,11 @@ describe("FH-053 race finish", () => {
     expect((await promote(f.id, a.id)).status).toBe(200);
     const snapshot = await state(f.id), race = snapshot.races[0]!;
     const ledger = snapshot.ledger[0]!;
-    expect(race).toMatchObject({ status: "finished", winner: "alpha", finishedAt: ledger.recordedAt,
+    expect(race).toMatchObject({ status: "finished", winner: "alpha", finishedAt: expect.any(String),
       ledgerEntryId: ledger.id, places: [{ agent: "alpha", place: 1 }, { agent: "beta", place: 2 },
         ...(count === 3 ? [{ agent: "gamma", place: 3 }] : [])] });
     expect(typeof race.ledgerEntryId).toBe("string");
+    expect(Date.parse(race.finishedAt!)).toBeGreaterThanOrEqual(Date.parse(ledger.recordedAt));
     expect(snapshot.ledger).toHaveLength(1);
     expect(ledger).toMatchObject({ race: "one", review: a.id, before: BEFORE, after: AFTER });
     expect(snapshot.claims).toEqual([]);
@@ -168,7 +169,7 @@ describe("FH-053 race finish", () => {
     const audits = await releases(f.id);
     expect(audits).toHaveLength(count);
     expect(audits.find(audit => audit.agent === "alpha")).toMatchObject({ releasedBy: "promote", review: a.id });
-    for (const audit of audits.filter(audit => audit.agent !== "alpha"))
+    for (const audit of audits.filter(item => item.agent !== "alpha"))
       expect(audit).toMatchObject({ releasedBy: "race-finished", recordedAt: race.finishedAt });
     await mutate(f.id, async (_instance, objectState) => {
       expect(await openEntrants(objectState.storage, "one")).toEqual([]);
@@ -383,8 +384,8 @@ describe("FH-053 race finish", () => {
     const other = await review(f.id, f.tokens[2]!, `${f.id}--gamma-1`, "other");
     const standard = await review(f.id, f.beta, f.b, "standard");
     // Bounded fixtures: these collisions do not block the winning alpha review.
-    const makeBlocker = (id: string, packet: string, claimingAgent: string, pushingPacket: string | null): Blocker => ({
-      id, packet, claimingAgent, pushingAgent: "delta", repoName: `${f.id}--delta-1`,
+    const makeBlocker = (id: string, packetId: string, claimingAgent: string, pushingPacket: string | null): Blocker => ({
+      id, packet: packetId, claimingAgent, pushingAgent: "delta", repoName: `${f.id}--delta-1`,
       pushingPacket, paths: ["src/index.ts"], sha: AFTER, at: null, resolved: null,
     });
     const within = makeBlocker("within", "one", "beta", null);
@@ -400,8 +401,8 @@ describe("FH-053 race finish", () => {
       expect((await openEntrants(objectState.storage)).map(e => e.packet)).toEqual(["other"]);
     });
     expect(snapshot.races.find(r => r.packet === "other")).toEqual(before.races.find(r => r.packet === "other"));
-    for (const review of [other, standard])
-      expect(snapshot.reviews.find(r => r.id === review.id)).toEqual(before.reviews.find(r => r.id === review.id));
+    for (const requested of [other, standard])
+      expect(snapshot.reviews.find(r => r.id === requested.id)).toEqual(before.reviews.find(r => r.id === requested.id));
     expect(snapshot.blockers.find(b => b.id === "within")?.resolved).toMatchObject({ by: "race-finished" });
     expect(snapshot.blockers.find(b => b.id === "elsewhere")).toEqual(elsewhere);
   });
@@ -437,5 +438,42 @@ describe("FH-053 race finish", () => {
       expect(after.reviews.find(r => r.id === reviews[1]!.id)?.receiptDigest).toBeNull();
       expect(after.races).toEqual(before.races);
     } finally { unblock(); }
+  });
+
+  it("takes the finish snapshot after push, including milestones reached while Git was in flight", async () => {
+    const f = await start();
+    const a = await review(f.id, f.alpha, f.a);
+    let unblock!: () => void;
+    await mutate(f.id, instance => {
+      instance.receiptBarrier = new Promise<void>(resolve => { unblock = resolve; });
+      instance.fixture.heads.set(f.b, "b".repeat(40));
+    });
+    const requested = await api(f.id, "/reviews", f.beta, { packet: "one", repoName: f.b, sha: "b".repeat(40) });
+    expect(requested.status).toBe(201);
+    const b = (await requested.json<{ review: Review }>()).review;
+    await mutate(f.id, (instance, objectState) => {
+      const prepare = instance.gitFixture.preparePromote.bind(instance.gitFixture);
+      vi.spyOn(instance.gitFixture, "preparePromote").mockImplementation(async (...args) => {
+        const prepared = await prepare(...args);
+        return { ...prepared, push: async (...pushArgs) => {
+          await new Promise(resolve => setTimeout(resolve, 5));
+          unblock();
+          for (let i = 0; i < 100; i++) {
+            if ((await objectState.storage.get<Review>(`review:${b.id}`))?.receiptDigest) break;
+            await new Promise(resolve => setTimeout(resolve, 1));
+          }
+          await prepared.push(...pushArgs);
+        } };
+      });
+    });
+    try {
+      expect((await promote(f.id, a.id)).status).toBe(200);
+      const snapshot = await state(f.id), race = snapshot.races[0]!;
+      const passedAt = race.entrants.find(e => e.agent === "beta")!.receiptPassedAt;
+      expect(passedAt).toEqual(expect.any(String));
+      expect(Date.parse(passedAt!)).toBeGreaterThan(Date.parse(snapshot.ledger[0]!.recordedAt));
+      expect(Date.parse(race.finishedAt!)).toBeGreaterThanOrEqual(Date.parse(passedAt!));
+      expect(race.places.map(p => p.agent)).toEqual(["alpha", "beta", "gamma"]);
+    } finally { unblock(); vi.restoreAllMocks(); }
   });
 });

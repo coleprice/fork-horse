@@ -146,16 +146,19 @@ export class Workflow {
     if (!winner || winner.closedAt !== null || winner.repoName !== claim.repoName ||
         winner.createdAt !== claim.createdAt || await txn.get(`race:${claim.packet}`))
       throw new Error("Race binding changed during promotion");
+    // The durable intent predates external Git I/O. Finish only after that I/O succeeds,
+    // including milestones reached by advisory receipts while the push was in flight.
+    const finishedAt = now();
     const placed = placedEntrants(records, winner.agent);
     for (const [index, entrant] of placed.entries()) {
       const finished = { ...entrant, place: index + 1,
-        ...(entrant.agent === winner.agent ? { promotedAt: entry.recordedAt } : {}),
+        ...(entrant.agent === winner.agent ? { promotedAt: finishedAt } : {}),
       };
       if (entrant.closedAt === null) {
         // The winner retains the promote audit used by late advisory receipts.
         const winning = entrant.agent === winner.agent;
         await this.releaseClaim(txn, finished, winning ? "promote" : "race-finished",
-          winning ? review.id : undefined, entry.recordedAt);
+          winning ? review.id : undefined, finishedAt);
       } else {
         // Preserve an earlier withdrawal's reason/time; it sorts after all runners.
         await txn.put(entrantKey(entrant.packet, entrant.agent), finished);
@@ -163,7 +166,7 @@ export class Workflow {
     }
     await txn.put(`race:${claim.packet}`, {
       winner: winner.agent, places: placed.map((entrant, index) => ({ agent: entrant.agent, place: index + 1 })),
-      finishedAt: entry.recordedAt, ledgerEntryId: entry.id,
+      finishedAt, ledgerEntryId: entry.id,
     } satisfies RaceResult);
   }
 
@@ -643,7 +646,7 @@ export class Workflow {
         // Transport/storage uncertainty keeps the durable intent for inspection/reconciliation.
         if (error instanceof HttpError && error.status === 409) {
           await this.storage.delete("promotionPending");
-          if (race) return this.rejectRacePromote(project, review, undefined, error);
+          if (race) return await this.rejectRacePromote(project, review, undefined, error);
         }
         throw error;
       } finally {
