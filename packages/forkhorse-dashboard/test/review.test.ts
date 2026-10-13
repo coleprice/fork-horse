@@ -369,8 +369,8 @@ test("compact commit copies the full SHA, approval focuses its row, and file nam
       .querySelector<HTMLButtonElement>('[aria-label="Approved. Inspect the approved commit."]')!
       .click();
     assert.equal(c.dom.window.document.activeElement.id, `review-commit-${sha}`);
-    const row = [...c.root.querySelectorAll(".review-file-toggle")].find((row) =>
-      row.textContent!.includes("src/review.tsx"),
+    const row = [...c.root.querySelectorAll(".review-file-toggle")].find((candidate) =>
+      candidate.textContent!.includes("src/review.tsx"),
     )!;
     assert.equal(row.textContent!.trim(), "Modified, src/review.tsx");
     assert.equal(row.getAttribute("aria-label"), "Modified, src/review.tsx");
