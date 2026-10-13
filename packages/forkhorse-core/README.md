@@ -265,7 +265,11 @@ syntax, traversal, empty components, backslashes, control bytes and `.git`
 components are rejected. `src` and `src-old` are siblings, not overlapping paths.
 A claim overlapping another agent's live claim returns 409. On recorded pushes,
 changes overlapping another agent's live claims create immutable blocker records
-in the activity transaction; duplicate delivery creates no duplicate blocker.
+in the activity transaction only when their pushed object IDs differ from canonical's
+current head. Catch-up merges and fast-forwards carrying canonical content create no
+blocker. A deletion counts when canonical still contains the path. Only overlapping
+paths' trees are read, without blob reads or tokens; if canonical or pushed objects
+cannot be read, all overlaps remain candidates for blockers. Duplicate delivery creates no duplicate blocker.
 Blockers are observations, not an additional approval gate or a claim release.
 
 Commit validates the live packet/agent/repo binding independently of its client:

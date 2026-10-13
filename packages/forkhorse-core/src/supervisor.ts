@@ -5,7 +5,7 @@ import { CallerCredentials } from "./caller-credentials";
 import { DurableObject } from "cloudflare:workers";
 import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, operation, slug } from "./http";
 import type { ErrorContext } from "./http";
-import { changedPaths, ZERO_SHA } from "./trees";
+import { changedPaths, pathHashes, ZERO_SHA } from "./trees";
 import { branchHead } from "./artifacts";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import { WorkerGit } from "./git";
@@ -358,7 +358,14 @@ export class Supervisor extends DurableObject<Env> {
             eventTimestamp: event.metadata.eventTimestamp,
             recordedAt: new Date().toISOString(),
           };
-          await recordWorkflowPush(txn, project, event, entry, forkHead);
+          await recordWorkflowPush(txn, project, event, entry, async overlaps => {
+            using canonical = await this.env.ARTIFACTS.get(project.repoName);
+            const canonicalHead = await branchHead(canonical, project.defaultBranch);
+            if (canonicalHead === ZERO_SHA) throw new Error("Canonical head unavailable");
+            const pushed = await pathHashes(repo, entry.after, overlaps);
+            const promoted = await pathHashes(canonical, canonicalHead, overlaps);
+            return new Set(overlaps.filter(path => pushed.get(path) !== promoted.get(path)));
+          }, forkHead);
           // Conflict detection above must see every path, including those beyond the cap.
           await txn.put({
             [key]: true,
