@@ -48,6 +48,15 @@ export function mountDashboard(
   };
   const reviewFromHash = () => {
     const match = /^#review\/(.+)$/.exec(window.location.hash);
+    // Older capability hosts retain the queue; bookmarks must not open a dead-end detail.
+    if (match && !options.transport.getReview) {
+      try {
+        window.history.replaceState(null, "", "#review");
+      } catch {
+        window.location.hash = "review";
+      }
+      return undefined;
+    }
     try {
       return match ? decodeURIComponent(match[1]) : undefined;
     } catch {
@@ -57,6 +66,7 @@ export function mountDashboard(
   let section = sectionFromHash();
   let selectedReviewId = reviewFromHash();
   function openReview(id?: string) {
+    if (id && !options.transport.getReview) return;
     section = "review";
     selectedReviewId = id;
     const hash = id ? `review/${encodeURIComponent(id)}` : "review";

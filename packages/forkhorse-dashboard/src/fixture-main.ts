@@ -11,6 +11,11 @@ document.title = `${__DASHBOARD_BRAND__.name} · Fixture projects`;
 let paused = new URL(location.href).searchParams.get("scenario") === "paused";
 const statusListeners = new Set<(paused: boolean) => void>();
 const fixtureTransport = createHttpTransport({ origin: location.origin });
+// Labeled fixture for capability hosts that support queue/receipts but not detail reads.
+if (new URL(location.href).searchParams.get("host") === "queue-only") {
+  delete fixtureTransport.getReview;
+  delete fixtureTransport.getDiff;
+}
 fixtureTransport.live = {
   subscribe(listener) {
     statusListeners.add(listener);

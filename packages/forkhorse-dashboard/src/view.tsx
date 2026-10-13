@@ -955,7 +955,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   )}
                   {section(
                     "review",
-                    actions.reviewId ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={actions} openReceipt={showReceipt} /> : <>
+                    actions.reviewId && actions.getReview ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={actions} openReceipt={showReceipt} /> : <>
                       <section id="reviews">
                         <h2>Review queue</h2>
                         {reviews.length ? (
@@ -977,18 +977,18 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                 r.status === "stale" ||
                                 state.forks.find((f) => f.repoName === r.repoName)?.head !== r.sha;
                               return (
-                                <Table.Row key={r.id} className="review-card" onClick={(event) => {
+                                <Table.Row key={r.id} className="review-card" onClick={actions.getReview ? (event) => {
                                   if (!(event.target as HTMLElement).closest("button, a")) actions.openReview(r.id);
-                                }}>
+                                } : undefined}>
                                   <Table.Cell>
-                                    <button
+                                    {actions.getReview ? <button
                                       className="claim-link"
                                       onClick={() => {
                                         actions.openReview(r.id);
                                       }}
                                     >
                                       {r.packet}
-                                    </button>
+                                    </button> : <span>{r.packet}</span>}
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Tooltip

@@ -23,6 +23,8 @@ function setup(
     detail?: () => Promise<Response>;
     diff?: () => Promise<Response>;
     returning?: () => Promise<Response>;
+    noDetail?: boolean;
+    noDiff?: boolean;
   } = {},
 ) {
   const dom = new JSDOM('<div id="dashboard"></div>', { url: `${origin}/${route}` });
@@ -67,6 +69,8 @@ function setup(
           : Response.json(reviewFixtureDetail(wire));
     },
   });
+  if (overrides.noDetail) delete transport.getReview;
+  if (overrides.noDiff) delete transport.getDiff;
   const app = mountDashboard(root, {
     brand: { name: "Fixture product", tagline: "Fixture" },
     fixture: true,
@@ -101,6 +105,61 @@ function fill(c: ReturnType<typeof setup>, value: string) {
   );
   element.dispatchEvent(new c.dom.window.Event("input", { bubbles: true }));
 }
+
+test("hosts without detail capability keep non-linking queue rows and resolve bookmarked or typed detail hashes to the queue", async () => {
+  for (const route of ["#review", "#review/review-1"]) {
+    const c = setup("review-current", true, route, { noDetail: true });
+    try {
+      await until(() => c.root.querySelector(".review-card"));
+      assert.equal(c.dom.window.location.hash, "#review");
+      assert.equal(!!c.root.querySelector(".review-detail"), false);
+      assert.equal(!!c.root.querySelector(".review-card .claim-link"), false);
+      assert.equal(!!c.root.querySelector('.review-card a[href*="#review/"]'), false);
+      const row = c.root.querySelector<HTMLElement>(".review-card")!;
+      row.click();
+      row.querySelector<HTMLElement>("td span")!.click();
+      assert.equal(c.dom.window.location.hash, "#review");
+      c.dom.window.location.hash = "#review/review-1";
+      await until(() => c.dom.window.location.hash === "#review");
+      assert.equal(!!c.root.querySelector("#reviews"), true);
+      assert.equal(
+        c.calls.some((call) => call.url.pathname.endsWith("/reviews/review-1")),
+        false,
+      );
+    } finally {
+      c.close();
+    }
+  }
+});
+
+test("missing diff capability uses product copy and missing receipt/ledger evidence stays plain", async () => {
+  const c = setup("review-promoted", true, "#review/review-1", {
+    noDiff: true,
+    detail: async () => {
+      const detail = reviewFixtureDetail(c.wire);
+      detail.review.receipt = null;
+      detail.promotion = null;
+      return Response.json(detail);
+    },
+  });
+  try {
+    await until(() => c.root.querySelector(".review-file-toggle"));
+    assert.match(c.root.textContent!, /No receipt/);
+    assert.match(c.root.textContent!, /No ledger entry recorded\./);
+    c.root.querySelector<HTMLButtonElement>(".review-file-toggle")!.click();
+    await until(() => c.root.textContent!.includes("Couldn't load this diff."));
+    assert.doesNotMatch(
+      c.root.querySelector(".review-detail")!.textContent!,
+      /host adapter|unavailable/,
+    );
+    assert.equal(
+      c.calls.some((call) => call.url.pathname.endsWith("/diff")),
+      false,
+    );
+  } finally {
+    c.close();
+  }
+});
 
 test("detail route replaces queue, retains activity, three independent evidence cells and request list", async () => {
   const c = setup();

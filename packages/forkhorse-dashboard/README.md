@@ -184,8 +184,8 @@ The optional host transport methods `getReview`, `getDiff` and `returnReview` fo
 FH-039's fixed contract. The HTTP transport uses the existing same-origin session
 for `GET /projects/:id/reviews/:rid`, `GET …/diff?path=…`, and owner-only
 `POST …/return` with `{reason}`. Reads and writes never carry browser tokens.
-A host without these methods shows an explicit unavailable state; it does not
-invent detail from packet claims or push history. FH-039 core integration and
+A host without `getReview` keeps non-linking queue rows and resolves detail
+bookmarks back to the queue. It does not invent detail from packet claims or push history. FH-039 core integration and
 capability-host support must be checked separately after FH-039 lands.
 
 Diffs fetch only when expanded, accept at most 64 KiB, retain added/removed
@@ -202,3 +202,5 @@ These fixtures do not establish Cloudflare or owner acceptance. Dashboard tests
 exercise routes/back navigation, independent evidence, escaping, lazy diffs,
 return bounds, agent restrictions, owner conflicts and existing receipt gates.
 Farrier design PASS and the superprime's code review remain separate gates.
+Use `?scenario=review-current&host=queue-only#review/review-1` in the fixture entry
+to exercise the dashboard fallback with `getReview` and `getDiff` absent.

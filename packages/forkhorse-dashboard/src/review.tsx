@@ -109,7 +109,7 @@ export function assertDetail(value: ReviewDetail, id: string): void {
         (value.promotion.receiptDigest !== null &&
           typeof value.promotion.receiptDigest !== "string")))
   ) {
-    throw new Error("Review detail unavailable. Check the host adapter.");
+    throw new Error("Couldn't load this review.");
   }
 }
 function FileDiff({
@@ -130,7 +130,7 @@ function FileDiff({
     if (!open || diff || error) return;
     let active = true;
     if (!actions.getDiff) {
-      setError("Diff unavailable. Check the host adapter.");
+      setError("Couldn't load this diff.");
       return;
     }
     void actions
@@ -436,7 +436,7 @@ export function ReviewView({
   openReceipt(id: string): void;
 }) {
   const [detail, setDetail] = useState<ReviewDetail>();
-  const [error, setError] = useState<"error" | "not-found" | "unavailable">();
+  const [error, setError] = useState<"error" | "not-found">();
   const [attempt, setAttempt] = useState(0);
   const [ledger, setLedger] = useState(false);
   const snapshot = view.state;
@@ -444,7 +444,7 @@ export function ReviewView({
     let active = true;
     setError(undefined);
     if (!actions.getReview) {
-      setError("unavailable");
+      actions.openReview();
       return;
     }
     void actions
@@ -516,9 +516,7 @@ export function ReviewView({
         <p>
           {error === "not-found"
             ? "This review doesn't exist anymore."
-            : error === "unavailable"
-              ? "Review detail unavailable. Check the host adapter."
-              : "Couldn't load this review."}
+            : "Couldn't load this review."}
         </p>
         {error === "error" && (
           <Button variant="secondary" onClick={() => setAttempt(attempt + 1)}>
@@ -594,7 +592,7 @@ export function ReviewView({
               )}
             </button>
           ) : (
-            <p className="caption muted">Receipt unavailable.</p>
+            <p className="caption muted">No receipt</p>
           )}
           {snapshot?.project.settings?.requireReceipt === false && receipt?.status === "failed" && (
             <p className="caption muted">Advisory: this didn't block approval.</p>
@@ -656,11 +654,7 @@ export function ReviewView({
               )}
             </button>
           ) : (
-            <p className="caption muted">
-              {review.status === "promoted"
-                ? "Promotion evidence unavailable."
-                : "No promotion recorded."}
-            </p>
+            <p className="caption muted">No ledger entry recorded.</p>
           )}
         </div>
       </div>
