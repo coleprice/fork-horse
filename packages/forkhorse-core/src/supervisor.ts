@@ -247,11 +247,12 @@ export class Supervisor extends DurableObject<Env> {
       project,
       [`repo:${created.name}`]: null,
     };
+    const createdAt = new Date().toISOString();
     for (const name of data.agents) {
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       const apiToken =
         "api_" + Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-      records[`agent:${name}`] = { name, tokenHash: await digest(apiToken), createdAt: new Date().toISOString() };
+      records[`agent:${name}`] = { name, tokenHash: await digest(apiToken), createdAt };
       credentials.push({ agent: name, apiToken });
     }
     const canonicalHead = await branchHead(canonical, project.defaultBranch);

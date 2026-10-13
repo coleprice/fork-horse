@@ -187,7 +187,6 @@ export class Workflow {
           (blocker.pushingPacket == null || blocker.pushingPacket === review.packet))
         throw new HttpError(409, "This fork pushed into paths another agent has claimed. The owner must resolve the blocker first.");
     }
-
   }
 
   async route(request: Request, project: Project, actor: Actor): Promise<Response | null> {
@@ -699,7 +698,8 @@ export async function recordWorkflowPush(
       const sameRace = raceEntrants.some(entrant => entrant.packet === claim.packet &&
         entrant.agent === entry.agent && entrant.repoName === entry.repoName);
       if (claim.agent !== entry.agent && paths.length && !sameRace) {
-        const id = `${entry.sequence}-${claim.packet}${"closedAt" in claim ? `-${claim.agent}` : ""}`;
+        // A colon cannot occur in packet/agent slugs, so race IDs cannot collide with standard packet IDs.
+        const id = `${entry.sequence}-${claim.packet}${"closedAt" in claim ? `:${claim.agent}` : ""}`;
         const blocker: Blocker = {
           id,
           packet: claim.packet,
