@@ -1,3 +1,6 @@
+import { WorkflowActions } from "../src/worker/workflow.ts";
+import { workflowSource } from "../src/worker/workflow-source.ts";
+import { WorkflowSession } from "../src/worker/workflow-session.ts";
 import { DurableObject, RpcTarget, RpcStub, WorkerEntrypoint } from "cloudflare:workers";
 import { createSidebarFrame, type SidebarUiImpl, type SidebarSource } from "../src/worker/sidebar.ts";
 import type { AgentForkSession } from "../src/fork-types.d.ts";
@@ -21,6 +24,24 @@ export class FixtureConnectCallback extends WorkerEntrypoint implements Gatekeep
   async credentialsRestored(): Promise<void> {}
 }
 export class FixtureWorkspace extends DurableObject {
+  #workflow() {
+    return new WorkflowActions(this.ctx.storage.kv, workflowSource({
+      identity: async () => ({ agent: "fixture-agent", work: [] }),
+      request: async (path, init) => {
+        if (!init) return { project: { id: "fixture" } };
+        const calls = this.ctx.storage.kv.get<unknown[]>("fixtureCalls") ?? [];
+        calls.push({ path, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null });
+        this.ctx.storage.kv.put("fixtureCalls", calls);
+        return { token: "fixture-token-must-not-escape" };
+      },
+    }));
+  }
+  async workflowSession(queue: RpcStub<ApprovalQueue>): Promise<WorkflowSession> {
+    return new WorkflowSession(this.#workflow(), queue.dup());
+  }
+  async applyWorkflow(id: number): Promise<void> { await this.#workflow().apply(id); }
+  async rejectWorkflow(id: number): Promise<void> { await this.#workflow().reject(id); }
+  async workflowCalls(): Promise<unknown[]> { return this.ctx.storage.kv.get<unknown[]>("fixtureCalls") ?? []; }
   #fork() {
     return this.ctx.facets.get<ForkGatekeeper>("fork", () => ({
       class: this.ctx.storage.kv.get<DurableObjectClass<ForkGatekeeper>>("forkClass")!,

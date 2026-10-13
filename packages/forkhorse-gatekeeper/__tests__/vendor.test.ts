@@ -133,7 +133,7 @@ it("connects an enrolled agent, advertises only its owned resource and embeds th
   expect(await env.VENDOR.describe()).toMatchObject({ displayName: brand.name, logo: icon, providesAuth: false, autoProvisionsAccount: false });
   expect(await env.VENDOR.getSupportedResources()).toMatchObject([{ title: "Agent fork", icon }]);
   const { user, url } = await connect();
-  expect(await user.describe()).toMatchObject({ uniqueName: "alpha · fixture", providesUi: { title: brand.name } });
+  expect(await user.describe()).toMatchObject({ displayName: `${brand.name} · alpha`, uniqueName: "alpha · fixture", providesUi: { title: brand.name } });
   expect((await user.getSupportedResources())).toHaveLength(1);
   expect(await user.getSupportedResources()).toMatchObject([{ icon }]);
   expect((await submit(url)).status).toBe(400);

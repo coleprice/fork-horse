@@ -155,7 +155,7 @@ export class AgentAccount extends WorkerEntrypoint<Env, AccountProps> implements
   #account() { return account(this.ctx.exports, this.ctx.props.accountId); }
   async describe(): Promise<AccountDescription> {
     const meta = await this.#account().metadata();
-    return { ...sidebarAccountDescription(), uniqueName: `${meta.agent} · ${meta.project}` };
+    return { ...sidebarAccountDescription(meta.agent), uniqueName: `${meta.agent} · ${meta.project}` };
   }
   async getSupportedResources(): Promise<SupportedResource[]> { await this.#account().identity(); return [RESOURCE]; }
   async getGatekeeperClassFor(url: string): Promise<{ class: DurableObjectClass<Gatekeeper<any>>; resource: SupportedResource }> {
