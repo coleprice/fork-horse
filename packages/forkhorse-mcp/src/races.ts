@@ -37,6 +37,11 @@ const race = z.object({
   winner: agentName.nullable(),
   // This is ledger[].id, never a numeric sequence.
   ledgerEntryId: name.nullable(),
+  // Integrated FH-053 exposes the finish's agent/place summary as well.
+  places: z
+    .array(z.object({ agent: agentName, place: z.number().int().min(1).max(3) }))
+    .max(3)
+    .optional(),
   entrants: z.array(entrant).max(3),
 });
 const packets = z.array(

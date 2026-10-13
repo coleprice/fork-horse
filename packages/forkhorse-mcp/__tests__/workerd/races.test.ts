@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createCoreClient } from "../../src/core";
 import { createMcpHandler } from "../../src/mcp";
 import type { RaceState } from "../../src/races";
+import coreWire from "./race-wire.fixture.json";
 
 const publicOrigin = "https://race.fixture.idiot.tax";
 const agents = ["builder", "second", "third"];
@@ -144,6 +145,28 @@ afterAll(() => {
 });
 
 describe("FH-054 offline workerd against fixed FH-052/053 fixtures", () => {
+  it("accepts source-derived integrated core state/resume output, preserving places and explicit null rejection", async () => {
+    for (const sample of [coreWire.open, coreWire.finished]) {
+      const { state, controls, call, submit, calls } = fixture();
+      Object.assign(state, sample.state);
+      controls.work = sample.me.work;
+      for (const tool of ["get_context", "status"]) {
+        const { result } = await call(tool);
+        expect(result.isError).toBeUndefined();
+        const context = JSON.parse(result.content[0]!.text);
+        expect(context.packets).toEqual(sample.state.packets);
+        expect(context.races).toEqual(sample.state.races);
+        expect(context.myRaces).toEqual(sample.state.races);
+        expect(context.myWork).toEqual(sample.me.work);
+      }
+      const { result } = await submit();
+      expect(result.isError).toBe(sample === coreWire.open ? undefined : true);
+      const commits = calls.filter((entry) => entry.path.endsWith("/commit"));
+      expect(commits).toHaveLength(sample === coreWire.open ? 1 : 0);
+      if (sample === coreWire.open)
+        expect(commits[0]!.path).toBe("/projects/demo/forks/demo--builder-1/commit");
+    }
+  });
   it("shows default/explicit packet modes, caller standings and unchanged authoritative resume hints", async () => {
     expect(navigator.userAgent).toBe("Cloudflare-Workers");
     const { state, controls, call, calls } = fixture();

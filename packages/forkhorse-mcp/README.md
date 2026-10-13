@@ -62,7 +62,9 @@ Enrollment and OAuth grant persistence span two systems. If grant completion fai
 
 ## Local checks
 
-FH-054 adds offline workerd fixtures of the fixed FH-052/053 wire contracts, covering packet modes, three caller-bound entrant forks, standings and finish/photo-finish data, authoritative race resume hints, sanitized claim refusals and closed/ambiguous binding rejection. These fixtures do not validate core storage, ranking or live race execution. **FH-054 merge waits for accepted FH-052.** Full-root checks, fresh-clone acceptance and D5 require coordinator reservation and are separate from focused package checks.
+FH-054 adds offline workerd fixtures of the fixed FH-052/053 wire contracts, covering packet modes, three caller-bound entrant forks, standings and finish/photo-finish data, authoritative race resume hints, sanitized claim refusals and closed/ambiguous binding rejection. A source-derived fixture additionally preserves the integrated core mapper output, including `places` and explicit null `promoteRejected`. The fixture generator executes only the pure core race/resume mappers with in-memory storage in Node; MCP consumes that output in workerd. These fixtures do not validate core Worker execution, storage transactions, ranking or live race execution. Full-root checks, fresh-clone acceptance and D5 require coordinator reservation and are separate from focused package checks.
+
+After a reviewed core contract change, regenerate the source-derived fixture with `node packages/forkhorse-mcp/__tests__/generate-race-wire-fixture.mjs`. Use `--check` to verify the saved fixture against the current core sources without changing it.
 
 ```sh
 pnpm --filter forkhorse-mcp test:run
