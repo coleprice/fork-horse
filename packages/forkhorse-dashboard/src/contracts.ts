@@ -1,3 +1,16 @@
+/** FH-060 cumulative snapshots; absent fields preserve legacy state compatibility. */
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  model?: string;
+  source: "reported" | "metered";
+  at: string;
+}
+export interface UsageSources {
+  reported: Usage | null;
+  metered: Usage | null;
+}
+export type TokenBudgetState = "unchecked" | "within" | "near" | "over";
 export interface BlockerResolution {
   at: string;
   by: "release" | "promote" | "owner";
@@ -53,6 +66,7 @@ export interface ProjectState {
     repoName: string;
     paths: string[];
     active: boolean;
+    usage?: UsageSources;
     createdAt?: string;
   }[];
   blockers: BlockerView[];
@@ -86,6 +100,7 @@ export interface Packet {
   paths: string[];
   acceptance: string[];
   mode?: "standard" | "race";
+  tokenBudget?: number | null;
   /** Absent legacy records are treated as null. */
   archived?: null | { at: string; by: "owner" };
 }
@@ -107,6 +122,7 @@ export interface Review {
   returned?: null | { reason: string; at: string };
   approval?: { sha: string; receiptDigest: string | null } | null;
   receipt?: ReceiptSummary | null;
+  usageAtReview?: UsageSources;
 }
 
 /** FH-032 fixed public wire summary: logs belong only to the owner receipt endpoint. */
@@ -220,11 +236,12 @@ export interface StateResponse {
     events?: "pending" | "active";
   }[];
   packets: ProjectState["packets"];
-  claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string }[];
+  claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string; usage?: UsageSources }[];
   blockers: WireBlocker[];
   races?: Race[];
   reviews: {
     approvedAt?: string | null;
+    usageAtReview?: UsageSources;
     id: string;
     packet: string;
     agent: string;
@@ -263,7 +280,7 @@ export interface LedgerEntry {
   race?: string;
 }
 
-/** FH-039 fixed bounded detail contract. Public reads never contain logs or tokens. */
+/** FH-039 fixed bounded detail contract. Public reads never contain logs or authentication credentials. */
 export interface ReviewDetail {
   review: StateResponse["reviews"][number];
   packet: ProjectState["packets"][number];
@@ -300,6 +317,8 @@ export interface ReviewDiff {
 
 /** Optional FH-052/053 read projection; absent evidence is never synthesized. */
 export interface RaceEntrant {
+  usage?: UsageSources;
+  budget?: TokenBudgetState;
   agent: string;
   repoName: string;
   claimedAt: string;
@@ -316,6 +335,7 @@ export interface RaceEntrant {
 export interface Race {
   packet: string;
   status: "open" | "finished";
+  tokenBudget?: number | null;
   entrants: RaceEntrant[];
   finishedAt?: string | null;
   winner?: string | null;

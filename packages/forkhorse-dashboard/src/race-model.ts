@@ -62,6 +62,15 @@ export function entrantReviews(state: ProjectState, race: Race, entrant: RaceEnt
     .filter((review) => review.packet === race.packet && review.repoName === entrant.repoName)
     .toSorted((a, b) => (timestamp(a.requestedAt) ?? 0) - (timestamp(b.requestedAt) ?? 0));
 }
+/** Both race tables count passing receipts, rather than individual checks in one receipt. */
+export function entrantChecks(state: ProjectState, race: Race, entrant: RaceEntrant): string {
+  const receipts = entrantReviews(state, race, entrant).flatMap((review) =>
+    review.receipt ? [review.receipt] : [],
+  );
+  return receipts.length
+    ? `${receipts.filter((receipt) => receipt.status === "passed").length} of ${receipts.length}`
+    : "—";
+}
 export function entrantResult(entrant: RaceEntrant, owner: boolean): string {
   if (entrant.promotedAt) return "Won";
   if (!entrant.closedAt) return "Racing";

@@ -1,14 +1,17 @@
 import { ArchivedBadge } from "./archive.tsx";
+import { RaceCompare } from "./race-usage.tsx";
+import { BudgetUsage, UsageFigures } from "./usage.tsx";
 import { LaneRunner, laneSilkStyle, LaneMarker, LaneConnector } from "./lane.tsx";
 import { Badge, Button, Tooltip } from "@cloudflare/kumo";
 import { useEffect, useRef, type CSSProperties } from "react";
-import type { ProjectState, Race, RaceEntrant } from "./contracts.ts";
+import type { Brand, ProjectState, Race, RaceEntrant } from "./contracts.ts";
 import type { ViewModel } from "./model.ts";
 import type { ViewActions } from "./view.tsx";
 import { duration, receiptWord } from "./receipts.tsx";
 import { oldestLoadedActivity, packetPushes } from "./fork-graph-model.ts";
 import {
   entrantResult,
+  entrantChecks,
   entrantReviews,
   ordinal,
   photoFinish,
@@ -38,12 +41,14 @@ function Lane({
   entrant,
   race,
   state,
+  brand,
   owner,
   ledger,
 }: {
   entrant: RaceEntrant;
   race: Race;
   state: ProjectState;
+  brand: Brand;
   owner: boolean;
   ledger?: ProjectState["ledger"][number];
 }) {
@@ -152,6 +157,10 @@ function Lane({
           </td>
         );
       })}
+      <td className="race-tokens" data-label="Tokens">
+        <span className="race-phone-label" aria-hidden="true">Tokens</span>
+        <BudgetUsage usage={entrant.usage} budget={race.tokenBudget} status={entrant.budget} agent={entrant.agent} brand={brand} />
+      </td>
       <td className="race-result">
         <Place entrant={entrant} />
         <strong>{entrantResult(entrant, owner)}</strong>
@@ -330,6 +339,7 @@ export function RaceView({
                 {step.label}
               </th>
             ))}
+            <th scope="col" className="race-tokens-heading">Tokens</th>
             <th scope="col">Result</th>
           </tr>
         </thead>
@@ -340,12 +350,14 @@ export function RaceView({
               entrant={entrant}
               race={race}
               state={state}
+              brand={view.brand}
               owner={actions.owner}
               ledger={ledger}
             />
           ))}
         </tbody>
       </table>
+      {!!entrants.length && <RaceCompare race={race} state={{ ...state, recentActivity: view.activity }} brand={view.brand} getReview={actions.getReview} />}
       {!entrants.length && (
         <p className="race-empty">No entrants yet. Agents join by claiming {packet}.</p>
       )}
@@ -361,14 +373,12 @@ export function RaceView({
                 <th scope="col">Time to promote</th>
                 {pushesAvailable && <th scope="col">Pushes</th>}
                 <th scope="col">Checks passed</th>
+                <th scope="col">Tokens</th>
                 <th scope="col">Result</th>
               </tr>
             </thead>
             <tbody>
               {[...placed, ...entrants.filter((entry) => entry.place === null)].map((entrant) => {
-                const receipts = entrantReviews(state, race, entrant).flatMap((review) =>
-                  review.receipt ? [review.receipt] : [],
-                );
                 const pushes = packetPushes(
                   view.activity, entrant.repoName, state.project.defaultBranch,
                   timestamp(entrant.claimedAt) ?? Infinity,
@@ -387,10 +397,9 @@ export function RaceView({
                     </td>
                     {pushesAvailable && <td data-label="Pushes">{pushes}</td>}
                     <td data-label="Checks passed">
-                      {receipts.length
-                        ? `${receipts.filter((receipt) => receipt.status === "passed").length} of ${receipts.length}`
-                        : "—"}
+                      {entrantChecks(state, race, entrant)}
                     </td>
+                    <td data-label="Tokens"><UsageFigures usage={entrant.usage} agent={entrant.agent} brand={view.brand} /></td>
                     <td data-label="Result">{entrantResult(entrant, actions.owner)}</td>
                   </tr>
                 );

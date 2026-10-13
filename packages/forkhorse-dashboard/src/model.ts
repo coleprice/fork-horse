@@ -1,3 +1,4 @@
+import { usagePromotionCaption } from "./usage.ts";
 import type {
   Activity,
   BlockerView,
@@ -62,10 +63,11 @@ export function reviewGate(
   const blocked = state.blockers.find((blocker) => !blocker.resolved && blockerGatesReview(blocker, review));
   if (blocked)
     return { approve: false, promote: false, reason: `Blocked: this fork pushed into ${blocked.packet}'s claimed paths. ${owner ? "Mark the collision resolved first." : "Waiting for the owner."}` };
+  const usageReason = usagePromotionCaption(review, state);
   return {
     approve: review.status === "pending",
-    promote: review.status === "approved",
-    reason: receiptGateCaption(review, requireReceipt),
+    promote: review.status === "approved" && !usageReason,
+    reason: usageReason || receiptGateCaption(review, requireReceipt),
   };
 }
 

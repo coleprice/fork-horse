@@ -381,3 +381,68 @@ the gatekeeper route loads its built self-contained sidebar in an opaque-origin 
 with a synthetic host capability. Light/dark controls use the app theme path.
 `fork-history` exercises dense main labels and capped cells. These harnesses are excluded
 from production assets and prove offline bundle behavior only.
+
+## Reported usage and race Compare (FH-062 local candidate)
+
+The optional FH-060 wire projection keeps reported and metered cumulative snapshots
+separate on claims, race entrants, and `usageAtReview`. Every token figure carries
+its source. Full figures show report freshness on a separate caption line; dense
+queue/graph cells show a compact figure with freshness and full details in the Tooltip. Review detail uses the immutable review snapshot;
+promotion gates use the current entrant's core-computed budget state. Over-budget
+and unchecked budgeted entrants have no Promote control. Unbudgeted legacy races
+and ordinary packets need no usage report. An explicit core `budget: "unchecked"`
+on a race with `tokenBudget: null` does not show Budget unchecked or hide Promote.
+There is no new Needs you kind.
+
+The accepted FH-055 race view includes Tokens before Result in its milestone track
+and results table, with a facts-only Compare section directly below the track.
+Compare uses FH-055 claim order and its shared recorded race clock. Checks
+count passing receipts out of the entrant's receipts in both Compare and Results.
+Files come from exact review detail, and push counts from
+the shared FH-055b `packetPushes` interval helper. Results omits its Pushes column
+and Compare omits its Recorded pushes row when loaded history does not cover every
+entrant's claim. Counts end at entrant close, race finish, or now. No score, inferred line count,
+price, or automatic ranking is computed. Missing detail is Unavailable. The queue's
+Tokens column appears only when at least one queued review has a snapshot. Fork
+usage appears only in label tooltips and the table twin, never lane geometry.
+Budget figures appear once per source as a ratio; only core's selected source gets
+the true-ratio meter and state. Within budget has no dot. Full ties receive no
+fastest/fewest caption. Below 640px Compare stacks by fact and entrant, with no
+sideways scrolling. Usage refusals appear only in queue Actions. Compact usage
+cells and folded metadata keep the queue and graph table within a docked pane.
+
+Agents totals select the latest snapshot per packet/fork/source, across live claims,
+entrants, and retained reviews, before summing. The local-day window selects reports
+received today. A cumulative report can include earlier consumption, so the UI
+explicitly describes these as cumulative reports received today, not consumption
+today. Daily deltas and distinct reclaimed-claim lifetimes need more core history.
+
+The fixture harness provides `usage-race`, `usage-over`, `usage-unchecked`,
+`usage-both`, `usage-legacy`, `usage-unbudgeted`, and `usage-reordered`, with `role=agent` for the read-only host. Fixture
+checks and browser captures are synthetic. See
+[test/captures/fh-062/README.md](test/captures/fh-062/README.md).
+
+Accepted FH-055 main is normally merged at `3d87cdca649740984524882a00408cb9780ae327`
+(second parent `ea577a1d96fc52528bd2854d58ee2a29d9ccf679`). Its glyphs, claim order,
+neutral unreached rings, centered hurdles, badges and silks remain in the shared track.
+Accepted FH-055b main `f924b7a40fa94bc457677dfa3898c940b1676e37` is normally
+merged at `97cf0650f6560a0d5d814a85c98d27cc6a342d53`, with parents
+`90cabe62afb723d0645e62d3c97976e3f8030fc5` and that accepted main commit.
+Accepted FH-057b main `c3dec6e43994b49007b6ad06ab55d13c61607955` is normally
+merged onto the local FH-062 head `edb9903c9829a4871b0814fc5bb978a2395ed1d4`.
+Its table clipping, focus behavior, compact visible event cells, and full accessible
+event labels compose with the usage tooltip and Tokens column.
+Accepted FH-057c main `05efc0a346a7e91d4f4e56b52eb4266f12475f5b` is normally
+merged onto the saved local FH-062 head `594b51b5d4d914b51dac2e0cc01b30f92e8da57b`.
+The graph omits hour labels without room at plot edges and retains every hour grid line.
+Accepted FH-057d main `1749a394caa4f78b7fbf6a1645659e89e78e9b99` is normally
+merged onto saved FH-062 head `761b777bf2c170fe0b6e6674d330458d157d2111`.
+Failed checks retain danger dots, timed-out/infrastructure receipts warning dots,
+and review/running receipts info dots, alongside the usage tooltip and Tokens column.
+Accepted FH-060 main `f1910e6f571ed7359d30db37d3ddca86f9236803`, including
+FH-049 collision UI and FH-050 archive contract, is normally merged onto saved
+FH-062 head `d8befb64e9232c67a78044447aa8ec81445555c8`. Collision gates retain
+owner/agent explanations; resolving a collision leaves the current entrant budget
+gate in force. All eight design fixes remain. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
+serialized operator checks. Saddler PASS and owner review remain open. This local
+candidate has no live Cloudflare, deployment, or owner-acceptance evidence.

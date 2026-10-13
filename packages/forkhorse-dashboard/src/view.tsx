@@ -1,3 +1,5 @@
+import { UsageFigures } from "./usage.tsx";
+import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Badge,
@@ -245,9 +247,11 @@ export function ReviewActions({
   const otherEntrants = race?.entrants.filter((entrant) => entrant.repoName !== review.repoName && !entrant.closedAt).map((entrant) => entrant.agent) ?? [];
   const rechecking =
     required && review.receipt?.status === "running" && review.receipt.trigger === "before-promote";
-  if (!actions.owner) return null;
+  const usageCaption = usagePromotionCaption(review, view.state!);
+  if (!actions.owner) return usageCaption ? <p className="caption muted usage-promotion-caption">{usageCaption}</p> : null;
   return (
     <>
+      {usageCaption && <p className="caption muted usage-promotion-caption">{usageCaption}</p>}
       {gate.approve && (
         <Button
           size="sm"
@@ -893,7 +897,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
-                      <ForkGraph key={view.project} state={state} owner={actions.owner}
+                      <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
                         openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />
                       {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
                       <LayerCard className="p-4 project-card">
@@ -1121,12 +1125,19 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                               "Fork head",
                               "State",
                               "Receipts",
+                              ...(reviews.some((queued) => usageValues(queued.usageAtReview).length) ? ["Tokens"] : []),
                               "Requested",
                               ...(actions.owner ? ["Actions"] : []),
                             ]}
                           >
                             {reviews.map((r) => {
                               const gate = reviewGate(r, state, actions.owner);
+                              const receiptCaption = receiptGateCaption(r, state.project.settings?.requireReceipt === true);
+                              // Usage refusals replace Promote in Actions, never repeat them in State.
+                              const hasStateCaption = receiptCaption || (!gate.approve && !gate.promote && gate.reason);
+                              const stateCaption = hasStateCaption
+                                ? (gate.reason === usagePromotionCaption(r, state) ? receiptCaption : gate.reason || receiptCaption)
+                                : "";
                               const cause = reviewState(r, state);
                               const stale = !!cause.banner;
                               return (
@@ -1182,17 +1193,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       </div>
                                     )}
                                     {!stale && !r.returned &&
-                                      (receiptGateCaption(
-                                        r,
-                                        state.project.settings?.requireReceipt === true,
-                                      ) ||
-                                        (!gate.approve && !gate.promote && gate.reason)) && (
+                                      stateCaption && (
                                         <div className="caption muted state-reason">
-                                          {gate.reason ||
-                                            receiptGateCaption(
-                                              r,
-                                              state.project.settings?.requireReceipt === true,
-                                            )}
+                                          {stateCaption}
                                           {actions.owner &&
                                             r.receipt?.status === "infrastructure-error" && (
                                               <Button
@@ -1214,6 +1217,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       open={() => showReceipt(r.id)}
                                     />
                                   </Table.Cell>
+                                  {reviews.some((queued) => usageValues(queued.usageAtReview).length) && <Table.Cell className="column-tokens"><UsageFigures usage={r.usageAtReview} agent={r.agent} brand={view.brand} compact /></Table.Cell>}
                                   <Table.Cell className="column-requested">
                                     {r.requestedAt && (
                                       <span className="caption muted">
@@ -1312,10 +1316,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     "agents",
                     <section id="lanes">
                       <h2 id="agents-heading" tabIndex={-1}>Agents</h2>
+                      <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>
                       {state.agents.length ? (
                         <DataTable
                           kind="agents"
-                          headings={["Agent", "Fork", "Last push", "Claim", "Events"]}
+                          headings={["Agent", "Fork", "Last push", "Claim", "Events", "Tokens"]}
                         >
                           {state.agents.flatMap((agent) => {
                             const forks = state.forks.filter((f) => f.agent === agent.name);
@@ -1334,6 +1339,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     </Tooltip>
                                     <div className="caption muted folded">
                                       {fork && <TruncatedCode value={fork.repoName} />}
+                                      <UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} />
                                     </div>
                                   </Table.Cell>
                                   <Table.Cell className="column-fork">
@@ -1374,6 +1380,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell>
                                     <Events value={fork?.events} />
                                   </Table.Cell>
+                                  <Table.Cell className="column-tokens"><UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} /></Table.Cell>
                                 </Table.Row>
                               );
                             });

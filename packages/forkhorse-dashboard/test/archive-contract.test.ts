@@ -21,7 +21,7 @@ test("offline archive fixture slices satisfy the merged core public contract", (
     writeFileSync(contractPath, `${source.slice(0, boundary)}
       import { archiveFixtureState, archiveRace } from ${JSON.stringify(fixturePath)};
       const fixture = archiveFixtureState();
-      const packets: Packet[] = fixture.packets.map(packet => ({ ...packet, archived: packet.archived ?? null }));
+      const packets: Packet[] = fixture.packets.map(packet => ({ ...packet, tokenBudget: packet.tokenBudget ?? undefined, archived: packet.archived ?? null }));
       const blockers: Pick<Blocker, "packet" | "pushingPacket" | "resolved">[] = fixture.blockers.map(blocker => ({ ...blocker,
         pushingPacket: blocker.pushingPacket ?? null, resolved: blocker.resolved ?? null }));
       const race: RaceState = archiveRace();
