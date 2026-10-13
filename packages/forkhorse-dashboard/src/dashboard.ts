@@ -313,7 +313,7 @@ export function mountDashboard(
 
   async function resolveBlocker(id: string, reason: string) {
     if (options.owner === false || view.busy || !view.state || !options.transport.resolveBlocker ||
-        reason.length < 1 || reason.length > 200)
+        reason.trim().length < 1 || reason.length > 200)
       throw new Error("Collision action unavailable.");
     // The server is idempotent: keep an opened dialog usable if a claim ends meanwhile.
     const blocker = view.state.blockers.find((b) => b.id === id);

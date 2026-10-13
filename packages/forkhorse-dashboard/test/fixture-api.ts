@@ -61,7 +61,7 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
           if (id === "collision-error") { send({ error: "Fixture raw error must stay hidden" }, 503); return; }
           try {
             const { reason } = JSON.parse(body);
-            if (typeof reason !== "string" || reason.length < 1 || reason.length > 200) throw new Error("reason");
+            if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 200) throw new Error("reason");
             blocker.resolved ??= { at: new Date().toISOString(),
               by: id === "collision-race-release" ? "release" : id === "collision-race-promote" ? "promote" : "owner",
               ...(id.startsWith("collision-race") ? {} : { reason }) };

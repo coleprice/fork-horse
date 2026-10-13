@@ -252,10 +252,10 @@ non-stale reconciler/pending-promotion variants. Open their detail at
 `#review/review-1` or queue at `#review`. These fixtures establish offline rendering
 only. Design PASS and independent code acceptance remain external handback gates.
 
-## FH-049 collision resolution (FH-048 integration pending)
+## FH-049 collision resolution (FH-048 integrated; final acceptance pending)
 
-Owner-only `POST /projects/:id/blockers/:bid/resolve` sends `{reason}` (1–200 characters) through the same-origin session. Agents have no control or request. The dialog shows paths and editable quick reasons, supports Cmd/Ctrl+Enter, and refreshes authoritative state after success or uncertainty without retrying a write. A repeat uses the returned resolution cause. The resolution record supplies the audit history; no activity event is assumed.
+Owner-only `POST /projects/:id/blockers/:bid/resolve` sends `{reason}` (1–200 characters, with non-whitespace content) through the same-origin session. Agents have no control or request. The dialog shows paths and editable quick reasons, supports Cmd/Ctrl+Enter, and refreshes authoritative state after success or uncertainty without retrying a write. A repeat uses the returned resolution cause. The resolution record supplies the audit history; no activity event is assumed.
 
-Resolved collisions remain as quiet rows in packet details and matching pushing-fork review details, excluded from counts, gates and Needs you. Snapshot blockers survive an omitted detail list; a refreshed snapshot wins over stale detail resolution. Needs you opens and focuses the collision; success returns focus to Collisions and offers Open review in a 10-second toast and the history row. Legacy push times are never synthesized.
+Resolved collisions remain as quiet rows in packet details and matching pushing-fork review details, excluded from counts, gates and Needs you. FH-048 review detail retains its claimant-packet filter; pushing-fork gates and history derive from all `/state.blockers`. Snapshot blockers survive an omitted detail list; a refreshed snapshot wins over stale detail resolution. Needs you opens and focuses the collision; success returns focus to Collisions and offers Open review in a 10-second toast and the history row. Legacy push times are never synthesized.
 
 The `collision-*` scenarios are local contract fixtures, including history, 404, generic failure and claim-release/promote races. They provide no live core or Cloudflare acceptance.

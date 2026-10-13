@@ -126,7 +126,7 @@ function setup({
             ? []
             : detailMode === "stale"
               ? wire.blockers.map((b) => ({ ...b, resolved: null }))
-              : wire.blockers,
+              : wire.blockers.filter((b) => b.packet === review.packet),
         packet: wire.packets.find((p) => p.id === review.packet)!,
       });
     },
@@ -174,6 +174,10 @@ test("owner dialog enforces reason, focuses input, posts once and refreshes coun
     const primary = () => doc.querySelector('[data-action="confirm-resolve"]') as HTMLButtonElement;
     assert.equal(primary().disabled, true);
     await until(() => doc.activeElement?.textContent === "Coordinated: both changes can land.");
+    fill(c, " \n ");
+    await until(() => primary().disabled);
+    fill(c, "x".repeat(200));
+    await until(() => !primary().disabled);
     fill(c, "x".repeat(201));
     await until(() => primary().disabled);
     fill(c, "Agreed.\n<script>plain text</script>");

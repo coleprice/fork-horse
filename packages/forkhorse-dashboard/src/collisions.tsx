@@ -183,7 +183,7 @@ export function ResolveCollisionDialog({
     if (missing) closeButton.current?.focus();
   }, [missing]);
   const submit = async () => {
-    if (sending || missing || reason.length < 1 || reason.length > 200) return;
+    if (sending || missing || reason.trim().length < 1 || reason.length > 200) return;
     setSending(true);
     setError(undefined);
     try {
@@ -288,7 +288,7 @@ export function ResolveCollisionDialog({
             <Button
               variant="primary"
               data-action="confirm-resolve"
-              disabled={sending || reason.length < 1 || reason.length > 200}
+              disabled={sending || reason.trim().length < 1 || reason.length > 200}
               onClick={() => void submit()}
             >
               Mark resolved
