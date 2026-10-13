@@ -1,6 +1,8 @@
 /** Persistent public workflow records; none contain Git/API credentials. */
 export interface Packet {
   id: string;
+  /** Absent only in legacy storage; public reads normalize it to standard. */
+  mode?: "standard" | "race";
   title: string;
   goal: string;
   paths: string[];
@@ -19,13 +21,42 @@ export interface Claim {
   paths: string[];
   createdAt: string;
 }
+/** Race history is retained at entrant:<packet>:<agent>, including after release. */
+export interface RaceEntrant extends Claim {
+  firstPushAt: string | null;
+  reviewRequestedAt: string | null;
+  receiptPassedAt: string | null;
+  approvedAt: string | null;
+  promotedAt: string | null;
+  place: number | null;
+  closedAt: string | null;
+  closedBy: "release" | "owner" | "race-finished" | null;
+  /** Absent on older entrants; the first canonical-base refusal is retained. */
+  promoteRejected?: { at: string; expected: string; found: string } | null;
+}
+/** Immutable finish at race:<packet>; places name agents, never fork aliases. */
+export interface RaceResult {
+  winner: string;
+  places: { agent: string; place: number }[];
+  finishedAt: string;
+  ledgerEntryId: string;
+}
+export interface RaceState {
+  packet: string;
+  status: "open" | "finished";
+  finishedAt: string | null;
+  winner: string | null;
+  ledgerEntryId: string | null;
+  places: RaceResult["places"];
+  entrants: (Omit<RaceEntrant, "packet" | "paths" | "createdAt"> & { claimedAt: string })[];
+}
 /** Durable release history. Claim identity and provenance only; no credentials. */
 export interface ClaimReleaseAudit {
   packet: string;
   agent: string;
   repoName: string;
   claimedAt: string;
-  releasedBy: "agent" | "owner" | "promote";
+  releasedBy: "agent" | "owner" | "promote" | "race-finished";
   review?: string;
   recordedAt: string;
 }
@@ -87,6 +118,8 @@ export interface LedgerEntry {
   after: string;
   receiptDigest: string | null;
   recordedAt: string;
+  /** Packet ID linking this promotion to race:<packet>; absent on standard entries. */
+  race?: string;
 }
 export interface Blocker {
   id: string;
@@ -98,7 +131,7 @@ export interface Blocker {
   paths: string[];
   at: string | null;
   pushingPacket: string | null;
-  resolved: null | { at: string; by: "release" | "promote" | "owner"; reason?: string };
+  resolved: null | { at: string; by: "release" | "promote" | "owner" | "race-finished"; reason?: string };
 }
 export interface ReconcilerAlert {
   id: string;
@@ -116,11 +149,12 @@ export interface CommitFile {
 /** Authenticated dashboard/MCP snapshot. Arrays contain public records only. */
 export interface StateSnapshot {
   project: import("./types").Project & { settings: { requireReceipt: boolean } };
-  agents: { name: string }[];
+  agents: { name: string; createdAt: string | null }[];
   forks: (Fork & { head: string })[];
   packets: Packet[];
   /** Only live claims appear. Release removes the claim, but keeps historical reviews. */
   claims: Claim[];
+  races: RaceState[];
   blockers: Blocker[];
   reviews: (Review & { receipt: ReceiptSummary | null })[];
   ledger: LedgerEntry[];

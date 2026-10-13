@@ -1,3 +1,4 @@
+import { openEntrants } from "./race-entrants";
 import type { Claim, Packet, Review, WorkItem } from "./workflow-types";
 
 const hints: Record<WorkItem["next"], string> = {
@@ -34,6 +35,8 @@ export async function resumeWork(
   requireReceipt: boolean,
 ): Promise<WorkItem[]> {
   const claims = await storage.list<Claim>({ prefix: "claim:" });
+  // Preserve standard validation below while presenting live entrants through the same work rules.
+  const owned = [...claims.entries(), ...(await openEntrants(storage)).map(entrant => [`claim:${entrant.packet}`, entrant] as const)];
   const packets = await storage.list<Packet>({ prefix: "packet:" });
   const reviews = [...(await storage.list<Review>({ prefix: "review:" })).entries()]
     .filter(
@@ -42,7 +45,7 @@ export async function resumeWork(
     .map(([, review]) => review)
     .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
   const work: WorkItem[] = [];
-  for (const [key, claim] of claims) {
+  for (const [key, claim] of owned) {
     const forkHead = heads.get(claim.repoName);
     const packet = packets.get(`packet:${claim.packet}`);
     if (
