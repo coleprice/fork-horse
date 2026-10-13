@@ -16,7 +16,7 @@ Scope: `packages/forkhorse-mcp/**`, `docs/agents/**`, `skills/forkhorse/**`. Cor
 
 ## Fixture evidence and limitations
 
-Actual workerd tests use a fake core policy implementing the supplied contract. They do not validate FH-063's real authorization or storage implementation. The full retained entrant roster, including withdrawals, is explicitly **provisional** pending the existing shared FH-063 roster question; MCP does not compute membership or override core decisions.
+Actual workerd tests use a fake core policy implementing the supplied contract. They do not validate FH-063's real authorization or storage implementation. Superprime's 19:28 shared contract answer confirms the full retained `/state.races[].entrants` roster, including withdrawn and closed entrants. Workerd fixtures verify that omitting a withdrawn entrant is refused and including it succeeds. MCP does not compute membership, change placings or override core decisions.
 
 The capture at `__tests__/judge-capture.fixture.json` records five calls through the real MCP facade: assigned-race list, review detail, diff, advice submission and refreshed list. A Node test compares the generated capture against this saved artifact and optionally exports it through `FH063_CAPTURE_PATH`. It is credential-free **offline fixture evidence**, not a UI screenshot, deployed MCP response or live judge race.
 
@@ -39,7 +39,7 @@ Local untracked logs: `FH-063b-package-tests.log`, `FH-063b-types.log`, `FH-063b
 ## Open gates
 
 - Merge/integration waits for accepted FH-063 and reconciliation of its real wire/authorization behavior.
-- The current full-retained-roster interpretation awaits the existing shared contract answer; no duplicate inquiry was opened.
+- The full-retained-roster question is resolved by the 19:28 shared answer; guidance and fixtures use that rule.
 - Exact publication route is unresolved. Prime has acknowledged and routed the question to Coordinator/Superprime. This local checkpoint is preparation; it does not authorize alternate operator publication. No live packet, join, fork reuse, credential refresh, push or review submission was inferred.
 - Root test/lint, fresh-clone suite and D5 remain on heavy hold pending a serialized grant.
 - No live Cloudflare, deployment, spend or owner mutation was attempted. Local success is not packet acceptance.

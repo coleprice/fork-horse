@@ -57,7 +57,7 @@ This is a fixture-built seam against the fixed FH-063 core contract. **Merge/int
 
 The [judge skill](../../skills/forkhorse/SKILL.md#judge-an-assigned-race) weighs receipts, diff size/content, recorded time and **reported** tokens, explains the ranking and names evidence gaps. Advice never approves or promotes. A judge needs no entrant fork and cannot enter its assigned race. After an uncertain write, inspect the latest advice before retrying. No history or revision counter is invented.
 
-The fixture policy's full retained roster, including closed entrants, is provisional pending the shared FH-063 contract answer. Exact roster membership remains core-authoritative; reconcile the skill and fixtures against accepted FH-063 before integration.
+The confirmed FH-063 roster is the full retained `/state.races[].entrants` list, including withdrawn and closed entrants. Exact roster membership remains core-authoritative; reconcile the wire and authorization seam against accepted FH-063 before integration. Judging does not change placings.
 
 Each call has a 25-second deadline, including authentication, input and output body reads. Serialized HTTP responses stay strictly below 1 MiB, including JSON-RPC wrapping and escaping. Bodies are counted while streaming, regardless of Content-Length. No persistent GET/SSE stream is offered: POST uses the SDK's JSON response mode and GET/DELETE return 405. Each request gets a fresh server/transport, so no in-memory MCP session holds a credential. Responses are `no-store`; provider errors are replaced with fixed public messages.
 

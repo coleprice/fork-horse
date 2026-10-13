@@ -90,7 +90,7 @@ export const judgeDiff = {
     "--- a/src/changed file.ts\n+++ b/src/changed file.ts\n@@ -1 +1 @@\n-fixture before\n+fixture after\n",
 };
 
-/** Fake core policy only; full retained roster is provisional pending the shared FH-063 answer. */
+/** Fake core policy only; core must enforce the confirmed full retained roster independently. */
 export function judgeFixture() {
   const state = structuredClone(judgeState);
   const tokens = new Map(

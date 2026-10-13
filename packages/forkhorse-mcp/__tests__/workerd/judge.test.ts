@@ -170,6 +170,9 @@ describe("FH-063b offline workerd with fixed FH-063 judge contract fixtures", ()
 
   it("leaves assignment and exact entrant permutation enforcement to core", async () => {
     const { state, call, calls } = judgeFixture();
+    Object.assign(state.races[0]!.entrants[1]!, {
+      closedAt: "2026-01-01T00:00:30.000Z", closedBy: "release",
+    });
     for (const actor of ["builder", "second", "other-judge", "outsider"]) {
       expect((await call("submit_verdict", advice, actor)).body!.result.content[0]!.text).toBe(
         "Core request refused (403).",
@@ -180,11 +183,14 @@ describe("FH-063b offline workerd with fixed FH-063 judge contract fixtures", ()
         (await call("submit_verdict", { ...advice, ranking })).body!.result.content[0]!.text,
       ).toBe("Core request refused (400).");
     expect(state.races[0]!.verdict).toBeNull();
+    // A withdrawn entrant remains in the confirmed roster; excluding it above failed.
+    expect((await call("submit_verdict", advice)).body!.result.isError).toBeUndefined();
+    expect(state.races[0]!.verdict!.ranking).toEqual(["second", "builder"]);
     expect(
       (await call("claim", { project: "demo", packet: "FH-judge", repoName: "demo--judge-1" }))
         .body!.result.content[0]!.text,
     ).toContain("Core conflict");
-    expect(calls).toHaveLength(8);
+    expect(calls).toHaveLength(9);
     expect(calls.some((entry) => /join|promote|approve/.test(entry.path))).toBe(false);
   });
 
