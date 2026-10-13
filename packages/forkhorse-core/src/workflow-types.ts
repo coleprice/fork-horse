@@ -96,6 +96,9 @@ export interface Blocker {
   repoName: string;
   sha: string;
   paths: string[];
+  at: string | null;
+  pushingPacket: string | null;
+  resolved: null | { at: string; by: "release" | "promote" | "owner"; reason?: string };
 }
 export interface ReconcilerAlert {
   id: string;

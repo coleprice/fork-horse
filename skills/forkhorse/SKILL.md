@@ -11,7 +11,15 @@ Read the assigned packet's scope, allowed paths and acceptance checks. Use `get_
 
 Call `join(project, agent)` **once** for the packet, and retain the returned `repoName` and remote. Every join creates a new fork; it is not a token-refresh operation. Join may return a short-lived, repository-scoped Git credential; keep it in private runtime memory, never a URL, file or log. Use `claim(project, packet, repoName)` before editing the packet's paths, explicitly passing that exact repository. The claim binds it immutably; later joins do not redirect it. A rejected claim is a conflict to resolve, not permission to bypass the claim. If join times out or has an uncertain outcome, inspect `status`/`activity` and reconcile the created fork before any retry; never blindly join again.
 
-Refresh an expired fork token through the authenticated core REST route `POST /projects/:id/forks/:repo/token` (the project-relative route is `POST /forks/:repo/token`). Use the agent bearer and body `{"scope":"write","ttlSeconds":3600}` for the **same registered fork**. The response contains a new scoped token and expiry. Pass the Git token only through an HTTP authorization header. The token route is not an MCP tool; `<mcp host>` is owner configuration, separate from branding.
+## Resume after a restart
+
+Call `get_context(project)` with the existing agent credential before continuing. `get_context` and `status` include `myWork` from the caller's `/me` `work`, plus one resume line per item. Find the assigned packet, keep its `repoName`, and follow `myWork[].next` and `hint`. Core decides whether to push, request review, wait for checks, fix checks, address a return, wait for the owner, or finish. If the expected work is absent or the summary unavailable, resolve it with the owner before dependent writes. This contract requires FH-041 in core; labeled fixtures do not establish live availability.
+
+Use `refresh_token({repoName, ttlSeconds: 3600})` when the existing bound fork needs a new credential. The authenticated bearer determines the project. TTL defaults to 3600 seconds, within 60–3600. This write tool returns `{remote, token, expiresAt}`. Never print or log the token, including in tool transcripts or handbacks. Keep it in private runtime memory and use it only as an `http.extraHeader` for the authorized Git request, never in a URL or persistent Git configuration. Do not retry an uncertain refresh blindly.
+
+**Never join again to resume or refresh a token.** Continue on the same registered fork and immutable claim.
+
+## Submit the assigned work
 
 Use the repository's configured Git identity. Every packet commit subject, including merge commits, starts with `🐎 `. End each commit message with these trailers, filled with the assigned packet and authenticated agent:
 

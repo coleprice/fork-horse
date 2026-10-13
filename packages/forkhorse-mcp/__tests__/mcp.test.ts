@@ -30,7 +30,7 @@ async function connect(core = new FixtureCore()) {
 }
 
 describe("fixture Streamable HTTP integration", () => {
-  it("initializes with the official SDK and lists seven tools with honest annotations", async () => {
+  it("initializes with the official SDK and lists eight tools with honest annotations", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).toSorted()).toEqual([
@@ -38,6 +38,7 @@ describe("fixture Streamable HTTP integration", () => {
       "claim",
       "get_context",
       "join",
+      "refresh_token",
       "request_review",
       "status",
       "submit_work",
@@ -47,6 +48,11 @@ describe("fixture Streamable HTTP integration", () => {
       expect(tool.annotations?.readOnlyHint).toBe(read);
       expect(tool.annotations?.idempotentHint).toBe(read);
     }
+    const refresh = tools.find((tool) => tool.name === "refresh_token")!;
+    expect(refresh.description).toContain("Never print or log the token");
+    expect(refresh.description).toContain("http.extraHeader");
+    expect(refresh.inputSchema.required).toEqual(["repoName"]);
+    expect(refresh.annotations?.destructiveHint).toBe(true);
     await client.close();
   });
   it("maps every tool to the contracted route and passes the core bearer unchanged", async () => {
@@ -90,7 +96,9 @@ describe("fixture Streamable HTTP integration", () => {
       ),
     ).toEqual([
       "GET /projects/demo/state",
+      "GET /projects/demo/me",
       "GET /projects/demo/state",
+      "GET /projects/demo/me",
       "GET /projects/demo/activity?after=3&limit=8",
       "POST /projects/demo/join",
       "POST /projects/demo/packets/FH-004/claim",
@@ -101,8 +109,8 @@ describe("fixture Streamable HTTP integration", () => {
     ]);
     for (const request of core.requests)
       expect(request.headers.get("authorization")).toBe("Bearer api_fixture_builder");
-    expect(await core.requests[4]!.json()).toEqual({ repoName: "demo--builder-2" });
-    expect(await core.requests[7]!.json()).toEqual({
+    expect(await core.requests[6]!.json()).toEqual({ repoName: "demo--builder-2" });
+    expect(await core.requests[9]!.json()).toEqual({
       packet: "FH-004",
       files: [{ path: "src/a.ts", content: "fixture" }],
       message: "fixture commit",
@@ -210,7 +218,7 @@ describe("fixture Streamable HTTP integration", () => {
       }),
     );
     expect(oversized.status).toBe(413);
-    core.payload = { data: '"'.repeat(MAX_BYTES / 3) };
+    core.payload = { work: [], data: '"'.repeat(MAX_BYTES / 3) };
     const response = await handler(
       rpc("tools/call", { name: "status", arguments: { project: "demo" } }),
     );
