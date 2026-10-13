@@ -66,6 +66,8 @@ export function createHttpTransport(options: HttpTransportOptions): DashboardTra
     return (await response.json()) as T;
   }
   return {
+    archivePacket: (id, packet) => call(`${projectPath(id)}/packets/${encodeURIComponent(packet)}/archive`, "POST"),
+    unarchivePacket: (id, packet) => call(`${projectPath(id)}/packets/${encodeURIComponent(packet)}/unarchive`, "POST"),
     getReview: (id, review) =>
       call<ReviewDetail>(`${projectPath(id)}/reviews/${encodeURIComponent(review)}`),
     getDiff: (id, review, path) =>

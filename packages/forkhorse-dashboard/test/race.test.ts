@@ -429,3 +429,12 @@ test("race Promote dialog states the other open entrants before owner confirmati
     dom.window.close();
   }
 });
+
+
+test("a finished race without a recorded winner omits Won in", () => {
+  const value = view("race-finished");
+  value.state!.races![0].winner = null;
+  assert.doesNotMatch(html(value), /Won in/);
+  value.state!.races![0].winner = "cedar";
+  assert.match(html(value), /Won in/);
+});
