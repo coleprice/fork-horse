@@ -1,3 +1,4 @@
+import { usageScenarios } from "../test/usage-fixtures.ts";
 import { forkScenarios } from "../test/fork-graph-fixtures.ts";
 import { needsScenarios } from "../test/needs-you-fixtures.ts";
 import { reviewScenarios } from "../test/review-fixtures.ts";
@@ -61,6 +62,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "quiet", label: "Quiet project" },
     ...[
       ...reviewScenarios,
+      ...usageScenarios,
       ...needsScenarios,
       ...forkScenarios,
       "large",

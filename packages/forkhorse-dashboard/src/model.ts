@@ -1,3 +1,4 @@
+import { usagePromotionCaption } from "./usage.ts";
 import type {
   Activity,
   Brand,
@@ -60,10 +61,11 @@ export function reviewGate(
   );
   if (blocked)
     return { approve: false, promote: false, reason: "Resolve the packet's blockers first" };
+  const usageReason = usagePromotionCaption(review, state);
   return {
     approve: review.status === "pending",
-    promote: review.status === "approved",
-    reason: receiptGateCaption(review, requireReceipt),
+    promote: review.status === "approved" && !usageReason,
+    reason: usageReason || receiptGateCaption(review, requireReceipt),
   };
 }
 

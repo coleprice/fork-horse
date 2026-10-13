@@ -288,3 +288,38 @@ snapshot through the normal read path. These routes and controls never ship in
 production assets. Captures prove fixture rendering only; reserved root tests,
 worker-host integration, fresh-clone/D5 checks, and design/code sign-off remain
 separate acceptance gates.
+
+## Reported usage and race Compare (FH-062 local candidate)
+
+The optional FH-060 wire projection keeps reported and metered cumulative snapshots
+separate on claims, race entrants, and `usageAtReview`. Every token figure carries
+its source and report freshness. Review detail uses the immutable review snapshot;
+promotion gates use the current entrant's core-computed budget state. Over-budget
+and unchecked budgeted entrants have no Promote control. Unbudgeted legacy races
+and ordinary packets need no usage report. There is no new Needs you kind.
+
+The Work view exposes a read-only race usage composition with Tokens before Result
+and a facts-only Compare table. Times start with the first entrant claim, checks
+come from public receipts, files from exact review detail, and push counts from
+loaded activity within the entrant's binding window. No score, inferred line count,
+price, or automatic ranking is computed. Missing detail is Unavailable. The queue's
+Tokens column appears only when at least one queued review has a snapshot. Fork
+usage appears only in label tooltips and the table twin, never lane geometry.
+
+Agents totals select the latest snapshot per packet/fork/source, across live claims,
+entrants, and retained reviews, before summing. The local-day window selects reports
+received today. A cumulative report can include earlier consumption, so the UI
+explicitly describes these as cumulative reports received today, not consumption
+today. Daily deltas and distinct reclaimed-claim lifetimes need more core history.
+
+The fixture harness provides `usage-race`, `usage-over`, `usage-unchecked`,
+`usage-both`, and `usage-legacy`, with `role=agent` for the read-only host. Fixture
+checks and browser captures are synthetic. See
+[test/captures/fh-062/README.md](test/captures/fh-062/README.md).
+
+Final integration is held for accepted FH-060, FH-055's track/results, and FH-049
+where the owner decision UI overlaps. The usage composition currently sits in Work;
+its meter and Compare section still need to be placed into the accepted FH-055
+race view. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
+serialized operator checks. Saddler PASS and owner review remain open. This local
+candidate has no live Cloudflare, deployment, or owner-acceptance evidence.

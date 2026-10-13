@@ -1129,3 +1129,54 @@ footer {
 }
 
 .lane-connector { position: absolute; top: 29px; left: 50%; width: 100%; height: 2px; background: var(--lane-silk,var(--entrant-silk)); }
+
+/* FH-062 quantity gauges use semantic host colors and never encode work progress. */
+.usage-figures, .usage-source, .budget-usage, .token-budget { display: inline-flex; flex-direction: column; gap: 3px; }
+.usage-source { white-space: nowrap; }
+.token-budget { width: 150px; max-width: 100%; }
+.token-budget meter { width: 100%; height: 5px; accent-color: var(--text-color-kumo-subtle); }
+.token-budget-near { color: var(--text-color-kumo-warning); }
+.token-budget-over { color: var(--text-color-kumo-danger); }
+.token-budget-near meter { accent-color: var(--text-color-kumo-warning); }
+.token-budget-over meter { accent-color: var(--text-color-kumo-danger); }
+.token-budget meter::-webkit-meter-bar { background: var(--color-kumo-fill); border: 0; }
+.token-budget meter::-webkit-meter-optimum-value { background: var(--text-color-kumo-subtle); }
+.token-budget-near meter::-webkit-meter-optimum-value { background: var(--text-color-kumo-warning); }
+.token-budget-over meter::-webkit-meter-optimum-value { background: var(--text-color-kumo-danger); }
+.review-usage { margin-top: 8px; }
+.race-usage { margin-bottom: 24px; }
+.race-usage table { width: 100%; border-collapse: collapse; }
+.race-usage th, .race-usage td { padding: 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--color-kumo-line); }
+.race-compare { min-width: 520px; }
+.race-compare .caption { display: block; }
+.race-usage h3 { margin-top: 20px; }
+.column-tokens { min-width: 165px; }
+/* Existing tables allocated all width to their original columns. Reserve usage explicitly. */
+.table-agents th:nth-child(1) { width: 17%; }
+.table-agents th:nth-child(2) { width: 19%; }
+.table-agents th:nth-child(3) { width: 22%; }
+.table-agents th:nth-child(4) { width: 11%; }
+.table-agents th:nth-child(5) { width: 9%; }
+.table-agents th:nth-child(6) { width: 22%; }
+.table-review:has(.column-tokens) th:nth-child(1) { width: 10%; }
+.table-review:has(.column-tokens) th:nth-child(2) { width: 16%; }
+.table-review:has(.column-tokens) th:nth-child(3) { width: 10%; }
+.table-review:has(.column-tokens) th:nth-child(4) { width: 17%; }
+.table-review:has(.column-tokens) th:nth-child(5) { width: 12%; }
+.table-review:has(.column-tokens) th:nth-child(6) { width: 17%; }
+.table-review:has(.column-tokens) th:nth-child(7) { width: 8%; }
+.table-review:has(.column-tokens) th:nth-child(8) { width: 10%; }
+@container (max-width: 819px) {
+  .table-agents .column-tokens { display: none; }
+  .table-agents th:nth-child(1) { width: 35%; }
+  .table-agents th:nth-child(3) { width: 32%; }
+  .table-agents th:nth-child(4) { width: 16%; }
+  .table-agents th:nth-child(5) { width: 17%; }
+  .table-review:has(.column-tokens) table { min-width: 620px; }
+}
+@media (max-width: 639px) {
+  .table-agents .column-tokens { display: none; }
+  .fork-table td:nth-child(9)::before { content: "Tokens"; }
+  .race-token-lanes { min-width: 480px; }
+  .race-usage .table-scroll { overflow-x: auto; }
+}

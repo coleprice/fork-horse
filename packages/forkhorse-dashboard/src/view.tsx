@@ -1,3 +1,6 @@
+import { RaceUsage } from "./race-usage.tsx";
+import { UsageFigures } from "./usage.tsx";
+import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Badge,
@@ -223,9 +226,11 @@ export function ReviewActions({
   const gate = reviewGate(review, view.state!);
   const rechecking =
     required && review.receipt?.status === "running" && review.receipt.trigger === "before-promote";
-  if (!actions.owner) return null;
+  const usageCaption = usagePromotionCaption(review, view.state!);
+  if (!actions.owner) return usageCaption ? <p className="caption muted usage-promotion-caption">{usageCaption}</p> : null;
   return (
     <>
+      {usageCaption && <p className="caption muted usage-promotion-caption">{usageCaption}</p>}
       {gate.approve && (
         <Button
           size="sm"
@@ -781,7 +786,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
-                      <ForkGraph key={view.project} state={state} owner={actions.owner}
+                      <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
                         openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />
                       {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
                       <LayerCard className="p-4 project-card">
@@ -884,6 +889,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "work",
                     <>
+                      {actions.section === "work" && (state.races ?? []).map((race) => <RaceUsage key={race.packet} race={race} state={state} brand={view.brand} getReview={actions.getReview} />)}
                       {!!blockers.length && (
                         <section id="blockers" className="blockers">
                           {blockers.map((b) => (
@@ -1001,6 +1007,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                               "Fork head",
                               "State",
                               "Receipts",
+                              ...(reviews.some((queued) => usageValues(queued.usageAtReview).length) ? ["Tokens"] : []),
                               "Requested",
                               ...(actions.owner ? ["Actions"] : []),
                             ]}
@@ -1092,6 +1099,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       open={() => showReceipt(r.id)}
                                     />
                                   </Table.Cell>
+                                  {reviews.some((queued) => usageValues(queued.usageAtReview).length) && <Table.Cell className="column-tokens"><UsageFigures usage={r.usageAtReview} agent={r.agent} brand={view.brand} /></Table.Cell>}
                                   <Table.Cell className="column-requested">
                                     {r.requestedAt && (
                                       <span className="caption muted">
@@ -1190,10 +1198,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     "agents",
                     <section id="lanes">
                       <h2 id="agents-heading" tabIndex={-1}>Agents</h2>
+                      <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>
                       {state.agents.length ? (
                         <DataTable
                           kind="agents"
-                          headings={["Agent", "Fork", "Last push", "Claim", "Events"]}
+                          headings={["Agent", "Fork", "Last push", "Claim", "Events", "Tokens"]}
                         >
                           {state.agents.flatMap((agent) => {
                             const forks = state.forks.filter((f) => f.agent === agent.name);
@@ -1212,6 +1221,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     </Tooltip>
                                     <div className="caption muted folded">
                                       {fork && <TruncatedCode value={fork.repoName} />}
+                                      <UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} />
                                     </div>
                                   </Table.Cell>
                                   <Table.Cell className="column-fork">
@@ -1252,6 +1262,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell>
                                     <Events value={fork?.events} />
                                   </Table.Cell>
+                                  <Table.Cell className="column-tokens"><UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} /></Table.Cell>
                                 </Table.Row>
                               );
                             });

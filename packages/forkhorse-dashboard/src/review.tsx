@@ -1,3 +1,4 @@
+import { UsageFigures } from "./usage.tsx";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Banner, Button, ClipboardText, Dialog, Tooltip, Textarea } from "@cloudflare/kumo";
 import { ArrowUUpLeft, Copy, Warning } from "@phosphor-icons/react";
@@ -548,6 +549,7 @@ export function ReviewView({
             <code>{detail.packet.id}</code> · by {review.agent} · <code>{review.repoName}</code>
             {review.requestedAt && ` · requested ${relativeTime(review.requestedAt)}`}
           </p>
+          <div className="review-usage caption"><strong>Usage</strong> · Tokens to this review: <UsageFigures usage={review.usageAtReview} agent={review.agent} brand={view.brand} split /></div>
         </div>
         {snapshot && (
           <div className="actions review-actions">

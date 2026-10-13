@@ -1,3 +1,4 @@
+import { usageScenarios, usageFixtureState, usageFixtureDetail } from "./usage-fixtures.ts";
 import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
@@ -52,6 +53,16 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const usageRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    if (usageRoute && usageScenarios.includes(usageRoute[1])) {
+      if (!states.has(usageRoute[1])) states.set(usageRoute[1], usageFixtureState(usageRoute[1]));
+      const state = states.get(usageRoute[1])!;
+      if (usageRoute[2] === "state") send(state);
+      else if (usageRoute[2] === "activity") send({ activity: [], nextAfter: 0 });
+      else if (!state.reviews.some((r) => r.id === usageRoute[3])) send({ error: "Fixture review not found" }, 404);
+      else send(usageFixtureDetail(state, usageRoute[3]));
+      return;
     }
     const forkRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
     if (forkRoute && forkScenarios.includes(forkRoute[1])) {

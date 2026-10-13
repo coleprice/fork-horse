@@ -1,6 +1,9 @@
+import { relativeTime } from "./time.ts";
+import { UsageFigures } from "./usage.tsx";
+import { laneUsage, totalTokens, tokenNumber, usageTooltip, usageValues } from "./usage.ts";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button, LayerCard, Tooltip } from "@cloudflare/kumo";
-import type { ProjectState } from "./contracts.ts";
+import type { Brand, ProjectState } from "./contracts.ts";
 import { LaneLine, LaneMarker, Saddlecloth, silkStyle } from "./lane.tsx";
 import {
   clockTime,
@@ -29,6 +32,7 @@ function defaultTable(project: string) {
 }
 export function ForkGraph({
   state,
+  brand,
   owner,
   openReview,
   openPacket,
@@ -36,6 +40,7 @@ export function ForkGraph({
   now = Date.now(),
 }: {
   state: ProjectState;
+  brand?: Brand;
   owner: boolean;
   openReview(id: string): void;
   openPacket(id: string): void;
@@ -170,7 +175,8 @@ export function ForkGraph({
               <button
                 className="fork-lane-label"
                 style={{ top: y - 24, ...silkStyle(lane.identity) }}
-                onClick={() => navigate(lane)}
+                title={usageValues(laneUsage(state, lane)).map((u) => `${tokenNumber(totalTokens(u))} tokens · ${u.source} · as of ${relativeTime(u.at)}. ${brand ? usageTooltip(u, lane.agent, brand) : ""}`).join("; ") || "Not reported"}
+                  onClick={() => navigate(lane)}
               >
                 <Saddlecloth identity={lane.identity} />
                 <span>
@@ -476,6 +482,7 @@ export function ForkGraph({
                 "Checks",
                 "Approved",
                 "Promoted",
+                "Tokens",
               ].map((text) => (
                 <th key={text} scope="col">
                   {text}
@@ -518,6 +525,7 @@ export function ForkGraph({
                         ? "Released"
                         : "Not yet"}
                 </td>
+                <td>{brand ? <UsageFigures usage={laneUsage(state, lane)} agent={lane.agent} brand={brand} /> : <span className="caption muted">Not reported</span>}</td>
               </tr>
             ))}
           </tbody>
