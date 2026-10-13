@@ -1,5 +1,10 @@
 [
   {
+    "name": "brand-quick",
+    "tier": "quick",
+    "module": ".forkhorse/quick/brand.js"
+  },
+  {
     "name": "brand",
     "tier": "full",
     "image": "default",

@@ -36,7 +36,7 @@ export interface ReceiptSummary {
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
-  checks: { name: string; tier: "full"; outcome: ReceiptSummary["status"]; durationMs: number | null }[];
+  checks: { name: string; tier: "full" | "quick"; runtime?: "container" | "dynamic-worker"; message?: string; outcome: ReceiptSummary["status"]; durationMs: number | null }[];
 }
 export interface Review {
   id: string;
@@ -52,6 +52,7 @@ export interface Review {
   approval: { sha: string; receiptDigest: string | null } | null;
   stale: boolean;
   promoted: boolean;
+  returned: null | { reason: string; at: string };
   createdAt: string;
 }
 export interface LedgerEntry {

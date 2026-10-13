@@ -22,7 +22,12 @@ export class TestSupervisor extends Supervisor {
       this.receiptRuns.push(request.trigger);
       if (this.receiptFixtureExecutor) return this.receiptFixtureExecutor(request, authority, generation);
       await this.receiptBarrier;
-      if (this.useRpcRunner) return super.receiptExecution()(request, authority, crypto.randomUUID());
+      if (this.useRpcRunner) {
+        const id = crypto.randomUUID();
+        const runner = this.ctx.exports.ReceiptRunner.getByName(id) as unknown as DurableObjectStub<ReceiptRunner>;
+        await runner.configure(this.fixture.checks!, this.fixture.quickSource);
+        return super.receiptExecution()(request, authority, id);
+      }
       const container = new MockContainer(this.receiptExitStatus);
       this.receiptContainers.push(container);
       return runReviewChecks(request, {
@@ -59,6 +64,7 @@ export class ReceiptRunner extends NativeReceiptRunner {
     this.fixture = fixture;
     this.fixture.checks = JSON.stringify([{ name: "unit", tier: "full", image: "default", run: "npm test" }]);
   }
+  configure(checks: string, source?: string) { this.fixture.checks = checks; this.fixture.quickSource = source; }
   protected override containerPort() { return this.mock; }
   protected override evidence() { return "mocked-container-port" as const; }
   override async run(request: RunRequest, authority: ReviewAuthority & RpcTarget) {
@@ -67,4 +73,4 @@ export class ReceiptRunner extends NativeReceiptRunner {
     return super.run(request, authority);
   }
 }
-export { GitReadGateway } from "../../forkhorse-runner/src/index";
+export { GitReadGateway, QuickFiles } from "../../forkhorse-runner/src/index";

@@ -1,12 +1,16 @@
 import { DurableObject, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import { Snapshot } from "./snapshot";
+import type { QuickPorts } from "./quick";
 import { forwardGitRead } from "./git";
 import { runReviewChecks } from "./runner";
 import type { ContainerPort, ForkRepository, Receipt, ReviewAuthority, RunRequest, StoredReceipt } from "./types";
 
+export { QuickFiles } from "./snapshot";
 export { requirePassingReceipt } from "./runner";
 export type * from "./types";
 
 export interface RunnerEnv {
+  LOADER: WorkerLoader;
   ARTIFACTS: { get(name: string): Promise<ForkRepository> };
 }
 
@@ -29,6 +33,25 @@ export class GitReadGateway extends WorkerEntrypoint<RunnerEnv, { remote: string
 /** Sandbox 1.0 native adapter. Export only through trusted bindings; there is no public fetch route. */
 export class ReceiptRunner extends DurableObject<RunnerEnv> {
   private busy = false;
+  #snapshots = new Map<string, Snapshot>();
+
+  protected quickPorts(): QuickPorts {
+    return { loader: this.env.LOADER, evidence: "dynamic-worker", files: snapshot => {
+      const snapshotId = crypto.randomUUID();
+      this.#snapshots.set(snapshotId, snapshot);
+      return this.ctx.exports.QuickFiles({ props: { runnerId: this.ctx.id.toString(), snapshotId } });
+    } };
+  }
+  async readSnapshot(id: string, path: string): Promise<string | null> {
+    const snapshot = this.#snapshots.get(id);
+    if (!snapshot) throw new Error("Snapshot unavailable.");
+    return snapshot.read(path);
+  }
+  async listSnapshot(id: string, prefix: string): Promise<string[]> {
+    const snapshot = this.#snapshots.get(id);
+    if (!snapshot) throw new Error("Snapshot unavailable.");
+    return snapshot.list(prefix);
+  }
 
   constructor(ctx: DurableObjectState, env: RunnerEnv) {
     super(ctx, env);
@@ -44,7 +67,6 @@ export class ReceiptRunner extends DurableObject<RunnerEnv> {
   async run(request: RunRequest, authority: ReviewAuthority & RpcTarget): Promise<StoredReceipt> {
     if (this.busy) throw new Error("Runner already in use");
     const container = this.containerPort();
-    if (!container) throw new Error("Container binding required");
     this.busy = true;
     try {
       let authorizedFork: string | undefined;
@@ -64,8 +86,11 @@ export class ReceiptRunner extends DurableObject<RunnerEnv> {
         }, container,
         gitGateway: (remote) => this.ctx.exports.GitReadGateway({ props: { remote } }),
         evidence: this.evidence(),
+        quick: this.quickPorts(),
       });
     } finally {
+      for (const snapshot of this.#snapshots.values()) snapshot.close();
+      this.#snapshots.clear();
       this.busy = false;
     }
   }

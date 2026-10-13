@@ -636,3 +636,179 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     expect((await state(f.id)).reconcilerAlerts).toHaveLength(3);
   });
 });
+
+
+async function ready() {
+  const f = await fixture();
+  await packet(f.id);
+  await claim(f.id, f.alpha);
+  return { ...f, review: await review(f.id, f.alpha, f.a) };
+}
+
+describe("FH-039 return and detail API in workerd with offline providers", () => {
+
+  it("returns atomically, clears approval, persists audit, blocks approval/promotion and becomes stale after push", async () => {
+    const f = await ready();
+    const route = `/reviews/${f.review.id}/return`;
+    for (const token of [f.alpha, f.beta, "invalid"])
+      expect((await api(f.id, route, token, { reason: "Fix this" })).status).toBe(403);
+    for (const reason of [undefined, null, 12, "", " ", "x".repeat(2001)])
+      expect((await api(f.id, route, OWNER, { reason })).status).toBe(400);
+    const response = await api(f.id, route, OWNER, { reason: "Please fix the boundary." });
+    expect(response.status).toBe(200);
+    const returned = (await response.json<{ review: Review }>()).review;
+    expect(returned).toMatchObject({ approval: null, stale: false, returned: { reason: "Please fix the boundary.", at: expect.any(String) } });
+    expect((await state(f.id)).reviews[0]!.returned).toEqual(returned.returned);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect([...(await objectState.storage.list({ prefix: "reviewReturn:" })).values()]).toEqual([
+        { review: f.review.id, packet: "one", agent: "alpha", returnedBy: "owner", ...returned.returned },
+      ]);
+      expect((await objectState.storage.get<Review>(`review:${f.review.id}`))!.returned).toEqual(returned.returned);
+    });
+    for (const operation of ["approve", "promote"]) {
+      const denied = await api(f.id, `/reviews/${f.review.id}/${operation}`, OWNER, {});
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual({ error: "Review was returned to the agent." });
+    }
+    await stub(f.id).recordPush(push(f.a, AFTER, BEFORE));
+    expect((await state(f.id)).reviews[0]).toMatchObject({ stale: true, returned: returned.returned });
+    const fresh = await review(f.id, f.alpha, f.a);
+    expect(fresh.returned).toBeNull();
+  });
+
+  it("rolls back return state and approval if the audit transaction fails", async () => {
+    const f = await ready();
+    const initial = (await state(f.id)).reviews[0]!;
+    await mutate(f.id, (_instance, objectState) => {
+      const transaction = objectState.storage.transaction.bind(objectState.storage);
+      vi.spyOn(objectState.storage, "transaction").mockImplementation(callback => transaction(async txn => {
+        const put = txn.put.bind(txn);
+        vi.spyOn(txn, "put").mockImplementation(async (...args: unknown[]) => {
+          await (put as (...args: unknown[]) => Promise<void>)(...args);
+          if (typeof args[0] === "object" && args[0] !== null && Object.keys(args[0]).some(key => key.startsWith("reviewReturn:")))
+            throw new Error("offline return audit persistence failure");
+        });
+        return callback(txn);
+      }));
+    });
+    try {
+      expect((await api(f.id, `/reviews/${f.review.id}/return`, OWNER, { reason: "Revise" })).status).toBe(502);
+      expect((await state(f.id)).reviews[0]).toEqual(initial);
+      await mutate(f.id, async (_instance, objectState) => {
+        expect((await objectState.storage.list({ prefix: "reviewReturn:" })).size).toBe(0);
+      });
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it("rechecks a returned review inside the approval transaction", async () => {
+    const f = await ready();
+    await mutate(f.id, (_instance, objectState) => {
+      const transaction = objectState.storage.transaction.bind(objectState.storage);
+      vi.spyOn(objectState.storage, "transaction").mockImplementationOnce(async callback => {
+        const current = (await objectState.storage.get<Review>(`review:${f.review.id}`))!;
+        await objectState.storage.put(`review:${f.review.id}`, { ...current, approval: null, returned: { reason: "Race fixture", at: new Date().toISOString() } });
+        return transaction(callback);
+      });
+    });
+    try {
+      const response = await api(f.id, `/reviews/${f.review.id}/approve`, OWNER, {});
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "Review was returned to the agent." });
+      expect((await state(f.id)).reviews[0]!.approval).toBeNull();
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it("rejects promoted and uncertain reviews; serializes return versus promotion", async () => {
+    const f = await ready();
+    const responses = await Promise.all([
+      api(f.id, `/reviews/${f.review.id}/return`, OWNER, { reason: "Revise" }),
+      api(f.id, `/reviews/${f.review.id}/promote`, OWNER, {}),
+    ]);
+    expect(responses.map(r => r.status).toSorted()).toEqual([200, 409]);
+    const snap = await state(f.id);
+    expect(snap.reviews[0]!.returned !== null).toBe(!snap.reviews[0]!.promoted);
+    const g = await ready();
+    expect((await api(g.id, `/reviews/${g.review.id}/promote`, OWNER, {})).status).toBe(200);
+    expect((await api(g.id, `/reviews/${g.review.id}/return`, OWNER, { reason: "Late" })).status).toBe(409);
+    const h = await ready();
+    await mutate(h.id, async (_instance, objectState) => { await objectState.storage.put("promotionPending", { review: h.review.id }); });
+    expect((await api(h.id, `/reviews/${h.review.id}/return`, OWNER, { reason: "Uncertain" })).status).toBe(409);
+  });
+
+  it("rechecks returned state after asynchronous promotion preparation before issuing a canonical token", async () => {
+    const f = await ready();
+    await mutate(f.id, (instance, objectState) => {
+      const prepare = instance.gitFixture.preparePromote.bind(instance.gitFixture);
+      vi.spyOn(instance.gitFixture, "preparePromote").mockImplementation(async (...args) => {
+        const prepared = await prepare(...args);
+        const current = (await objectState.storage.get<Review>(`review:${f.review.id}`))!;
+        await objectState.storage.put(`review:${f.review.id}`, { ...current, returned: { reason: "Race fixture", at: new Date().toISOString() } });
+        return prepared;
+      });
+    });
+    try {
+      const denied = await api(f.id, `/reviews/${f.review.id}/promote`, OWNER, {});
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual({ error: "Review was returned to the agent." });
+      await mutate(f.id, instance => {
+        expect(instance.fixture.calls.some(c => c.repo === f.id && c.method === "createToken")).toBe(false);
+        expect(instance.gitFixture.pushes).toEqual([]);
+      });
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it("authorizes detail/diff only for owner or review agent, projects exact public fields and links its promotion", async () => {
+    const f = await ready();
+    const route = `/reviews/${f.review.id}`;
+    await mutate(f.id, async (instance, objectState) => {
+      instance.fixture.reviewBlobs.set("7".repeat(40), new Blob(["before\n"]));
+      instance.fixture.reviewBlobs.set("8".repeat(40), new Blob(["after\n"]));
+      await objectState.storage.put("blocker:ours", { id: "ours", packet: "one", paths: ["src/index.ts"] });
+      await objectState.storage.put("blocker:other", { id: "other", packet: "two", paths: ["docs"] });
+    });
+    for (const token of [f.beta, "invalid"]) {
+      expect((await api(f.id, route, token)).status).toBe(403);
+      expect((await api(f.id, route + "/diff?path=src%2Findex.ts", token)).status).toBe(403);
+    }
+    expect((await api(f.id, "/reviews/missing", f.alpha)).status).toBe(404);
+    for (const token of [OWNER, f.alpha]) {
+      const response = await api(f.id, route, token);
+      expect(response.status).toBe(200);
+      const detail = await response.json<{ review: Review; packet: unknown; changes: { base: string; head: string }; commits: unknown[]; commitsTruncated: boolean; promotion: unknown; blockers: { id: string }[] }>();
+      expect(Object.keys(detail).toSorted()).toEqual(["blockers", "changes", "commits", "commitsTruncated", "packet", "promotion", "review"]);
+      expect(detail.review.returned).toBeNull();
+      expect(detail.packet).toEqual({ id: "one", title: "one", goal: "Fixture goal", paths: ["src/**"], acceptance: ["Fixture check"] });
+      expect(detail.changes).toMatchObject({ base: BEFORE, head: AFTER });
+      expect(detail.commits).toHaveLength(1);
+      expect(detail.commitsTruncated).toBe(false);
+      expect(detail.promotion).toBeNull();
+      expect(detail.blockers.map(b => b.id)).toEqual(["ours"]);
+      const serialized = JSON.stringify(detail);
+      for (const forbidden of ["receiptGeneration", "tokenHash", "stdout", "stderr", f.alpha, "scoped-"])
+        expect(serialized).not.toContain(forbidden);
+      const diff = await api(f.id, route + "/diff?path=src%2Findex.ts", token);
+      expect(diff.status).toBe(200);
+      expect(await diff.json()).toMatchObject({ path: "src/index.ts", status: "modified", binary: false, truncated: false });
+    }
+    expect((await api(f.id, route + "/diff?path=unchanged", f.alpha)).status).toBe(404);
+    expect((await api(f.id, route + "/diff?path=..%2Foutside", f.alpha)).status).toBe(404);
+    expect((await api(f.id, `/reviews/${f.review.id}/promote`, OWNER, {})).status).toBe(200);
+    const detail = await (await api(f.id, route, f.alpha)).json<{ promotion: unknown }>();
+    const ledger = (await state(f.id)).ledger[0]!;
+    expect(detail.promotion).toEqual({ before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest });
+  });
+
+  it("normalizes legacy returned state and sanitizes failed provider reads", async () => {
+    const f = await ready();
+    await mutate(f.id, async (instance, objectState) => {
+      const current = { ...(await objectState.storage.get<Review>(`review:${f.review.id}`))! } as Partial<Review>;
+      delete current.returned;
+      await objectState.storage.put(`review:${f.review.id}`, current);
+      instance.fixture.failTree = true;
+    });
+    expect((await state(f.id)).reviews[0]!.returned).toBeNull();
+    const response = await api(f.id, `/reviews/${f.review.id}`, f.alpha);
+    expect(response.status).toBe(502);
+    expect(await response.text()).not.toContain("Invalid repository object");
+  });
+});

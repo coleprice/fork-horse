@@ -267,7 +267,7 @@ A review must name the current fork default-branch head and a live matching clai
 It captures the canonical base at submission. `receiptDigest` starts null; FH-032
 reserves a generation and starts the runner in the background through a trusted
 capability, not an agent-editable HTTP field. New projects require passing real
-container receipts for approval by default; legacy records without settings default
+check receipts for approval by default; legacy records without settings default
 to false until the owner opts in. See [receipts](../../docs/receipts.md).
 Approval records `{sha,receiptDigest}`, including null, but advisory projects never
 use receipts to gate approval or promotion. Null means **no check receipt**, not
@@ -387,3 +387,64 @@ uncertain outcomes without creating another subscription. Missing credentials st
 pending. Legacy repositories need owner inventory/backfill; active records are not
 periodically reconciled against external deletions. See [core integration](../../docs/core-integration.md)
 for exact Wrangler schema, limits, first-deploy secrets files and the separate live gate.
+
+## Review detail and return (FH-039)
+
+`Review.returned` is `null` or `{reason, at}` (ISO timestamp); legacy records project
+as `null` without a storage migration. The field is included in `/state` reviews.
+Owner-only `POST /projects/:id/reviews/:rid/return` accepts `{reason}` (nonblank,
+1–2000 characters) and returns `200 {review}`. Invalid reasons return 400; promoted
+reviews or an unresolved promotion intent return 409. The transaction clears approval
+and writes a durable `reviewReturn:<id>` audit with review, packet, agent, returnedBy,
+reason and at. Returned reviews cannot be approved or promoted: both return
+`409 {"error":"Review was returned to the agent."}`. A later push marks the review
+stale normally; the agent requests a new review. Returning does not release the claim.
+
+`GET /projects/:id/reviews/:rid` is available to the owner and that review's agent,
+including historical reviews after claim release. It returns:
+
+- `review`: public review, excluding private receipt execution identity and logs;
+- `packet`: `{id, title, goal, paths, acceptance}`;
+- `changes`: `{base, head, fileCount, truncated, files:[{path,status}]}`, sorted by
+  path, at most 200 files, with `added`, `modified` or `deleted` status;
+- `commits`: at most 50 commits reachable from head but not base, newest commit
+  timestamp first (SHA breaks ties), with `{sha,subject,authorName,packetTrailer,
+  agentTrailer}`, and `commitsTruncated`;
+- `promotion`: this review's successful ledger entry projected to
+  `{before,after,recordedAt,receiptDigest}`, or `null`;
+- `blockers`: only observations for this packet.
+
+Changes use Artifacts trees at the stored exact base and head, including modes,
+symlinks and gitlinks. Commit history follows all merge parents and excludes all
+base ancestors. Only the final trailer paragraph supplies `Fork-Horse-Packet` and
+`Fork-Horse-Agent`; absent trailers are null. Author emails and full commit messages
+are omitted. Neither read endpoint issues Git tokens.
+
+`GET /projects/:id/reviews/:rid/diff?path=<encoded-path>` uses the same authority
+and returns `{path,status,binary,patch,truncated}`. Paths not in the returned 200-file
+changes list return 404. NUL bytes or invalid UTF-8 produce `binary:true` and an empty
+patch. Text uses a unified replacement hunk with three lines of edge context; the
+linear algorithm avoids quadratic work on adversarial inputs. The patch is capped
+at 64 KiB of UTF-8, at whole diff-line boundaries, with `truncated:true` if incomplete.
+Mode-only changes can have an empty patch. Symlink targets are content, never followed;
+gitlinks render their commit references without accessing the referenced repository.
+
+Reads fail closed with 413 above these input budgets: 20,000 combined tree entries,
+64 directory levels, 4 KiB per path, 2,048 distinct commits (including base ancestry),
+64 KiB per commit message, 4 KiB per author name, 2 MiB combined message/name bytes,
+1 MiB per blob before decoding, or 2,048 ledger/blocker records per store. Provider
+object calls return complete metadata/tree objects; these budgets are checked on
+receipt and cannot constrain allocations inside the provider. Malformed or unavailable
+objects use the existing sanitized 502 response. Fixtures exercise these boundaries in
+actual workerd; they do not establish live Artifacts or Cloudflare acceptance.
+
+## Quick checks (FH-010)
+
+Core also exports `QuickFiles` and declares a `LOADER` Worker Loader binding.
+Quick modules execute before full container checks, using exact-reviewed-commit
+Artifacts reads through a bounded, revocable RPC loopback. Receipt summaries
+preserve each check's actual tier/runtime and skipped-check message. Required
+approval verifies quick module source digests independently; generation, claim,
+CAS and advisory-mode semantics are unchanged. See [receipts](../../docs/receipts.md).
+The workerd suite exercises real local Dynamic Workers with fixture repositories
+and mocked containers. Deployed latency and no-container live smoke remain open.
