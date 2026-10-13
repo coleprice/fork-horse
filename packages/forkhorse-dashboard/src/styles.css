@@ -1630,3 +1630,21 @@ footer {
   .compare-value { min-width: 0; }
   .race-compare .usage-source, .race-compare .token-budget-state, .race-compare .usage-freshness { font-size: 12px; }
 }
+
+/* FH-063c advice stays below the factual track, with existing host tokens. */
+.judge-advice { border: 1px solid var(--color-kumo-line); background: var(--color-kumo-base); border-radius: var(--radius-lg); padding: calc(var(--spacing) * 4); display: grid; gap: calc(var(--spacing) * 3); margin-block: calc(var(--spacing) * 4); }
+.judge-advice h4, .judge-pick { display: flex; align-items: center; gap: calc(var(--spacing) * 2); }
+.judge-advice h4, .judge-advice p { margin: 0; }
+.judge-pick { width: fit-content; margin-block: calc(var(--spacing) * 2); }
+.judge-forecast, .judge-forecast > span, .judge-ranking li > div { display: flex; align-items: center; gap: calc(var(--spacing) * 3); }
+.judge-forecast { flex-wrap: wrap; }
+.judge-ranking { list-style: none; padding: 0; margin: 0; display: grid; gap: calc(var(--spacing) * 3); }
+.judge-ranking li, .judge-ranking strong { min-width: 0; overflow-wrap: anywhere; }
+.judge-rationale { border-left: 2px solid var(--color-kumo-line); padding-left: calc(var(--spacing) * 4); margin: 0; }
+.judge-rationale p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.judge-rationale footer { margin-top: calc(var(--spacing) * 2); }
+.judge-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; }
+.judge-action { display: flex; align-items: center; gap: calc(var(--spacing) * 3); flex-wrap: wrap; }
+@media (prefers-reduced-motion: no-preference) { .judge-advice { animation: judge-advice-in 150ms ease-out; } }
+@keyframes judge-advice-in { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 639px) { .judge-action { flex-direction: column; align-items: stretch; } .judge-action > button { width: 100%; } }

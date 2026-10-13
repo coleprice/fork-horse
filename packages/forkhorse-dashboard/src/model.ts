@@ -71,6 +71,14 @@ export function reviewGate(
   };
 }
 
+/** Shared queue/action visibility; a pending outcome and a required re-check hide Promote. */
+export function promotionAvailable(review: Review, state: ProjectState, owner = true): boolean {
+  const rechecking = state.project.settings?.requireReceipt === true &&
+    review.receipt?.trigger === "before-promote" && review.receipt.status === "running";
+  return owner && !state.promotionPending && !rechecking &&
+    reviewQueue(state).some((r) => r.id === review.id) && reviewGate(review, state, owner).promote;
+}
+
 export type ReviewState = {
   kind: "current" | "promoted" | "returned" | "fork-moved" | "main-moved" | "out-of-date";
   label: string;
