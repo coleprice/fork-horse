@@ -1,3 +1,4 @@
+import { collisionScenarios, collisionFixtureState } from "./collision-fixtures.ts";
 import { readFileSync } from "node:fs";
 import { raceScenarios, raceFixtureState } from "./race-fixtures.ts";
 import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
@@ -108,6 +109,40 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const collisionRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+)|blockers\/([^/]+)\/resolve)$/.exec(url.pathname);
+    if (collisionRoute && collisionScenarios.includes(collisionRoute[1])) {
+      const id = collisionRoute[1];
+      if (!states.has(id)) states.set(id, collisionFixtureState(id));
+      const state = states.get(id)!;
+      if (collisionRoute[2] === "state") send(state);
+      else if (collisionRoute[2] === "activity") send({ activity: [], nextAfter: 0 });
+      else if (collisionRoute[3]) {
+        const review = state.reviews.find((r) => r.id === collisionRoute[3]);
+        if (!review) send({ error: "Fixture review missing" }, 404);
+        else send({ ...reviewFixtureDetail({ ...state, reviews: [review] }), packet: state.packets.find((p) => p.id === review.packet)! });
+      } else if (request.method === "POST") {
+        let body = "";
+        request.on("data", (chunk) => { body += chunk; });
+        request.on("end", () => {
+          const blocker = state.blockers.find((b) => b.id === collisionRoute[4]);
+          if (id === "collision-missing" || !blocker) {
+            state.blockers = state.blockers.filter((b) => b.id !== collisionRoute[4]);
+            send({ error: "Fixture collision missing" }, 404);
+            return;
+          }
+          if (id === "collision-error") { send({ error: "Fixture raw error must stay hidden" }, 503); return; }
+          try {
+            const { reason } = JSON.parse(body);
+            if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 200) throw new Error("reason");
+            blocker.resolved ??= { at: new Date().toISOString(),
+              by: id === "collision-race-release" ? "release" : id === "collision-race-promote" ? "promote" : "owner",
+              ...(id.startsWith("collision-race") ? {} : { reason }) };
+            send({ blocker });
+          } catch { send({ error: "Invalid fixture reason" }, 400); }
+        });
+      } else send({ error: "Fixture method unavailable" }, 405);
+      return;
     }
     const raceRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
     if (raceRoute && raceScenarios.includes(raceRoute[1])) {

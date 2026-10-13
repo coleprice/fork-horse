@@ -26,6 +26,7 @@ import {
   ReceiptDetails,
 } from "./receipts.tsx";
 import {
+  blockerGatesReview,
   promotionReceipt,
   recentReceipts,
   receiptGateCaption,
@@ -34,6 +35,7 @@ import {
   reviewQueue,
   type ViewModel,
 } from "./model.ts";
+import { CollisionBanner, CollisionRows, ResolveCollisionDialog } from "./collisions.tsx";
 import { RaceView } from "./race.tsx";
 import { ReviewView } from "./review.tsx";
 import { ForkGraph } from "./fork-graph.tsx";
@@ -44,6 +46,9 @@ import { relativeTime as relative } from "./time.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
 export interface ViewActions {
+  resolveBlocker?(id: string, reason: string): Promise<import("./contracts.ts").WireBlocker>;
+  openCollision?(blocker: import("./contracts.ts").BlockerView): void;
+  showPacket?(id: string): void;
   raceId?: string;
   openRace?(id?: string): void;
   reviewId?: string;
@@ -140,7 +145,7 @@ export function packetStatus(id: string, state: ProjectState): { label: string; 
   if (race?.status === "finished") return { label: "Promoted", tone: "success" };
   if (race?.status === "open" && race.entrants.length > 0) return { label: "Racing", tone: "brand" };
 
-  if (state.blockers.some((b) => b.packet === id && !b.resolved))
+  if (state.blockers.some((b) => b.pushingPacket === id && !b.resolved))
     return { label: "Blocked", tone: "warning" };
   const reviews = state.reviews.filter((r) => r.packet === id);
   if (reviews.some((r) => r.status === "promoted")) return { label: "Promoted", tone: "success" };
@@ -182,7 +187,9 @@ function DataTable({
     </div>
   );
 }
-function Notice({ message, sha }: { message?: string; sha?: string }) {
+function Notice({ message, sha, review, openReview }: {
+  message?: string; sha?: string; review?: string; openReview?(id: string): void;
+}) {
   const toasts = useKumoToastManager();
   const previous = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -196,9 +203,10 @@ function Notice({ message, sha }: { message?: string; sha?: string }) {
           message
         ),
         variant: "success",
+        ...(review && openReview ? { timeout: 10000, actions: [{ children: "Open review", onClick: () => openReview(review) }] } : {}),
       });
     previous.current = message;
-  }, [message, sha, toasts]);
+  }, [message, sha, review, openReview, toasts]);
   return null;
 }
 export function ReviewActions({
@@ -227,7 +235,7 @@ export function ReviewActions({
     review.base === confirmation.base &&
     review.receiptDigest === confirmation.digest &&
     view.state!.project.defaultBranch === confirmation.branch;
-  const gate = reviewGate(review, view.state!);
+  const gate = reviewGate(review, view.state!, actions.owner);
   const race = view.state!.races?.find((entry) => entry.packet === review.packet && entry.status === "open");
   const otherEntrants = race?.entrants.filter((entrant) => entrant.repoName !== review.repoName && !entrant.closedAt).map((entrant) => entrant.agent) ?? [];
   const rechecking =
@@ -401,6 +409,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+  const collisionHeading = useRef<HTMLHeadingElement>(null);
+  const collisionOrigin = useRef<HTMLElement | null>(null);
+  const [highlightedCollision, setHighlightedCollision] = useState<string>();
+  const [collision, setCollision] = useState<import("./contracts.ts").BlockerView>();
+  useEffect(() => { setCollision(undefined); setHighlightedCollision(undefined); }, [view.project]);
   const [packetId, setPacketId] = useState<string>();
   const [reviewId, setReviewId] = useState<string>();
   const [receiptPanel, setReceiptPanel] = useState(false);
@@ -440,6 +453,21 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     setReviewId(undefined);
     toggle(true);
   }
+  function openCollision(blocker: import("./contracts.ts").BlockerView) {
+    collisionOrigin.current = document.activeElement === document.body ? null : document.activeElement as HTMLElement;
+    setHighlightedCollision(blocker.id);
+    showPacket(blocker.pushingPacket ?? blocker.packet);
+    setCollision(blocker);
+  }
+  function closeCollision(resolved = false) {
+    setCollision(undefined);
+    if (resolved) setHighlightedCollision(undefined);
+    window.setTimeout(() => {
+      if (resolved) collisionHeading.current?.focus();
+      else if (collisionOrigin.current?.isConnected) collisionOrigin.current.focus();
+      else collisionHeading.current?.focus();
+    }, 0);
+  }
   function showReceipt(id: string) {
     setReceiptPanel(true);
     setReviewId(id);
@@ -452,6 +480,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
       else actions.setSection("review");
     } else if ("packet" in target) {
       actions.setSection("work");
+      setHighlightedCollision(target.collision);
       showPacket(target.packet);
     } else if ("repo" in target) {
       actions.setSection("agents");
@@ -586,6 +615,20 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               </>
             );
           })()}
+          {selected && state && (() => {
+            const collisions = state.blockers.filter((b) => b.packet === selected.id || b.pushingPacket === selected.id);
+            return collisions.length > 0 && <section aria-label="Collisions">
+              <h3 ref={collisionHeading} tabIndex={-1} className="collision-heading">Collisions</h3>
+              <CollisionRows blockers={collisions} owner={actions.owner} highlighted={highlightedCollision}
+                reviewLink={actions.getReview ? (b) => {
+                  const review = state.reviews.find((r) => blockerGatesReview(b, r) &&
+                    reviewState(r, state).kind === "current" && r.status !== "stale" &&
+                    state.forks.some((f) => f.repoName === r.repoName && f.head === r.sha));
+                  return review && <button className="claim-link caption" onClick={() => actions.openReview(review.id)}>Open review</button>;
+                } : undefined}
+                open={actions.resolveBlocker ? openCollision : undefined} disabled={view.busy} />
+            </section>;
+          })()}
           {selected && (
             <>
               <h3>Acceptance checks</h3>
@@ -630,7 +673,10 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   );
   return (
     <>
-      <Notice message={view.notice} sha={view.noticeSha} />
+      {actions.owner && actions.resolveBlocker && collision &&
+        <ResolveCollisionDialog key={`${view.project}:${collision.id}`} blocker={collision}
+          resolve={actions.resolveBlocker} close={closeCollision} />}
+      <Notice message={view.notice} sha={view.noticeSha} review={actions.getReview ? view.noticeReview : undefined} openReview={actions.openReview} />
       <ReceiptAnnouncements project={view.project} reviews={state?.reviews ?? []} />
       <div className={`app-shell ${panel && !actions.raceId ? "panel-open" : ""} ${actions.raceId ? "race-shell" : ""}`}>
         <main className="main-pane">
@@ -905,26 +951,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       {!!blockers.length && (
                         <section id="blockers" className="blockers">
                           {blockers.map((b) => (
-                            <Banner
-                              key={b.id}
-                              variant="alert"
-                              description={
-                                b.sha && b.claimingAgent ? (
-                                  <span className="collision-copy">
-                                    {b.pushingAgent ?? b.agent} pushed {short(b.sha)} to{" "}
-                                    <Paths paths={b.paths} />, which {b.claimingAgent} has claimed
-                                    for {b.packet}.
-                                  </span>
-                                ) : (
-                                  b.reason
-                                )
-                              }
-                              action={
-                                <Button size="sm" onClick={() => showPacket(b.packet)}>
-                                  View packet
-                                </Button>
-                              }
-                            />
+                            <CollisionBanner key={b.id} blocker={b} owner={actions.owner}
+                              open={actions.resolveBlocker ? openCollision : undefined}
+                              showPacket={showPacket} disabled={view.busy} />
                           ))}
                         </section>
                       )}
@@ -1014,7 +1043,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   )}
                   {section(
                     "review",
-                    actions.reviewId && actions.getReview ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={actions} openReceipt={showReceipt} /> : <>
+                    actions.reviewId && actions.getReview ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={{ ...actions, openCollision: actions.resolveBlocker ? openCollision : undefined, showPacket }} openReceipt={showReceipt} /> : <>
                       <section id="reviews">
                         <h2>Review queue</h2>
                         {reviews.length ? (
@@ -1031,7 +1060,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             ]}
                           >
                             {reviews.map((r) => {
-                              const gate = reviewGate(r, state);
+                              const gate = reviewGate(r, state, actions.owner);
                               const cause = reviewState(r, state);
                               const stale = !!cause.banner;
                               return (
