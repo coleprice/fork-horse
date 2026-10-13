@@ -604,7 +604,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               <h3 ref={collisionHeading} tabIndex={-1} className="collision-heading">Collisions</h3>
               <CollisionRows blockers={collisions} owner={actions.owner} highlighted={highlightedCollision}
                 reviewLink={actions.getReview ? (b) => {
-                  const review = state.reviews.find((r) => blockerGatesReview(b, r) && reviewState(r, state).kind === "current");
+                  const review = state.reviews.find((r) => blockerGatesReview(b, r) &&
+                    reviewState(r, state).kind === "current" && r.status !== "stale" &&
+                    state.forks.some((f) => f.repoName === r.repoName && f.head === r.sha));
                   return review && <button className="claim-link caption" onClick={() => actions.openReview(review.id)}>Open review</button>;
                 } : undefined}
                 open={actions.resolveBlocker ? openCollision : undefined} disabled={view.busy} />

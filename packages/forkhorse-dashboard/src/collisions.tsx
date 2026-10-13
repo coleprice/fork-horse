@@ -16,9 +16,9 @@ export function CollisionSentence({ blocker: b }: { blocker: BlockerView }) {
             {b.paths[0]}
           </Tooltip>
         )}
-        {b.paths.length > 1 && <span className="path-more">+{b.paths.length - 1}</span>}
-      </span>
-      , which {b.claimingAgent} has claimed for {b.packet}.
+        <span className="path-more">{b.paths.length > 1 && <>+{b.paths.length - 1}</>},</span>
+      </span>{" "}
+      which {b.claimingAgent} has claimed for {b.packet}.
     </span>
   );
 }
@@ -104,6 +104,7 @@ export function CollisionRows({
       root.current?.querySelector<HTMLButtonElement>(".collision-highlight button")?.focus();
   }, [highlighted]);
   const ordered = collisionHistory(blockers);
+  const newestResolved = ordered.find((b) => b.resolved);
   const focused = ordered.find((b) => b.id === highlighted);
   return (
     <div ref={root} className="collision-history">
@@ -149,7 +150,7 @@ export function CollisionRows({
             {resolution?.by === "owner" && resolution.reason !== undefined && (
               <p className="caption plain-text">“{resolution.reason}”</p>
             )}
-            {b.resolved && reviewLink?.(b)}
+            {b.id === newestResolved?.id && reviewLink?.(b)}
             <MarkResolved blocker={b} owner={owner} open={open} disabled={disabled} />
           </article>
         );
@@ -240,7 +241,7 @@ export function ResolveCollisionDialog({
               key={value}
               ref={index === 0 ? firstReason : undefined}
               autoFocus={index === 0}
-              variant="ghost"
+              variant="secondary"
               size="sm"
               disabled={sending || missing}
               onClick={() => {

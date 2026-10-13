@@ -174,6 +174,12 @@ test("owner dialog enforces reason, focuses input, posts once and refreshes coun
     const primary = () => doc.querySelector('[data-action="confirm-resolve"]') as HTMLButtonElement;
     assert.equal(primary().disabled, true);
     await until(() => doc.activeElement?.textContent === "Coordinated: both changes can land.");
+    const quickReasons = [...doc.querySelectorAll('[aria-label="Quick reasons"] button')];
+    assert.equal(quickReasons.length, 3);
+    for (const button of quickReasons) {
+      assert.match(button.className, /ring-kumo-line/);
+      assert.match(button.className, /bg-kumo-base/);
+    }
     fill(c, " \n ");
     await until(() => primary().disabled);
     fill(c, "x".repeat(200));
@@ -388,6 +394,55 @@ test("Escape cancels with no write and dialog evidence shows five paths plus ful
       false,
     );
     await until(() => doc.activeElement?.getAttribute("aria-label")?.startsWith("Mark resolved"));
+  } finally {
+    c.close();
+  }
+});
+
+test("packet history offers Open review only once on the newest resolved row and removes it when the review ceases to be current", async () => {
+  const c = setup({ scenario: "collision-history", route: "work" });
+  try {
+    await until(() => c.root.querySelector("#blockers"));
+    (
+      [...c.root.querySelectorAll("button")].find(
+        (button) => button.textContent === "View packet",
+      ) as HTMLButtonElement
+    ).click();
+    await until(() => c.root.querySelector('[aria-label="Collisions"] .claim-link'));
+    const panel = () => c.root.querySelector('[aria-label="Collisions"]')!;
+    const links = () =>
+      [...panel().querySelectorAll("button")].filter(
+        (button) => button.textContent === "Open review",
+      );
+    assert.equal(panel().querySelectorAll(".collision-row").length, 4);
+    assert.equal(links().length, 1);
+    assert.equal(
+      links()[0].closest("[data-collision]")?.getAttribute("data-collision"),
+      "resolved-owner",
+    );
+    // Date order, not input order or the currently highlighted open row, selects the link.
+    c.wire.blockers.find((blocker) => blocker.id === "resolved-release")!.resolved!.at =
+      "2026-10-13T15:00:00Z";
+    await c.app.refresh();
+    assert.equal(links().length, 1);
+    assert.equal(
+      links()[0].closest("[data-collision]")?.getAttribute("data-collision"),
+      "resolved-release",
+    );
+    const review = c.wire.reviews[0];
+    review.returned = { at: "2026-10-13T15:01:00Z", reason: "Fix before returning" };
+    await c.app.refresh();
+    assert.equal(links().length, 0);
+    review.returned = null;
+    c.wire.forks.find((fork) => fork.repoName === review.repoName)!.head = "9".repeat(40);
+    await c.app.refresh();
+    assert.equal(links().length, 0);
+    c.wire.forks = c.wire.forks.filter((fork) => fork.repoName !== review.repoName);
+    await c.app.refresh();
+    assert.equal(links().length, 0);
+    c.wire.reviews = c.wire.reviews.filter((entry) => entry.id !== review.id);
+    await c.app.refresh();
+    assert.equal(links().length, 0);
   } finally {
     c.close();
   }

@@ -711,8 +711,8 @@ footer {
 .collision-dialog .collision-copy .path-summary { max-width: min(20rem, 100%); }
 
 .collision-highlight:focus-within { background: var(--color-kumo-tint); }
-.collision-quick-reasons { display: grid; gap: var(--spacing); margin-block: calc(var(--spacing) * 3); }
-.collision-quick-reasons button { height: auto; white-space: normal; text-align: left; justify-content: flex-start; }
+.collision-quick-reasons { display: flex; flex-wrap: wrap; gap: calc(var(--spacing) * 2); margin-block: calc(var(--spacing) * 3); }
+.collision-quick-reasons button { max-width: 100%; height: auto; white-space: normal; text-align: left; justify-content: flex-start; }
 .collision-evidence { margin-block: calc(var(--spacing) * 3); }
 
 .collision-dialog { max-height: calc(100dvh - 5rem); overflow-y: auto; }
