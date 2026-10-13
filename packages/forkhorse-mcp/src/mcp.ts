@@ -4,6 +4,7 @@ import { z } from "zod";
 import brand from "../../../brand.json";
 import { boundedCall, CALL_TIMEOUT_MS, MAX_BYTES, PublicError, readBounded } from "./core";
 import type { CoreClient, CoreOperation } from "./core";
+import { callerUsage, tokenCount } from "./usage";
 
 const slug = z
   .string()
@@ -87,6 +88,15 @@ const schemas = {
     .object({ ...project, agent, ttlSeconds: z.number().int().min(60).max(3600).optional() })
     .strict(),
   claim: z.object({ ...project, packet, repoName: repoName.optional() }).strict(),
+  report_usage: z
+    .object({
+      ...project,
+      packet,
+      inputTokens: tokenCount,
+      outputTokens: tokenCount,
+      model: z.string().optional(),
+    })
+    .strict(),
   request_review: z
     .object({ ...project, packet, repoName, sha: z.string().regex(/^[a-f0-9]{40}$/) })
     .strict(),
@@ -108,17 +118,19 @@ const schemas = {
 };
 const descriptions: Record<keyof typeof schemas, string> = {
   get_context:
-    "Read the project snapshot and caller's myWork resume summary. Follow each item's next; never join again to resume.",
+    "Read the project snapshot, caller's myWork resume summary and myUsage with core budget states. Reported usage is self-reported. Follow each item's next; never join again to resume.",
   status:
-    "Read the project state and caller's myWork resume summary with one next-step line per item.",
+    "Read the project state, caller's myWork resume summary and myUsage with core budget states. Reported usage is self-reported; one next-step line per work item.",
   refresh_token:
     "Issue a write token for an existing caller-owned fork in the authenticated project (default TTL 3600 seconds). Never print or log the token; use it only as an http.extraHeader. Never join again to refresh a token. Do not retry blindly.",
   activity: "Read recorded activity after a cursor (up to 100 entries).",
   join: "Create a new caller-owned fork. Pass its repoName explicitly to claim. Do not retry blindly.",
   claim:
     "Claim packet paths and bind a fork. Pass the repoName returned by join; omitted means the latest successfully registered fork. Binding is immutable for the claim's life.",
+  report_usage:
+    "Report cumulative self-reported input/output token usage (each integer 0–1000000000) for the caller's live packet claim or race entrant. Counts may not decrease. Report before every request_review and when asked. Inspect status after an uncertain result before retrying.",
   request_review:
-    "Request owner review of an exact fork commit; this does not approve or promote it.",
+    "Request owner review of an exact fork commit. First report cumulative self-reported usage with report_usage; core snapshots usage on the review. This does not approve or promote it.",
   submit_work:
     "Commit up to 200 files to the caller's immutable packet claim binding. Inspect status after an uncertain result before retrying.",
 };
@@ -252,9 +264,13 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
                           "Core resume summary unavailable; FH-041 is required.",
                         );
                       const myWork = summary.data.work;
+                      const myUsage = callerUsage(snapshot, identity.agent);
                       return {
                         content: [
-                          { type: "text" as const, text: JSON.stringify({ ...snapshot, myWork }) },
+                          {
+                            type: "text" as const,
+                            text: JSON.stringify({ ...snapshot, myWork, myUsage }),
+                          },
                           ...myWork.map((item) => ({
                             type: "text" as const,
                             text: `${item.packet.id} on ${item.repoName} → next: ${item.next} — ${item.hint.replace(/[\r\n\u2028\u2029]/g, " ")}`,
@@ -281,6 +297,9 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
                     }
                     case "claim":
                       operation = { kind: "claim", ...schemas.claim.parse(args) };
+                      break;
+                    case "report_usage":
+                      operation = { kind: "usage", ...schemas.report_usage.parse(args) };
                       break;
                     case "request_review":
                       operation = { kind: "review", ...schemas.request_review.parse(args) };
