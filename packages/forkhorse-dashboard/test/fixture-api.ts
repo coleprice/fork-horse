@@ -1,3 +1,6 @@
+import { collisionScenarios, collisionFixtureState } from "./collision-fixtures.ts";
+import { readFileSync } from "node:fs";
+import { raceScenarios, raceFixtureState } from "./race-fixtures.ts";
 import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
@@ -19,6 +22,60 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
   const states = new Map<string, ReturnType<typeof fixtureState>>();
   return (request: IncomingMessage, response: ServerResponse, next: () => void) => {
     const url = new URL(request.url ?? "/", "http://fixture.idiot.tax");
+    if (url.pathname === "/__fixtures/owner-bundle" && request.method === "GET") {
+      const project = forkScenarios.includes(url.searchParams.get("scenario") ?? "")
+        ? url.searchParams.get("scenario")!
+        : "fork-hero";
+      try {
+        const html = readFileSync(new URL("../dist/index.html", import.meta.url), "utf8");
+        const config = JSON.stringify({ projects: [{ id: project, label: project }] });
+        response.setHeader("Content-Type", "text/html");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(
+          html.replace(
+            "</body>",
+            `<script id="dashboard-config" type="application/json">${config}</script><script type="module" src="/test/owner-theme-fixture.ts"></script></body>`,
+          ),
+        );
+      } catch {
+        response.statusCode = 503;
+        response.end("Build the owner dashboard first.");
+      }
+      return;
+    }
+    if (/^\/app\/assets\/[A-Za-z0-9_.-]+$/.test(url.pathname) && request.method === "GET") {
+      try {
+        response.setHeader(
+          "Content-Type",
+          url.pathname.endsWith(".css") ? "text/css" : "text/javascript",
+        );
+        response.end(
+          readFileSync(
+            new URL(`../dist/assets/${url.pathname.split("/").at(-1)}`, import.meta.url),
+          ),
+        );
+      } catch {
+        response.statusCode = 404;
+        response.end("Fixture build asset missing.");
+      }
+      return;
+    }
+    if (url.pathname === "/__fixtures/gatekeeper-bundle" && request.method === "GET") {
+      try {
+        response.setHeader("Content-Type", "text/html");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(
+          readFileSync(
+            new URL("../../forkhorse-gatekeeper/dist/sidebar.html", import.meta.url),
+            "utf8",
+          ),
+        );
+      } catch {
+        response.statusCode = 503;
+        response.end("Build the gatekeeper sidebar assets first.");
+      }
+      return;
+    }
     // Test harness reset; this middleware is excluded from production builds.
     if (url.pathname === "/__fixtures/reset" && request.method === "POST") {
       states.clear();
@@ -52,6 +109,61 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const collisionRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+)|blockers\/([^/]+)\/resolve)$/.exec(url.pathname);
+    if (collisionRoute && collisionScenarios.includes(collisionRoute[1])) {
+      const id = collisionRoute[1];
+      if (!states.has(id)) states.set(id, collisionFixtureState(id));
+      const state = states.get(id)!;
+      if (collisionRoute[2] === "state") send(state);
+      else if (collisionRoute[2] === "activity") send({ activity: [], nextAfter: 0 });
+      else if (collisionRoute[3]) {
+        const review = state.reviews.find((r) => r.id === collisionRoute[3]);
+        if (!review) send({ error: "Fixture review missing" }, 404);
+        else send({ ...reviewFixtureDetail({ ...state, reviews: [review] }), packet: state.packets.find((p) => p.id === review.packet)! });
+      } else if (request.method === "POST") {
+        let body = "";
+        request.on("data", (chunk) => { body += chunk; });
+        request.on("end", () => {
+          const blocker = state.blockers.find((b) => b.id === collisionRoute[4]);
+          if (id === "collision-missing" || !blocker) {
+            state.blockers = state.blockers.filter((b) => b.id !== collisionRoute[4]);
+            send({ error: "Fixture collision missing" }, 404);
+            return;
+          }
+          if (id === "collision-error") { send({ error: "Fixture raw error must stay hidden" }, 503); return; }
+          try {
+            const { reason } = JSON.parse(body);
+            if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 200) throw new Error("reason");
+            blocker.resolved ??= { at: new Date().toISOString(),
+              by: id === "collision-race-release" ? "release" : id === "collision-race-promote" ? "promote" : "owner",
+              ...(id.startsWith("collision-race") ? {} : { reason }) };
+            send({ blocker });
+          } catch { send({ error: "Invalid fixture reason" }, 400); }
+        });
+      } else send({ error: "Fixture method unavailable" }, 405);
+      return;
+    }
+    const raceRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    if (raceRoute && raceScenarios.includes(raceRoute[1])) {
+      const id = raceRoute[1];
+      const state = raceFixtureState(id);
+      if (raceRoute[2] === "state") {
+        if (id === "race-error") send({ error: "Offline race error fixture" }, 503);
+        else if (id === "race-loading") setTimeout(() => send(state), 8000);
+        else send(state);
+      } else if (raceRoute[2] === "activity")
+        send({ activity: [], nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+      else {
+        const review = state.reviews.find((candidate) => candidate.id === raceRoute[3]);
+        if (!review) send({ error: "Fixture review not found" }, 404);
+        else
+          send({
+            ...reviewFixtureDetail({ ...state, reviews: [review] }),
+            packet: state.packets[0],
+          });
+      }
+      return;
     }
     const forkRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
     if (forkRoute && forkScenarios.includes(forkRoute[1])) {

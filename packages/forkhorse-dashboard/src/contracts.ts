@@ -1,3 +1,37 @@
+export interface BlockerResolution {
+  at: string;
+  by: "release" | "promote" | "owner";
+  reason?: string;
+}
+/** FH-048 public history. Missing fields on legacy records mean open/unknown. */
+export interface WireBlocker {
+  id: string;
+  packet: string;
+  claimingAgent: string;
+  pushingAgent: string;
+  repoName: string;
+  sha: string;
+  paths: string[];
+  resolved?: BlockerResolution | null;
+  at?: string | null;
+  pushingPacket?: string | null;
+}
+export interface BlockerView {
+  id: string;
+  agent: string;
+  packet: string;
+  paths: string[];
+  reason: string;
+  resolved: boolean;
+  resolution?: BlockerResolution | null;
+  claimingAgent?: string;
+  pushingAgent?: string;
+  sha?: string;
+  repoName?: string;
+  at?: string | null;
+  pushingPacket?: string | null;
+}
+
 /** View projection of the public FH-005 wire state; never includes credentials. */
 export interface ProjectState {
   project: {
@@ -28,20 +62,7 @@ export interface ProjectState {
     active: boolean;
     createdAt?: string;
   }[];
-  blockers: {
-    id: string;
-    agent: string;
-    packet: string;
-    paths: string[];
-    reason: string;
-    resolved: boolean;
-    claimingAgent?: string;
-    pushingAgent?: string;
-    sha?: string;
-    repoName?: string;
-    at?: string | null;
-    pushingPacket?: string | null;
-  }[];
+  blockers: BlockerView[];
   races?: Race[];
   reviews: Review[];
   ledger: {
@@ -51,6 +72,7 @@ export interface ProjectState {
     sha: string;
     promotedAt: string;
     receiptDigest?: string | null;
+    race?: string;
   }[];
   reconcilerAlerts: {
     sha: string;
@@ -90,7 +112,14 @@ export interface ReceiptSummary {
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
-  checks: { name: string; tier: "full"; outcome: ReceiptStatus; durationMs: number | null }[];
+  checks: {
+    name: string;
+    tier: "full" | "quick";
+    runtime?: "container" | "dynamic-worker";
+    message?: string;
+    outcome: ReceiptStatus;
+    durationMs: number | null;
+  }[];
 }
 /** Stored runner receipt returned by the owner-only endpoint. No bearer token plumbing. */
 export interface OwnerReceipt {
@@ -147,6 +176,7 @@ export interface DashboardTransport {
     review: string,
     reason: string,
   ): Promise<{ review: StateResponse["reviews"][number] }>;
+  resolveBlocker?(project: string, blocker: string, reason: string): Promise<{ blocker: WireBlocker }>;
   getState(project: string): Promise<ProjectState>;
   getActivity(project: string, after?: number): Promise<ActivityPage>;
   approve(project: string, review: string): Promise<unknown>;
@@ -161,7 +191,7 @@ export interface DashboardTransport {
   subscribe?(project: string, invalidate: () => void): () => void;
 }
 
-/** FH-005 JSON snapshot. Only live claims appear; blockers currently have no resolution field. */
+/** FH-005 JSON snapshot. Only live claims appear; blockers retain resolved history. */
 export interface StateResponse {
   project: {
     id: string;
@@ -183,18 +213,7 @@ export interface StateResponse {
   }[];
   packets: ProjectState["packets"];
   claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string }[];
-  blockers: {
-    id: string;
-    packet: string;
-    claimingAgent: string;
-    pushingAgent: string;
-    repoName: string;
-    sha: string;
-    paths: string[];
-    at?: string | null;
-    pushingPacket?: string | null;
-    resolved?: { at: string; by: "release" | "promote" | "owner"; reason?: string } | null;
-  }[];
+  blockers: WireBlocker[];
   races?: Race[];
   reviews: {
     approvedAt?: string | null;
@@ -233,6 +252,7 @@ export interface LedgerEntry {
   after: string;
   receiptDigest: string | null;
   recordedAt: string;
+  race?: string;
 }
 
 /** FH-039 fixed bounded detail contract. Public reads never contain logs or tokens. */
@@ -270,27 +290,28 @@ export interface ReviewDiff {
   truncated: boolean;
 }
 
-/** Optional FH-052/053 read projection; absent races never produce invented entrants. */
+/** Optional FH-052/053 read projection; absent evidence is never synthesized. */
+export interface RaceEntrant {
+  agent: string;
+  repoName: string;
+  claimedAt: string;
+  firstPushAt: string | null;
+  reviewRequestedAt: string | null;
+  receiptPassedAt: string | null;
+  approvedAt: string | null;
+  promotedAt: string | null;
+  place: number | null;
+  closedAt: string | null;
+  closedBy?: "release" | "owner" | "race-finished" | null;
+  promoteRejected?: { at: string; expected: string; found: string } | null;
+}
 export interface Race {
   packet: string;
   status: "open" | "finished";
-  finishedAt: string | null;
-  winner: string | null;
-  ledgerEntryId: string | null;
-  entrants: {
-    agent: string;
-    repoName: string;
-    claimedAt: string;
-    firstPushAt: string | null;
-    reviewRequestedAt: string | null;
-    receiptPassedAt: string | null;
-    approvedAt: string | null;
-    promotedAt: string | null;
-    place: number | null;
-    closedAt: string | null;
-    closedBy: "release" | "owner" | "race-finished" | null;
-    promoteRejected?: { at: string; expected: string; found: string } | null;
-  }[];
+  entrants: RaceEntrant[];
+  finishedAt?: string | null;
+  winner?: string | null;
+  /** Exact string reference to ledger[].id; never an array position. */
+  ledgerEntryId?: string | null;
+  places?: { agent: string; place: number }[];
 }
-
-export type RaceEntrant = Race["entrants"][number];

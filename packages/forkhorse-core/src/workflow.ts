@@ -1,5 +1,6 @@
-import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, publicPacket, raceStates, recordPromoteRejected } from "./race-entrants";
+import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, raceStates, recordPromoteRejected } from "./race-entrants";
 import { ReviewReader } from "./review-detail";
+import { requireTokenBudget, tokenCount, usageSources } from "./usage";
 import { publicReview, readReceipt, settings } from "./receipts";
 import type { Receipts } from "./receipts";
 import { publicEvents } from "./subscriptions";
@@ -11,6 +12,8 @@ import { staleBase } from "./git";
 import type { GitOperations } from "./git";
 import { ZERO_SHA } from "./trees";
 import { capActivity } from "./activity";
+import { publicPacket } from "./packets";
+import { archivePacket } from "./packet-archive";
 import type { StoredActivity } from "./activity";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import type {
@@ -25,12 +28,15 @@ import type {
   RaceResult,
   ReconcilerAlert,
   Review,
+  SettingsChange,
   StateSnapshot,
 } from "./workflow-types";
 
 export interface Actor {
   owner: boolean;
   agent?: string;
+  /** Set only by Supervisor authentication, never by request data. */
+  ownerVia?: SettingsChange["via"];
 }
 export interface Agent {
   name: string;
@@ -204,7 +210,7 @@ export class Workflow {
       if (data.repoName !== undefined && data.repoName !== current.repoName)
         throw new HttpError(409, "Claim is already bound; release it before changing forks.");
       await this.fork(project, current.repoName, agent);
-      return json({ claim: current });
+      return json({ claim: { ...current, usage: usageSources(current.usage) } });
     }
     if ((await entrants(this.storage, packet.id)).length >= MAX_RACE_ENTRANTS)
       throw new HttpError(409, "Race entrant limit reached.");
@@ -217,6 +223,7 @@ export class Workflow {
       packet: packet.id, agent, repoName: fork.repoName, paths: packet.paths, createdAt: now(),
       firstPushAt: null, reviewRequestedAt: null, receiptPassedAt: null, approvedAt: null,
       promotedAt: null, place: null, closedAt: null, closedBy: null,
+      usage: usageSources(),
     };
     // Supervisor serializes the cap check, overlap check and immutable binding.
     await this.storage.put(entrantKey(packet.id, agent), entrant);
@@ -237,14 +244,62 @@ export class Workflow {
   async route(request: Request, project: Project, actor: Actor): Promise<Response | null> {
     const path = new URL(request.url).pathname.slice(`/projects/${project.id}`.length);
     const method = request.method;
+    if (path === "/usage" && method === "POST") {
+      const agent = this.agent(actor);
+      const data = await body(request);
+      if (!slug(data.packet) || !tokenCount(data.inputTokens) || !tokenCount(data.outputTokens) ||
+          (data.model !== undefined && !text(data.model, 200)) ||
+          Object.keys(data).some(key => !["packet", "inputTokens", "outputTokens", "model"].includes(key)))
+        throw new HttpError(400, "Provide packet, integer token counts from 0 to 1000000000, and optional model (1 to 200 characters).");
+      const { inputTokens, outputTokens, model } = data;
+      const claim = await claimForAgent(this.storage, data.packet, agent);
+      if (!claim || claim.agent !== agent)
+        throw new HttpError(409, "A live matching packet, agent and fork binding is required.");
+      await this.binding(project, data.packet, claim.repoName, agent);
+      // Read and update in one transaction so background milestones cannot be lost.
+      const updatedUsage = await this.storage.transaction(async txn => {
+        const current = await claimForAgent(txn, claim.packet, agent);
+        if (!current || current.agent !== agent || current.repoName !== claim.repoName || current.createdAt !== claim.createdAt)
+          throw new HttpError(409, "A live matching packet, agent and fork binding is required.");
+        const usage = usageSources(current.usage);
+        if (usage.reported && (inputTokens < usage.reported.inputTokens || outputTokens < usage.reported.outputTokens))
+          throw new HttpError(409, "Reported token counts may not decrease.");
+        usage.reported = { inputTokens, outputTokens,
+          ...(model !== undefined ? { model } : {}), source: "reported", at: now() };
+        await txn.put("closedAt" in current ? entrantKey(current.packet, agent) : `claim:${current.packet}`, { ...current, usage });
+        return usage;
+      });
+      return json({ usage: updatedUsage });
+    }
     if (path === "/settings" && method === "PATCH") {
       this.owner(actor);
+      if (await this.storage.get("promotionPending"))
+        throw new HttpError(409, "Promotion needs owner inspection.");
       const data = await body(request);
       if (Object.keys(data).length !== 1 || typeof data.requireReceipt !== "boolean")
         throw new HttpError(400, "Provide only requireReceipt as a boolean.");
-      project.settings = { requireReceipt: data.requireReceipt };
-      await this.storage.put("project", project);
-      return json({ settings: project.settings });
+      const before = settings(project).requireReceipt;
+      const next = { requireReceipt: data.requireReceipt };
+      if (before === next.requireReceipt) return json({ settings: next });
+      if (!actor.ownerVia) throw new Error("Owner authentication source is required");
+      let recordedAt = now();
+      // Requests share Supervisor's gate. Wait for an actual fresh timestamp rather
+      // than overwrite a same-millisecond change or manufacture an audit time.
+      while (await this.storage.get(`settingsChange:${recordedAt}`)) {
+        await new Promise(resolve => setTimeout(resolve, 1));
+        recordedAt = now();
+      }
+      const change: SettingsChange = {
+        setting: "requireReceipt", before, after: next.requireReceipt,
+        by: "owner", via: actor.ownerVia, recordedAt,
+      };
+      await this.storage.transaction(async txn => {
+        await txn.put({
+          project: { ...project, settings: next },
+          [`settingsChange:${recordedAt}`]: change,
+        });
+      });
+      return json({ settings: next });
     }
     const receiptRoute = /^\/reviews\/([^/]+)\/receipt$/.exec(path);
     if (receiptRoute && method === "GET") {
@@ -281,6 +336,8 @@ export class Workflow {
       if (
         !slug(data.id) ||
         (data.mode !== undefined && data.mode !== "standard" && data.mode !== "race") ||
+        (data.tokenBudget !== undefined && (data.mode !== "race" || typeof data.tokenBudget !== "number" ||
+          !Number.isSafeInteger(data.tokenBudget) || data.tokenBudget <= 0)) ||
         !text(data.title, 200) ||
         !text(data.goal, 4000) ||
         !Array.isArray(data.paths) ||
@@ -296,15 +353,23 @@ export class Workflow {
       const packet: Packet = {
         id: data.id,
         mode: data.mode ?? "standard",
+        ...(data.tokenBudget !== undefined ? { tokenBudget: data.tokenBudget as number } : {}),
         title: data.title,
         goal: data.goal,
         paths: [...new Set(data.paths)],
         acceptance: data.acceptance as string[],
+        archived: null,
       };
       if (await this.storage.get(`packet:${packet.id}`))
         throw new HttpError(409, "Packet already exists.");
       await this.storage.put(`packet:${packet.id}`, packet);
       return json({ packet }, 201);
+    }
+    const archiving = /^\/packets\/([^/]+)\/(archive|unarchive)$/.exec(path);
+    if (archiving && method === "POST") {
+      this.owner(actor);
+      const action = archiving[2] === "archive" ? "archive" : "unarchive";
+      return json({ packet: await archivePacket(this.storage, archiving[1]!, action) });
     }
     const claiming = /^\/packets\/([^/]+)\/claim$/.exec(path);
     if (claiming && (method === "POST" || method === "DELETE")) {
@@ -312,6 +377,7 @@ export class Workflow {
       const packetId = claiming[1]!;
       const packet = await this.storage.get<Packet>(`packet:${packetId}`);
       if (!packet) throw new HttpError(404, "Packet not found.");
+      if (method === "POST" && packet.archived) throw new HttpError(409, "Packet is archived.");
       if (packet.mode === "race") return this.raceClaim(request, project, packet, actor);
       const current = await this.storage.get<Claim>(`claim:${packetId}`);
       if (method === "DELETE") {
@@ -339,7 +405,7 @@ export class Workflow {
         )
           throw new HttpError(409, "Claim is already bound; release it before changing forks.");
         await this.fork(project, current.repoName, claimingAgent);
-        return json({ claim: current });
+        return json({ claim: { ...current, usage: usageSources(current.usage) } });
       }
       const repoName = data.repoName ?? (await this.storage.get<string>(`latestFork:${agent}`));
       const fork = await this.fork(project, repoName, claimingAgent);
@@ -355,6 +421,7 @@ export class Workflow {
       const claim: Claim = {
         packet: packetId,
         agent: claimingAgent,
+        usage: usageSources(),
         repoName: fork.repoName,
         paths: packet.paths,
         createdAt: now(),
@@ -438,6 +505,7 @@ export class Workflow {
         id: crypto.randomUUID(),
         packet: claim.packet,
         agent,
+        usageAtReview: usageSources(claim.usage),
         repoName: fork.repoName,
         sha: data.sha,
         base: await this.head(project.repoName, project.defaultBranch),
@@ -474,7 +542,9 @@ export class Workflow {
       return json({ review: publicReview(review),
         packet: { id: packet.id, title: packet.title, goal: packet.goal, paths: packet.paths, acceptance: packet.acceptance },
         changes: changes.public, ...await reader.history(review.base, review.sha),
-        promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest } : null,
+        promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest,
+          ...(ledger.requireReceipt === undefined ? {} : { requireReceipt: ledger.requireReceipt }),
+        } : null,
         blockers: [...blockerEntries.values()].filter(blocker => blocker.packet === review.packet).map(publicBlocker),
       });
     }
@@ -508,12 +578,14 @@ export class Workflow {
       if (await this.storage.get("promotionPending"))
         throw new HttpError(409, "Promotion needs owner inspection.");
       if (review.promoted) throw staleBase();
-      const race = (await this.storage.get<Packet>(`packet:${review.packet}`))?.mode === "race";
+      const packet = await this.storage.get<Packet>(`packet:${review.packet}`);
+      const race = packet?.mode === "race";
       // Finished entrants have no live binding and their reviews are stale. Preserve
       // the photo-finish response before those guards hide the canonical CAS loss.
       if (race && reviewing[2] === "promote" && await this.storage.get(`race:${review.packet}`))
         return this.rejectRacePromote(project, review);
       const { claim, fork } = await this.binding(project, review.packet, review.repoName, review.agent);
+      if (race && reviewing[2] === "promote") requireTokenBudget(packet.tokenBudget, claim.usage);
       await this.requireNoBlockers(this.storage, review);
       if (reviewing[2] === "promote") this.diagnostic.stage = "heads";
       if (
@@ -610,6 +682,7 @@ export class Workflow {
         before: review.base,
         after: review.sha,
         receiptDigest: review.receiptDigest,
+        requireReceipt,
         recordedAt: now(),
         ...(race ? { race: review.packet } : {}),
       };
@@ -720,12 +793,13 @@ export class Workflow {
       forks: await Promise.all(forks.map(async (fork) => ({ ...fork, ...await publicEvents(this.storage, fork.repoName), head: heads.get(fork.repoName)! }))),
       packets,
       races: await raceStates(this.storage, packets),
-      claims: await list<Claim>(this.storage, "claim:"),
+      claims: (await list<Claim>(this.storage, "claim:")).map(claim => ({ ...claim, usage: usageSources(claim.usage) })),
       blockers: (await list<StoredBlocker>(this.storage, "blocker:")).map(publicBlocker),
       reviews: reviews.map(publicReview),
       ledger: (await list<LedgerEntry>(this.storage, "ledger:")).toSorted((a, b) =>
         a.recordedAt.localeCompare(b.recordedAt),
       ),
+      settingsChanges: await list<SettingsChange>(this.storage, "settingsChange:"),
       activity: [
         ...(
           await this.storage.list<StoredActivity>({ prefix: "activity:", reverse: true, limit: 100 })

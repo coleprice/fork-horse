@@ -208,9 +208,14 @@ Runtime internet remains disabled; only the selected fork's Git read protocol is
 intercepted. Dependencies must be baked into an owner-approved image.
 
 The root `.forkhorse/checks` first runs `.forkhorse/quick/brand.js`, checking that
-`brand.json` parses and has non-empty `name`, `slug` and `mark` strings. Next,
-`.forkhorse/quick/large-files.js` uses only list/stat to fail on any regular file
-of 10,000,000 bytes (10 MB) or more; it never calls read on binary contents.
+`brand.json` parses and has non-empty `name`, `slug` and `mark` strings. Then the
+full `large-files` check runs one Node command in the `default` container image
+to scan checkout metadata, excluding `.git` entries and not following symlinks.
+It fails on any regular file of 10,000,000 bytes (10 MB) or more and never reads
+file contents. Repository-wide serial stat RPCs exceeded the quick tier's
+10-second deadline in the operator's live run; this check uses the full tier.
+`.forkhorse/quick/large-files.js` remains an unregistered stat API example for
+small snapshots, not the repository's acceptance check.
 See [large files and binaries](large-files.md) for limits and the storage roadmap.
 The existing full `brand` container check remains and needs no project
 dependencies. For a smoke repository, commit:

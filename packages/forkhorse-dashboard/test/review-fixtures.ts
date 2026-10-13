@@ -159,7 +159,8 @@ export function reviewFixtureDetail(state: StateResponse): ReviewDetail {
     ],
     commitsTruncated: large,
     promotion: state.ledger.find((l) => l.review === review.id) ?? null,
-    blockers: state.blockers,
+    // FH-048 preserves claimant-packet detail; pushing gates/history come from /state.
+    blockers: state.blockers.filter((blocker) => blocker.packet === review.packet),
   };
 }
 export function reviewFixtureDiff(path: string): ReviewDiff {

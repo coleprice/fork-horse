@@ -15,20 +15,27 @@ review reports binary changes as **binary**, without an image preview or a text
 diff. Every agent fork stores its own repository copy, so checked-in assets
 multiply storage and transfer work across forks; budget for those copies.
 
-## Oversized-file quick check
+## Oversized-file container check
 
-The registered `.forkhorse/quick/large-files.js` check fails on a regular file
-whose size is **10 MB or more**, using decimal MB: **10,000,000 bytes**. Its
-failure names the file and byte size, cites the 32 MB Artifacts limit and points
-here. It checks the reviewed commit using `ctx.list` and `ctx.stat`; it never
-reads binary contents into the check. Stat returns the blob's size and a NUL
-heuristic from only the first 8 KiB. See the [quick-check API](receipts.md#quick-checks-fh-010).
+The registered `large-files` check in `.forkhorse/checks` is a **full-tier** check
+using the `default` container image. One Node command scans the exact reviewed
+checkout's filesystem metadata and fails on any regular file whose size is
+**10 MB or more**, using decimal MB: **10,000,000 bytes**. Its failure names the
+file and byte size, cites the 32 MB Artifacts limit and points here. It excludes
+all `.git` entries, does not follow symlinks and never reads file contents.
+
+The former repository-wide quick check exceeded the quick tier's 10-second
+deadline during the operator's live run because it made serial stat RPCs for
+260 files. It is no longer registered. `.forkhorse/quick/large-files.js` remains
+an unregistered example for small snapshots. `ctx.stat` remains available: it
+returns the blob's size and a NUL heuristic from only the first 8 KiB, subject
+to the existing quick-tier budgets. See the [quick-check API](receipts.md#quick-checks-fh-010).
 
 This is a review-time guard with headroom, not a pre-push hook. A file rejected
 by Artifacts cannot reach review. Removing a large file from the latest commit
 also does not remove its blob from Git history. The check observes the snapshot,
-not total historical repository storage. Existing path, tree, call, sample-byte
-and deadline budgets still apply and fail closed; a passing snapshot check is
+not total historical repository storage. Container checkout, Git transport,
+execution deadline and receipt limits still apply; a passing snapshot check is
 not a guarantee that a repository fits the provider's 1 GB limit.
 
 ## Roadmap: LFS-compatible storage on R2

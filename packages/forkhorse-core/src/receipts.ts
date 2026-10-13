@@ -1,4 +1,5 @@
 import { claimForAgent, markEntrant } from "./race-entrants";
+import { usageSources } from "./usage";
 import { RpcTarget } from "cloudflare:workers";
 import { Snapshot } from "../../forkhorse-runner/src/snapshot";
 import { loadChecks, MissingChecksError } from "../../forkhorse-runner/src/checks";
@@ -11,6 +12,7 @@ import type { ClaimReleaseAudit, Fork, Packet, ReceiptSummary, Review } from "./
 export const settings = (project: Project) => project.settings ?? { requireReceipt: false };
 export const publicReview = ({ receiptGeneration: _generation, ...review }: Review) => ({
   ...review, receipt: review.receipt ?? null, returned: review.returned ?? null,
+  usageAtReview: usageSources(review.usageAtReview),
 });
 export type ExecuteReceipt = (
   request: RunRequest, authority: ReceiptAuthority, generation: string,

@@ -621,7 +621,8 @@ test("detail blockers hide owner decisions even when the earlier snapshot had no
           packet: "FH-040",
           claimingAgent: "fixture-agent",
           pushingAgent: "fixture-peer",
-          repoName: "fixture-repo",
+          repoName: value.review.repoName,
+          pushingPacket: value.review.packet,
           sha: "7".repeat(40),
           paths: ["src/review.tsx"],
         },
@@ -631,11 +632,11 @@ test("detail blockers hide owner decisions even when the earlier snapshot had no
   });
   try {
     await until(() => c.root.querySelector(".review-milestones"));
-    assert.match(c.root.textContent!, /Push from fixture-peer overlaps fixture-agent's live claim/);
+    assert.match(c.root.textContent!, /fixture-peer pushed 7777777/);
     assert.equal(c.root.querySelector('[data-action="approve"]'), null);
     assert.ok(c.root.querySelector('[data-action="return"]'));
     const titles = [...c.root.querySelectorAll(".review-detail h2")].map((h) => h.textContent);
-    assert.ok(titles.indexOf("Blockers") < titles.indexOf("Request"));
+    assert.ok(titles.indexOf("Collisions") < titles.indexOf("Request"));
   } finally {
     c.close();
   }

@@ -1,5 +1,5 @@
 import type { Brand, ProjectState } from "./contracts.ts";
-import { reviewGate, reviewState } from "./model.ts";
+import { blockedLabel, blockerPacket, reviewGate, reviewState } from "./model.ts";
 import { duration } from "./receipts.tsx";
 import { relativeTime } from "./time.ts";
 
@@ -17,7 +17,7 @@ export interface OwnerNeed {
   title: CopyPart[];
   why: CopyPart[];
   outcome: CopyPart[];
-  target: { review: string } | { packet: string } | { repo: string } | { promotion: true };
+  target: { review: string } | { packet: string; collision?: string } | { repo: string } | { promotion: true };
 }
 export const copyText = (parts: CopyPart[]) =>
   parts.map((part) => (typeof part === "string" ? part : part.code)).join("");
@@ -92,8 +92,8 @@ export function ownerNeeds(state: ProjectState, brand: Brand, now = Date.now()):
               `, which ${blocker.claimingAgent} has claimed.`,
             ]
           : [blocker.reason],
-      outcome: [`${blocker.packet} stays blocked until the collision is resolved.`],
-      target: { packet: blocker.packet },
+      outcome: [`${blockedLabel(blocker)} stays blocked until the collision is resolved.`],
+      target: { packet: blockerPacket(blocker), collision: blocker.id },
     });
   }
   const required = state.project.settings?.requireReceipt === true;
@@ -180,6 +180,9 @@ export function ownerNeeds(state: ProjectState, brand: Brand, now = Date.now()):
                 sha(review.sha),
                 ".",
                 ...(required ? [" Checks run again first."] : []),
+                ...(state.packets.find((packet) => packet.id === review.packet)?.mode === "race"
+                  ? [" First promote wins the race."]
+                  : []),
               ]
             : ["Approving lets you promote it to ", mono("main"), "."],
         target: { review: review.id },

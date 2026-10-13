@@ -2,6 +2,9 @@ import type { StateResponse } from "../src/contracts.ts";
 import { fixtureState, fixtureReceipt } from "./fixtures.ts";
 export const forkScenarios = [
   "fork-hero",
+  "fork-history",
+  "fork-hour-edge",
+  "fork-states",
   "fork-resolved",
   "fork-old",
   "fork-many",
@@ -28,7 +31,7 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
   state.reviews = [];
   state.activity = [];
   state.ledger = [];
-  for (let i = 0; i < (id === "fork-many" ? 11 : 3); i++) {
+  for (let i = 0; i < (id === "fork-many" ? 11 : id === "fork-states" ? 7 : 3); i++) {
     const agent = names[i % 3],
       packet = `fixture-${String(i + 1).padStart(2, "0")}`,
       repoName = `fixture-fork-${i + 1}`,
@@ -57,10 +60,27 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
         paths: [`fixture-${i}/**`],
         createdAt: at(id === "fork-old" ? 500 : 180 - i * 20),
       });
+    const status =
+      id === "fork-states"
+        ? (
+            [
+              "passed",
+              "passed",
+              "running",
+              "failed",
+              "timed-out",
+              "infrastructure-error",
+              "passed",
+            ] as const
+          )[i]
+        : i === 2
+          ? "running"
+          : "passed";
+    const approved = id === "fork-states" ? i < 2 : i !== 2;
     const receipt = {
-      ...fixtureReceipt(i === 2 ? "running" : "passed"),
+      ...fixtureReceipt(status),
       startedAt: at(75 - i * 10),
-      finishedAt: i === 2 ? null : at(70 - i * 10),
+      finishedAt: status === "running" ? null : at(70 - i * 10),
     };
     state.reviews.push({
       id: `fixture-review-${i}`,
@@ -71,8 +91,8 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
       base: "a".repeat(40),
       receiptDigest: receipt.digest,
       receipt,
-      approval: i === 2 ? null : { sha, receiptDigest: receipt.digest },
-      approvedAt: i === 2 ? null : at(60 - i * 10),
+      approval: approved ? { sha, receiptDigest: receipt.digest } : null,
+      approvedAt: approved ? at(60 - i * 10) : null,
       stale: false,
       promoted: i === 0,
       createdAt: at(100 - i * 10),
@@ -110,6 +130,51 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
         receiptDigest: receipt.digest,
         recordedAt: at(30),
       });
+  }
+  if (id === "fork-hour-edge") {
+    // Put an hour five seconds inside the recent window, independent of capture time.
+    state.claims[0].createdAt = new Date(
+      Math.floor(now / 3600000) * 3600000 - 4 * 3600000 - 5000,
+    ).toISOString();
+  }
+  if (id === "fork-history") {
+    const latest = state.reviews.find((r) => r.id === "fixture-review-1")!;
+    const basePush = state.activity.find((a) => a.repoName === latest.repoName)!;
+    for (const [i, minutes] of [130, 125, 115, 105, 95, 85].entries()) {
+      state.activity.push({
+        ...basePush,
+        sequence: 100 + i,
+        recordedAt: at(minutes),
+        eventTimestamp: at(minutes),
+      });
+      state.reviews.unshift({
+        ...latest,
+        id: `fixture-history-review-${i}`,
+        createdAt: at(minutes - 1),
+        approvedAt: at(minutes - 3),
+        receipt: { ...latest.receipt!, finishedAt: at(minutes - 2) },
+      });
+    }
+    const merged = state.reviews.find((r) => r.id === "fixture-review-0")!;
+    for (const [i, minutes] of [95, 70, 29, 27, 2].entries()) {
+      const sha = String(i + 4).repeat(40);
+      const review = {
+        ...merged,
+        id: `fixture-history-merge-${i}`,
+        sha,
+        createdAt: at(minutes + 5),
+        approvedAt: at(minutes + 2),
+        receipt: { ...merged.receipt!, finishedAt: at(minutes + 3) },
+      };
+      state.reviews.push(review);
+      state.ledger.push({
+        ...state.ledger[0],
+        id: `fixture-ledger-${i}`,
+        review: review.id,
+        after: sha,
+        recordedAt: at(minutes),
+      });
+    }
   }
   state.blockers = [
     {

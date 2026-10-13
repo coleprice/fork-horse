@@ -84,7 +84,9 @@ test("stale, moved, returned, promoted and blocked reviews never claim readiness
     if (mode === "blocked")
       state.blockers.push({
         id: "1-p",
-        packet: review.packet,
+        packet: "claimant-packet",
+        pushingPacket: review.packet,
+        repoName: review.repoName,
         agent: "other",
         paths: [],
         reason: "Collision",

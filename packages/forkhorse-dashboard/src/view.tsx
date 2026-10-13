@@ -26,6 +26,7 @@ import {
   ReceiptDetails,
 } from "./receipts.tsx";
 import {
+  blockerGatesReview,
   promotionReceipt,
   recentReceipts,
   receiptGateCaption,
@@ -34,6 +35,8 @@ import {
   reviewQueue,
   type ViewModel,
 } from "./model.ts";
+import { CollisionBanner, CollisionRows, ResolveCollisionDialog } from "./collisions.tsx";
+import { RaceView } from "./race.tsx";
 import { ReviewView } from "./review.tsx";
 import { ForkGraph } from "./fork-graph.tsx";
 import { NeedsYou } from "./needs-you.tsx";
@@ -43,6 +46,11 @@ import { relativeTime as relative } from "./time.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
 export interface ViewActions {
+  resolveBlocker?(id: string, reason: string): Promise<import("./contracts.ts").WireBlocker>;
+  openCollision?(blocker: import("./contracts.ts").BlockerView): void;
+  showPacket?(id: string): void;
+  raceId?: string;
+  openRace?(id?: string): void;
   reviewId?: string;
   openReview(id?: string): void;
   getReview?(id: string): Promise<ReviewDetail>;
@@ -133,7 +141,11 @@ export function PathDetails({
   );
 }
 export function packetStatus(id: string, state: ProjectState): { label: string; tone: Tone } {
-  if (state.blockers.some((b) => b.packet === id && !b.resolved))
+  const race = state.races?.find((entry) => entry.packet === id);
+  if (race?.status === "finished") return { label: "Promoted", tone: "success" };
+  if (race?.status === "open" && race.entrants.length > 0) return { label: "Racing", tone: "brand" };
+
+  if (state.blockers.some((b) => b.pushingPacket === id && !b.resolved))
     return { label: "Blocked", tone: "warning" };
   const reviews = state.reviews.filter((r) => r.packet === id);
   if (reviews.some((r) => r.status === "promoted")) return { label: "Promoted", tone: "success" };
@@ -175,7 +187,9 @@ function DataTable({
     </div>
   );
 }
-function Notice({ message, sha }: { message?: string; sha?: string }) {
+function Notice({ message, sha, review, openReview }: {
+  message?: string; sha?: string; review?: string; openReview?(id: string): void;
+}) {
   const toasts = useKumoToastManager();
   const previous = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -189,9 +203,10 @@ function Notice({ message, sha }: { message?: string; sha?: string }) {
           message
         ),
         variant: "success",
+        ...(review && openReview ? { timeout: 10000, actions: [{ children: "Open review", onClick: () => openReview(review) }] } : {}),
       });
     previous.current = message;
-  }, [message, sha, toasts]);
+  }, [message, sha, review, openReview, toasts]);
   return null;
 }
 export function ReviewActions({
@@ -220,7 +235,9 @@ export function ReviewActions({
     review.base === confirmation.base &&
     review.receiptDigest === confirmation.digest &&
     view.state!.project.defaultBranch === confirmation.branch;
-  const gate = reviewGate(review, view.state!);
+  const gate = reviewGate(review, view.state!, actions.owner);
+  const race = view.state!.races?.find((entry) => entry.packet === review.packet && entry.status === "open");
+  const otherEntrants = race?.entrants.filter((entrant) => entrant.repoName !== review.repoName && !entrant.closedAt).map((entrant) => entrant.agent) ?? [];
   const rechecking =
     required && review.receipt?.status === "running" && review.receipt.trigger === "before-promote";
   if (!actions.owner) return null;
@@ -326,6 +343,7 @@ export function ReviewActions({
               description="Review changed. Close and review again."
             />
           )}
+          {race && <p className="caption race-promote-warning">Promoting this finishes the race.{otherEntrants.length > 0 && <> {otherEntrants.join(" and ")} will be closed and placed.</>}</p>}
           <div className="dialog-actions">
             <Button disabled={promoting} onClick={() => setConfirmation(undefined)}>
               Cancel
@@ -391,6 +409,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+  const collisionHeading = useRef<HTMLHeadingElement>(null);
+  const collisionOrigin = useRef<HTMLElement | null>(null);
+  const [highlightedCollision, setHighlightedCollision] = useState<string>();
+  const [collision, setCollision] = useState<import("./contracts.ts").BlockerView>();
+  useEffect(() => { setCollision(undefined); setHighlightedCollision(undefined); }, [view.project]);
   const [packetId, setPacketId] = useState<string>();
   const [reviewId, setReviewId] = useState<string>();
   const [receiptPanel, setReceiptPanel] = useState(false);
@@ -419,10 +442,31 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     }
   }
   function showPacket(id: string) {
+    if (state?.packets.find((entry) => entry.id === id)?.mode === "race") {
+      setPacketId(undefined);
+      setReviewId(undefined);
+      actions.openRace?.(id);
+      return;
+    }
     setReceiptPanel(false);
     setPacketId(id);
     setReviewId(undefined);
     toggle(true);
+  }
+  function openCollision(blocker: import("./contracts.ts").BlockerView) {
+    collisionOrigin.current = document.activeElement === document.body ? null : document.activeElement as HTMLElement;
+    setHighlightedCollision(blocker.id);
+    showPacket(blocker.pushingPacket ?? blocker.packet);
+    setCollision(blocker);
+  }
+  function closeCollision(resolved = false) {
+    setCollision(undefined);
+    if (resolved) setHighlightedCollision(undefined);
+    window.setTimeout(() => {
+      if (resolved) collisionHeading.current?.focus();
+      else if (collisionOrigin.current?.isConnected) collisionOrigin.current.focus();
+      else collisionHeading.current?.focus();
+    }, 0);
   }
   function showReceipt(id: string) {
     setReceiptPanel(true);
@@ -436,6 +480,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
       else actions.setSection("review");
     } else if ("packet" in target) {
       actions.setSection("work");
+      setHighlightedCollision(target.collision);
       showPacket(target.packet);
     } else if ("repo" in target) {
       actions.setSection("agents");
@@ -570,6 +615,20 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               </>
             );
           })()}
+          {selected && state && (() => {
+            const collisions = state.blockers.filter((b) => b.packet === selected.id || b.pushingPacket === selected.id);
+            return collisions.length > 0 && <section aria-label="Collisions">
+              <h3 ref={collisionHeading} tabIndex={-1} className="collision-heading">Collisions</h3>
+              <CollisionRows blockers={collisions} owner={actions.owner} highlighted={highlightedCollision}
+                reviewLink={actions.getReview ? (b) => {
+                  const review = state.reviews.find((r) => blockerGatesReview(b, r) &&
+                    reviewState(r, state).kind === "current" && r.status !== "stale" &&
+                    state.forks.some((f) => f.repoName === r.repoName && f.head === r.sha));
+                  return review && <button className="claim-link caption" onClick={() => actions.openReview(review.id)}>Open review</button>;
+                } : undefined}
+                open={actions.resolveBlocker ? openCollision : undefined} disabled={view.busy} />
+            </section>;
+          })()}
           {selected && (
             <>
               <h3>Acceptance checks</h3>
@@ -614,9 +673,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   );
   return (
     <>
-      <Notice message={view.notice} sha={view.noticeSha} />
+      {actions.owner && actions.resolveBlocker && collision &&
+        <ResolveCollisionDialog key={`${view.project}:${collision.id}`} blocker={collision}
+          resolve={actions.resolveBlocker} close={closeCollision} />}
+      <Notice message={view.notice} sha={view.noticeSha} review={actions.getReview ? view.noticeReview : undefined} openReview={actions.openReview} />
       <ReceiptAnnouncements project={view.project} reviews={state?.reviews ?? []} />
-      <div className={`app-shell ${panel ? "panel-open" : ""}`}>
+      <div className={`app-shell ${panel && !actions.raceId ? "panel-open" : ""} ${actions.raceId ? "race-shell" : ""}`}>
         <main className="main-pane">
           <div className="main-container">
             <header className="page-header">
@@ -640,6 +702,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   />
                 )}
                 {ask}
+                {!actions.raceId && (
                 <Tooltip
                   content={panel ? "Hide activity" : "Show activity"}
                   render={
@@ -657,6 +720,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                 >
                   <Pulse size={16} weight="bold" />
                 </Tooltip>
+                )}
               </div>
             </header>
             <div className="tab-gutter">
@@ -733,11 +797,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               )}
               {(view.busy || askError) && (
                 <div role="status" aria-live="polite">
-                  {view.busy && <p>Loading the latest project snapshot…</p>}
+                  {view.busy && !actions.raceId && <p>Loading the latest project snapshot…</p>}
                   {askError && <p>{askError}</p>}
                 </div>
               )}
-              {view.error && (
+              {view.error && !actions.raceId && (
                 <Banner
                   variant="error"
                   className="text-kumo-default"
@@ -753,7 +817,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   }
                 />
               )}
-              {!state ? (
+              {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={actions} /> : !state ? (
                 !view.busy &&
                 !view.error &&
                 empty(view.project ? "No snapshot loaded." : "Select a configured project.")
@@ -887,26 +951,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       {!!blockers.length && (
                         <section id="blockers" className="blockers">
                           {blockers.map((b) => (
-                            <Banner
-                              key={b.id}
-                              variant="alert"
-                              description={
-                                b.sha && b.claimingAgent ? (
-                                  <span className="collision-copy">
-                                    {b.pushingAgent ?? b.agent} pushed {short(b.sha)} to{" "}
-                                    <Paths paths={b.paths} />, which {b.claimingAgent} has claimed
-                                    for {b.packet}.
-                                  </span>
-                                ) : (
-                                  b.reason
-                                )
-                              }
-                              action={
-                                <Button size="sm" onClick={() => showPacket(b.packet)}>
-                                  View packet
-                                </Button>
-                              }
-                            />
+                            <CollisionBanner key={b.id} blocker={b} owner={actions.owner}
+                              open={actions.resolveBlocker ? openCollision : undefined}
+                              showPacket={showPacket} disabled={view.busy} />
                           ))}
                         </section>
                       )}
@@ -919,24 +966,31 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           >
                             {state.packets.map((p) => {
                               const live = claims.filter((c) => c.packet === p.id);
+                              const race = state.races?.find((entry) => entry.packet === p.id);
                               return (
                                 <Table.Row
                                   key={p.id}
+                                  data-packet-id={p.id}
                                   className={selected?.id === p.id ? "selected-row" : ""}
-                                  onClick={() => showPacket(p.id)}
+                                  onClick={(event) => {
+                                    if (!(event.target as HTMLElement).closest("button, a")) showPacket(p.id);
+                                  }}
                                 >
                                   <Table.Cell>
+                                    <span className="packet-label">
                                     <button
                                       className="packet-link"
                                       title={p.title}
                                       onClick={() => showPacket(p.id)}
                                     >
                                       {p.title}
-                                    </button>
+                                    </button>{p.mode === "race" && <Badge variant="secondary" className="packet-race-badge">Race</Badge>}
+                                    </span>
                                     <div className="caption muted">{p.id}</div>
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Status {...packetStatus(p.id, state)} />
+                                    {race?.status === "finished" && race.winner && <div className="caption muted">Won by {race.winner}</div>}
                                     <div className="caption muted folded">
                                       {live
                                         .filter((c) => c.createdAt)
@@ -949,10 +1003,10 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Tooltip
-                                      content={live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                      content={p.mode === "race" ? race?.entrants.map((entrant) => entrant.agent).join(", ") || "No entrants yet" : live.map((c) => c.agent).join(", ") || "Unclaimed"}
                                       render={<span className="truncated-name" />}
                                     >
-                                      {live.map((c) => c.agent).join(", ") || "Unclaimed"}
+                                      {p.mode === "race" ? (race?.entrants.length ? `${race.entrants.length} entrants` : "No entrants yet") : live.map((c) => c.agent).join(", ") || "Unclaimed"}
                                     </Tooltip>
                                     <div className="caption muted folded">
                                       {live.map((c) => (
@@ -989,7 +1043,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   )}
                   {section(
                     "review",
-                    actions.reviewId && actions.getReview ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={actions} openReceipt={showReceipt} /> : <>
+                    actions.reviewId && actions.getReview ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={{ ...actions, openCollision: actions.resolveBlocker ? openCollision : undefined, showPacket }} openReceipt={showReceipt} /> : <>
                       <section id="reviews">
                         <h2>Review queue</h2>
                         {reviews.length ? (
@@ -1006,7 +1060,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             ]}
                           >
                             {reviews.map((r) => {
-                              const gate = reviewGate(r, state);
+                              const gate = reviewGate(r, state, actions.owner);
                               const cause = reviewState(r, state);
                               const stale = !!cause.banner;
                               return (
@@ -1014,6 +1068,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   if (!(event.target as HTMLElement).closest("button, a")) actions.openReview(r.id);
                                 } : undefined}>
                                   <Table.Cell>
+                                    <span className="packet-label">
                                     {actions.getReview ? <button
                                       className="claim-link"
                                       onClick={() => {
@@ -1021,7 +1076,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                       }}
                                     >
                                       {r.packet}
-                                    </button> : <span>{r.packet}</span>}
+                                    </button> : <span>{r.packet}</span>}{state.packets.find((p) => p.id === r.packet)?.mode === "race" && <Badge variant="secondary" className="packet-race-badge">Race</Badge>}
+                                    </span>
                                   </Table.Cell>
                                   <Table.Cell>
                                     <Tooltip
@@ -1267,7 +1323,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
             </div>
           </div>
         </main>
-        {narrow ? (
+        {!actions.raceId && (narrow ? (
           <Dialog.Root open={panel} onOpenChange={toggle}>
             <Dialog
               className="activity-drawer"
@@ -1289,7 +1345,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               {panelContent}
             </aside>
           )
-        )}
+        ))}
       </div>
     </>
   );
