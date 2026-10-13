@@ -1,3 +1,4 @@
+import { collisionScenarios } from "../test/collision-fixtures.ts";
 import { needsScenarios } from "../test/needs-you-fixtures.ts";
 import { reviewScenarios } from "../test/review-fixtures.ts";
 import { applyAppTheme, followSystemTheme } from "./theme.ts";
@@ -43,6 +44,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "quiet", label: "Quiet project" },
     ...[
       ...reviewScenarios,
+      ...collisionScenarios,
       ...needsScenarios,
       "large",
       "first",
@@ -95,6 +97,13 @@ accent.addEventListener("click", () => {
   applyAppTheme({ mode: "light", accentColor: themeFixture.accent });
 });
 controls.append(accent);
+const reset = document.createElement("button");
+reset.textContent = "Reset fixture";
+reset.addEventListener("click", async () => {
+  await fetch("/__fixtures/reset", { method: "POST" });
+  location.reload();
+});
+controls.append(reset);
 // Capture controls can be hidden through the fixture UI so they never cover evidence.
 const hide = document.createElement("button");
 hide.textContent = "Hide fixture controls";
