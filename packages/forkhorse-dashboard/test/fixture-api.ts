@@ -1,4 +1,5 @@
 import { usageScenarios, usageFixtureState, usageFixtureDetail } from "./usage-fixtures.ts";
+import { raceScenarios, raceFixtureState } from "./race-fixtures.ts";
 import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
@@ -62,6 +63,27 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       else if (usageRoute[2] === "activity") send({ activity: [], nextAfter: 0 });
       else if (!state.reviews.some((r) => r.id === usageRoute[3])) send({ error: "Fixture review not found" }, 404);
       else send(usageFixtureDetail(state, usageRoute[3]));
+      return;
+    }
+    const raceRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    if (raceRoute && raceScenarios.includes(raceRoute[1])) {
+      const id = raceRoute[1];
+      const state = raceFixtureState(id);
+      if (raceRoute[2] === "state") {
+        if (id === "race-error") send({ error: "Offline race error fixture" }, 503);
+        else if (id === "race-loading") setTimeout(() => send(state), 8000);
+        else send(state);
+      } else if (raceRoute[2] === "activity")
+        send({ activity: [], nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+      else {
+        const review = state.reviews.find((candidate) => candidate.id === raceRoute[3]);
+        if (!review) send({ error: "Fixture review not found" }, 404);
+        else
+          send({
+            ...reviewFixtureDetail({ ...state, reviews: [review] }),
+            packet: state.packets[0],
+          });
+      }
       return;
     }
     const forkRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);

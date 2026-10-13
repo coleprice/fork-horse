@@ -253,6 +253,34 @@ non-stale reconciler/pending-promotion variants. Open their detail at
 `#review/review-1` or queue at `#review`. These fixtures establish offline rendering
 only. Design PASS and independent code acceptance remain external handback gates.
 
+## Recorded races (FH-055)
+
+Race packets open a read-only full-width page at `#race/<packet>` in either host.
+The track is a semantic table and becomes stacked lanes below 640px. It shows only
+recorded milestones in claim order (equal timestamps sort by agent): Claimed, First push, Review requested, Checks
+passed, Approved, Promoted. The shared race clock starts at the earliest claim;
+there is no running timer or estimated progress. Results use core's recorded places.
+
+The optional FH-052/053 projection carries `races`, agent enrollment `createdAt`,
+and `ledgerEntryId` (the exact string `ledger[].id`). Legacy agents are numbered
+alphabetically first, then enrolled agents by `createdAt`; response order never
+assigns identity. Fixture race, enrollment, ledger and review slices are checked
+against the core public types, including recorded `places` and quick receipts.
+The reviewed `race-silk-*`, `race-cloth-ink`, and
+`race-hurdle-ink` values live in `src/host-tokens.json`, with identity always carried
+by the number. Missing ledger evidence or activity counts are omitted.
+
+The race view uses the accepted FH-057 `LaneRunner`, `LaneMarker`, `LaneConnector`
+and enrollment identity helpers from `src/lane.tsx`. Marker shapes and silk styling
+are shared with the fork graph; race-specific CSS only places them in the track.
+
+The offline fixture harness includes `race-open`, `race-finished`, `race-photo`,
+`race-empty`, `race-loading`, `race-error`, `race-unknown`, `race-standard`, and
+`race-advisory`. Open `fixtures.html?scenario=race-photo#race/race-01` for the recorded
+rejection panel, or `?scenario=race-open#work`, `#review`, and `#overview` for its
+Work badge, Promote warning, and Needs you copy. These snapshots are synthetic;
+they do not establish live race, deployment, or owner acceptance.
+
 ### Forks on Overview (FH-057)
 
 The read-only hero projects `/state` into a clock-time graph above Needs you. It uses

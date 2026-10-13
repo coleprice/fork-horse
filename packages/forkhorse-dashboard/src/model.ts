@@ -179,6 +179,7 @@ export function stateView(wire: StateResponse): ProjectState {
       sha: entry.after,
       promotedAt: entry.recordedAt,
       receiptDigest: entry.receiptDigest,
+      race: entry.race,
     })),
     reconcilerAlerts: wire.reconcilerAlerts.map((alert) => ({
       ...alert,

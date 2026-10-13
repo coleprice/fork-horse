@@ -1,4 +1,5 @@
 import { usageScenarios } from "../test/usage-fixtures.ts";
+import { raceScenarios } from "../test/race-fixtures.ts";
 import { forkScenarios } from "../test/fork-graph-fixtures.ts";
 import { needsScenarios } from "../test/needs-you-fixtures.ts";
 import { reviewScenarios } from "../test/review-fixtures.ts";
@@ -61,6 +62,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
     ...[
+      ...raceScenarios,
       ...reviewScenarios,
       ...usageScenarios,
       ...needsScenarios,

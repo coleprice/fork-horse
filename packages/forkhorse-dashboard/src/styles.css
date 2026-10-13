@@ -360,6 +360,10 @@ footer {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.packet-label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.packet-label > button { min-width: 0; }
+.packet-race-badge { flex-shrink: 0; }
+.column-claimed > .caption { display: block; line-height: inherit; }
 .packet-link:hover {
   text-decoration: underline;
 }
@@ -1179,4 +1183,346 @@ footer {
   .fork-table td:nth-child(9)::before { content: "Tokens"; }
   .race-token-lanes { min-width: 480px; }
   .race-usage .table-scroll { overflow-x: auto; }
+}
+
+/* FH-055: full-width recorded race lanes; silks are reviewed identity tokens. */
+.race-shell .main-container {
+  max-width: none;
+}
+.race-page {
+  padding-block: calc(var(--spacing) * 2);
+}
+.race-page .heading-1 {
+  font-size: 30px;
+  line-height: 36px;
+  font-weight: 600;
+  margin: 0;
+}
+.race-header {
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-block: 24px 36px;
+}
+.race-flag {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-color-kumo-strong);
+}
+.race-clock {
+  display: grid;
+  gap: 4px;
+  min-width: 120px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.race-clock strong {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  line-height: 32px;
+}
+.race-photo-caption {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.race-track,
+.race-results table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.race-track thead th {
+  padding: 12px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--text-color-kumo-subtle);
+  border-bottom: 1px solid var(--color-kumo-line);
+}
+.race-track thead th:first-child {
+  width: 18%;
+  text-align: left;
+}
+.race-track thead th:last-child {
+  width: 18%;
+  text-align: left;
+}
+.race-track tbody th {
+  text-align: left;
+  font-weight: 400;
+  padding: 22px 12px 22px 0;
+}
+.race-track tbody tr {
+  border-bottom: 1px solid var(--color-kumo-line);
+}
+.race-page .race-runner-copy strong {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-color-kumo-strong);
+  overflow-wrap: anywhere;
+}
+.race-step .lane-marker {
+  position: relative;
+  z-index: 1;
+  vertical-align: middle;
+  margin: 0;
+}
+.race-step .lane-marker-unreached { color: transparent; }
+.race-mark-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-inline: auto;
+}
+.race-step .lane-marker.reached { animation: race-arrival 150ms ease-out; }
+.race-step {
+  position: relative;
+  text-align: center;
+  vertical-align: top;
+  padding: 20px 4px 24px;
+}
+.race-step > .lane-connector {
+  position: absolute;
+  height: 2px;
+  background: var(--entrant-silk);
+  right: 50%;
+  left: auto;
+  top: 31px;
+  width: calc(var(--race-gap) * 100%);
+  pointer-events: none;
+}
+.race-split {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+  margin-top: 12px;
+  color: var(--text-color-kumo-subtle);
+  font-variant-numeric: tabular-nums;
+}
+.race-split time {
+  white-space: nowrap;
+}
+.race-finish {
+  border-left: 2px solid var(--text-color-kumo-strong);
+}
+.race-result {
+  vertical-align: top;
+  padding: 20px 12px;
+}
+.race-result > * {
+  display: block;
+  margin-bottom: 6px;
+}
+.race-result > strong {
+  font-weight: 500;
+}
+.race-result > .race-place {
+  display: inline-flex;
+}
+.race-phone-label {
+  display: none;
+}
+.race-hurdle-button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+}
+.race-empty {
+  text-align: center;
+  padding-block: 48px;
+  color: var(--text-color-kumo-subtle);
+}
+.race-results {
+  margin-top: 40px;
+}
+.race-results th,
+.race-results td {
+  padding: 16px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-kumo-line);
+  font-weight: 400;
+}
+.race-results thead th {
+  font-size: 12px;
+  color: var(--text-color-kumo-subtle);
+}
+.race-results th:first-child {
+  width: 8%;
+}
+.race-results th:nth-child(2) {
+  width: 28%;
+}
+.race-photo {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 32px;
+  margin-block: 40px 24px;
+  padding: 24px;
+  background: var(--color-kumo-elevated);
+  border: 1px solid var(--color-kumo-line);
+  border-radius: var(--radius-lg);
+}
+.race-photo-events > * {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--color-kumo-line);
+  margin: 0;
+}
+.race-photo-events > :last-child {
+  border-bottom: none;
+}
+.race-step .lane-marker.reached ~ .race-split {
+  animation: race-arrival 150ms ease-out;
+}
+@keyframes race-arrival {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .race-step .lane-marker.reached,
+  .race-step .lane-marker.reached ~ .race-split {
+    animation: none;
+  }
+}
+@media (max-width: 639px) {
+  .race-header {
+    flex-direction: column;
+    margin-bottom: 24px;
+    gap: 12px;
+  }
+  .race-page .heading-1 {
+    font-size: 24px;
+    line-height: 32px;
+  }
+  .race-clock {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    text-align: left;
+    flex-wrap: wrap;
+  }
+  .race-clock strong {
+    font-size: 18px;
+  }
+  .race-track,
+  .race-track tbody,
+  .race-results table,
+  .race-results tbody {
+    display: block;
+  }
+  .race-track thead,
+  .race-results thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .race-track-empty thead { position: static; width: auto; height: auto; clip-path: none; }
+  .race-track-empty thead tr { display: flex; flex-wrap: wrap; gap: 12px; }
+  .race-track-empty thead th { padding: 8px 0; }
+  .race-track-empty thead th:first-child, .race-track-empty thead th:last-child { display: none; }
+  .race-track tbody tr {
+    display: block;
+    border: 1px solid var(--color-kumo-line);
+    border-radius: var(--radius-lg);
+    margin-bottom: 16px;
+    padding: 16px;
+  }
+  .race-track tbody th {
+    display: block;
+    padding: 0 0 20px;
+  }
+  .race-step {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    text-align: left;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    min-height: 48px;
+  }
+  .race-mark-box {
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: center;
+    margin: 0;
+  }
+  .race-phone-label {
+    display: block;
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 13px;
+  }
+  .race-split {
+    grid-column: 3;
+    grid-row: 1;
+    margin: 0;
+    text-align: right;
+  }
+  .race-step > .lane-connector {
+    height: calc(var(--race-gap) * 100%);
+    width: 2px;
+    left: 11px;
+    right: auto;
+    top: auto;
+    bottom: 50%;
+  }
+  .race-finish {
+    border-left: none;
+    border-bottom: 2px solid var(--text-color-kumo-strong);
+  }
+  .race-result {
+    display: block;
+    padding: 16px 0 0;
+  }
+  .race-results tr {
+    display: block;
+    border-bottom: 1px solid var(--color-kumo-line);
+    padding-block: 12px;
+  }
+  .race-results th,
+  .race-results td {
+    display: block;
+    padding: 8px 0;
+    width: auto;
+    border: none;
+  }
+  .race-results tbody th {
+    width: auto;
+  }
+  .race-results tbody th:nth-child(2) { width: auto; }
+  .race-results .race-runner { width: 100%; }
+  .race-results .race-runner-copy { flex: 1; }
+  .race-results td {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .race-results td::before {
+    content: attr(data-label);
+    color: var(--text-color-kumo-subtle);
+  }
+  .race-photo {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 16px;
+  }
 }
