@@ -1,12 +1,14 @@
 // Loads actual production bundles with synthetic host/data.
 // RPC comes from the gatekeeper's declared dependency, so this fixture adds no dashboard dependency.
-import { newMessagePortRpcSession, RpcTarget, type RpcStub } from "../../forkhorse-gatekeeper/node_modules/capnweb/dist/index.js";
+import {
+  newMessagePortRpcSession,
+  RpcTarget,
+  type RpcStub,
+} from "../../forkhorse-gatekeeper/node_modules/capnweb/dist/index.js";
 import type {
   GatekeeperAppTheme,
   GatekeeperAppThemeReceiver,
 } from "@gadgets/workshop-shared/theme";
-import { SnapshotFeed } from "../../forkhorse-gatekeeper/src/feed.ts";
-import { FixtureUi } from "../../forkhorse-gatekeeper/test/fixture-ui.ts";
 import { forkFixtureState } from "./fork-graph-fixtures.ts";
 import { stateView } from "../src/model.ts";
 
@@ -15,8 +17,21 @@ const owner = params.get("bundle") === "owner";
 const state = stateView(
   forkFixtureState(new URL(location.href).searchParams.get("scenario") ?? "fork-hero"),
 );
-const feed = new SnapshotFeed(state);
-const ui = new FixtureUi(feed);
+// A static fixture capability uses the same RPC module as its host (no mixed prebundled targets).
+class FixtureUi extends RpcTarget {
+  async snapshot() {
+    return { version: 0, state: structuredClone(state) };
+  }
+  async subscribe() {
+    return new (class extends RpcTarget {
+      async close() {}
+    })();
+  }
+  async waitForChanges(): Promise<never> {
+    throw new Error("Offline fixture is static.");
+  }
+}
+const ui = new FixtureUi();
 let theme: GatekeeperAppTheme = { mode: "light", accentColor: null };
 let receiver: RpcStub<GatekeeperAppThemeReceiver> | undefined;
 class FixtureHost extends RpcTarget {
@@ -77,7 +92,6 @@ window.addEventListener(
   "pagehide",
   () => {
     window.removeEventListener("message", handshake);
-    feed.dispose();
     receiver?.[Symbol.dispose]();
     session?.[Symbol.dispose]();
   },
