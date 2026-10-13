@@ -1,3 +1,4 @@
+import { needsScenarios } from "../test/needs-you-fixtures.ts";
 import { reviewScenarios } from "../test/review-fixtures.ts";
 import { applyAppTheme, followSystemTheme } from "./theme.ts";
 import { mountDashboard } from "./dashboard.ts";
@@ -42,6 +43,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "quiet", label: "Quiet project" },
     ...[
       ...reviewScenarios,
+      ...needsScenarios,
       "large",
       "first",
       "partial",

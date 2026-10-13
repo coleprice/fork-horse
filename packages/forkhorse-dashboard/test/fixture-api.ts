@@ -1,3 +1,4 @@
+import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
   reviewScenarios,
   reviewFixtureState,
@@ -34,6 +35,19 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    if (needsRoute && needsScenarios.includes(needsRoute[1])) {
+      const id = needsRoute[1];
+      const state = needsFixtureState(id);
+      if (needsRoute[2] === "state") send(state);
+      else if (needsRoute[2] === "activity") send({ activity: [], nextAfter: 0 });
+      else {
+        const review = state.reviews.find((r) => r.id === needsRoute[3]);
+        if (!review) send({ error: "Fixture review not found." }, 404);
+        else send({ ...reviewFixtureDetail({ ...state, reviews: [review] }), packet: state.packets.find((p) => p.id === review.packet)! });
+      }
+      return;
     }
     const detailRoute =
       /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+)(?:\/(diff|return|approve|promote|receipt))?)$/.exec(
