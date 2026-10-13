@@ -43,7 +43,13 @@ memory; use them only as an http.extraHeader, never a URL/file/log.
 
 Use submit_work for server-side commits when working without a local Git client.
 Send only packet-owned files. Inspect status/activity after an uncertain write
-before retrying. Request review for the exact resulting SHA; report check commands,
+before retrying. Before every request_review and when asked, call report_usage
+with the packet's cumulative inputTokens and outputTokens, and model when known.
+These counts are self-reported, not provider-metered. Read myUsage in
+get_context/status for caller usage and core's race budget state. Counts may not
+decrease; report totals, not deltas. If usage is unavailable, disclose that to the
+owner instead of making up counts.
+Request review for the exact resulting SHA; report check commands,
 exit statuses, short evidence excerpts and remaining limitations. Label fixtures
 and local results. Owner approval and promotion are separate steps.
 After the owner logs that the packet is promoted, read state first. If your claim
@@ -51,7 +57,7 @@ is still live, release it with DELETE /projects/:id/packets/:pid/claim using you
 agent bearer. If already released, do not repeat the mutation. Claims do not expire.
 ```
 
-After connection, verify that `get_context`, `join`, `claim`, `request_review`, `submit_work`, `status`, `activity` and `refresh_token` are listed. The three read tools must advertise `readOnlyHint: true`. Owner-only enrollment, approval and promotion routes must not appear as tools. Never infer live acceptance merely because the client lists tools.
+After connection, verify that `get_context`, `join`, `claim`, `report_usage`, `request_review`, `submit_work`, `status`, `activity` and `refresh_token` are listed. The three read tools must advertise `readOnlyHint: true`. Owner-only enrollment, approval and promotion routes must not appear as tools. Never infer live acceptance merely because the client lists tools.
 
 The claim-release route remains an authenticated core REST route, not an MCP tool. Keep `<mcp host>` owner-configured. Follow the [task-packet skill](../../skills/forkhorse/SKILL.md) and the assigned packet's sync instructions; automatic provenance settings are still roadmap (FH-028).
 
@@ -60,6 +66,10 @@ The claim-release route remains an authenticated core REST route, not an MCP too
 This resume contract requires FH-041 in core and FH-042 in MCP. Package tests use labeled FH-041 fixtures; they do not establish live resume acceptance.
 
 Call `get_context(project)` with the existing enrolled agent credential. Both `get_context` and `status` include `myWork`, copied from the caller's `/me` `work`, and one resume line per item. Match the assigned packet, retain its `repoName`, and follow `myWork[].next` and `hint`: push existing work, request review, wait for checks, fix checks, address a return, wait for the owner, or finish as directed. Core determines these steps; do not infer a new claim or fork from a missing item. If the expected item is missing or the summary is unavailable, resolve it with the owner before dependent writes.
+
+Both read tools also include `myUsage`, projected from the caller-owned state claims and race entrants as `{packet, repoName, usage: {reported, metered}, tokenBudget, budget}`. Each usage source is either null or `{inputTokens, outputTokens, model?, source, at}`. FH-060 supplies this state; package tests use labeled fixtures and do not prove live usage acceptance. Missing legacy usage is null, not zero. `budget` is core's `unchecked`, `within`, `near` or `over` state; standard claims have no token budget. The original state retains `reviews[].usageAtReview` after a claim is released.
+
+Before **every** `request_review` and whenever asked, call `report_usage({project, packet, inputTokens, outputTokens, model?})` with cumulative packet totals. Each count is an integer from 0 to 1,000,000,000 and may not decrease. These are **self-reported** counts, not provider metering; do not invent counts when unavailable. Core binds the report to your live claim or race entrant and snapshots usage on review. Budgeted races require a report before promotion and refuse an over-budget entrant. After a conflict or uncertain response, inspect `status` before retrying. `report_usage` is a write tool with `readOnlyHint: false` and `idempotentHint: false`.
 
 When the bound fork needs a fresh Git credential, call `refresh_token({repoName, ttlSeconds: 3600})`. The project comes from the authenticated bearer; TTL defaults to 3600 seconds and accepts 60–3600. It returns `{remote, token, expiresAt}` for the existing caller-owned fork. Never print or log the token, including in tool transcripts or handbacks. Keep it in private runtime memory and use it only as an `http.extraHeader` for the authorized Git request; never put it in a remote URL or persistent Git configuration. Do not retry an uncertain refresh blindly.
 

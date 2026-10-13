@@ -233,6 +233,47 @@ test("lane state labels and dots distinguish failed checks, warnings and review"
   }
   await act(async () => root.unmount());
 });
+test("a claimed lane without a review shows an In progress brand dot", async () => {
+  const state = fixture("fork-in-progress");
+  const lane = forkGraph(state, now).lanes.find((entry) => entry.packet === "fixture-02")!;
+  assert.equal(lane.state, "In progress");
+  assert.equal(lane.review, undefined);
+  const { JSDOM } = createRequire(import.meta.url)("jsdom");
+  const dom = new JSDOM("<div id='root'></div>", { url: "https://fixture.idiot.tax" });
+  installDom(dom.window);
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+    value: true,
+    configurable: true,
+  });
+  const root = createRoot(document.getElementById("root")!);
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ForkGraph, {
+          state,
+          owner: false,
+          openReview: () => {},
+          openPacket: () => {},
+          openReceipt: () => {},
+          now,
+        }),
+      ),
+    ),
+  );
+  const label = [...document.querySelectorAll(".fork-state")].find(
+    (entry) => entry.textContent!.trim() === "● In progress",
+  )!;
+  assert.ok(label);
+  assert.ok(label.classList.contains("fork-state-brand"));
+  const racing = [...document.querySelectorAll(".fork-state")].filter(
+    (entry) => entry.textContent!.trim() === "● Racing",
+  );
+  assert.ok(racing.length);
+  assert.ok(racing.every((entry) => entry.classList.contains("fork-state-brand")));
+  await act(async () => root.unmount());
+});
 test("fixture DOM leaves closed table in accessibility tree, supports navigation and storage denial", async () => {
   const { JSDOM } = createRequire(import.meta.url)("jsdom");
   const dom = new JSDOM("<div id='root'></div>", { url: "https://fixture.idiot.tax" });

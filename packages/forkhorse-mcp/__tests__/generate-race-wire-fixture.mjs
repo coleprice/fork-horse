@@ -7,15 +7,24 @@ import { fileURLToPath } from "node:url";
 const coreSource = new URL("../../forkhorse-core/src/", import.meta.url);
 const moduleUrl = (source) =>
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-const raceModule = moduleUrl(
-  stripTypeScriptTypes(readFileSync(new URL("race-entrants.ts", coreSource), "utf8")),
-);
-const { raceStates, publicPacket } = await import(raceModule);
-const resumeSource = stripTypeScriptTypes(
-  readFileSync(new URL("resume-work.ts", coreSource), "utf8"),
+function sourceModule(file, dependencies = {}) {
+  let source = stripTypeScriptTypes(readFileSync(new URL(file, coreSource), "utf8"), {
+    mode: "transform",
+  });
+  for (const [specifier, url] of Object.entries(dependencies))
+    source = source.replace(JSON.stringify(specifier), JSON.stringify(url));
+  return moduleUrl(source);
+}
+// Fixed pure-module graph: definitions only, no provider/Worker entrypoint imports.
+const httpModule = sourceModule("http.ts");
+const usageModule = sourceModule("usage.ts", { "./http": httpModule });
+const raceModule = sourceModule("race-entrants.ts", { "./usage": usageModule });
+const { raceStates } = await import(raceModule);
+const { publicPacket } = await import(
+  sourceModule("packets.ts", { "./race-entrants": raceModule })
 );
 const { resumeWork } = await import(
-  moduleUrl(resumeSource.replace('"./race-entrants"', JSON.stringify(raceModule)))
+  sourceModule("resume-work.ts", { "./race-entrants": raceModule })
 );
 const at = "2026-01-01T00:00:00.000Z";
 const head = "a".repeat(40);
@@ -24,12 +33,13 @@ const agents = ["builder", "second", "third"];
 const packet = {
   id: "FH-race",
   mode: "race",
+  tokenBudget: 1000,
   title: "Core wire fixture",
   goal: "Offline wire validation",
   paths: ["src/"],
   acceptance: ["Fixture only"],
 };
-const legacy = { ...packet, id: "FH-standard", mode: undefined };
+const legacy = { ...packet, id: "FH-standard", mode: undefined, tokenBudget: undefined };
 const records = agents.map((agent) => ({
   packet: packet.id,
   agent,
@@ -44,6 +54,16 @@ const records = agents.map((agent) => ({
   place: null,
   closedAt: null,
   closedBy: null,
+  usage: {
+    reported: {
+      inputTokens: [800, 400, 1001][agents.indexOf(agent)],
+      outputTokens: 0,
+      model: "fixture-model",
+      source: "reported",
+      at,
+    },
+    metered: null,
+  },
 }));
 const review = {
   id: "review-wire-fixture",

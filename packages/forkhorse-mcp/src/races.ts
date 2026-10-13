@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PublicError } from "./core";
+import { budgetStateSchema, usageSourcesSchema } from "./usage";
 
 // FH-052/053 wire seam only. Core owns enrollment, milestones and placings.
 const name = z.string().min(1);
@@ -29,9 +30,12 @@ const entrant = z.object({
   closedAt: timestamp,
   closedBy: z.enum(["release", "owner", "race-finished"]).nullable(),
   promoteRejected: z.object({ at: name, expected: name, found: name }).nullable().optional(),
+  usage: usageSourcesSchema.optional(),
+  budget: budgetStateSchema.optional(),
 });
 const race = z.object({
   packet: packetId,
+  tokenBudget: z.number().int().positive().nullable().optional(),
   status: z.enum(["open", "finished"]),
   finishedAt: timestamp,
   winner: agentName.nullable(),
