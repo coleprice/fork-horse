@@ -9,14 +9,65 @@ import {
   forkGraph,
   timestamp,
   type ForkLane,
+  mainShaLabels,
+  tableEvents,
   type WindowChoice,
 } from "./fork-graph-model.ts";
 
-const eventText = (lane: ForkLane, kinds: string[]) =>
-  lane.events
-    .filter((e) => kinds.includes(e.kind))
-    .map((e) => `${clockTime(e.at)} ${e.label}`)
-    .join(" · ") || "—";
+const eventText = (events: ForkLane["events"]) =>
+  events.map((e) => `${clockTime(e.at)} ${e.label}`).join(" · ");
+function EventCell({
+  lane,
+  kinds,
+  open,
+  empty = "—",
+}: {
+  lane: ForkLane;
+  kinds: string[];
+  open: boolean;
+  empty?: string;
+}) {
+  const { shown, earlier } = tableEvents(lane.events, kinds);
+  return (
+    <>
+      <span className="fork-cell-visible" aria-hidden="true">
+        {shown
+          .map(
+            (e) =>
+              `${clockTime(e.at)}${e.kind === "passed" || e.kind === "failed" ? ` ${e.label.split(" · ")[0].replace(/^checks /, "")}` : ""}`,
+          )
+          .join(" · ") || empty}
+      </span>
+      <span className="sr-only">{eventText(shown) || empty}</span>
+      {earlier.length > 0 && (
+        <Tooltip
+          content={eventText(earlier)}
+          render={
+            <span
+              className="fork-earlier-events"
+              tabIndex={open ? 0 : -1}
+              aria-label={`${earlier.length} earlier events: ${eventText(earlier)}`}
+            />
+          }
+        >
+          {" "}
+          · +{earlier.length} earlier
+        </Tooltip>
+      )}
+    </>
+  );
+}
+// State-owned hiding ships with the shared component in both bundles, even with stale host CSS.
+const collapsedTableStyle = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
+} as const;
 const storageKey = (project: string) => `fork-table:${project}`;
 function defaultTable(project: string) {
   try {
@@ -114,6 +165,14 @@ export function ForkGraph({
     graph.start,
     now,
     innerWidth,
+  );
+  const mainLabels = mainShaLabels(
+    mainMarks.map((group) => ({
+      id: group.event.id,
+      at: group.events.at(-1)!.at,
+      x: x(group.event.at),
+    })),
+    width,
   );
   const summary = `Fork graph: ${graph.summary}`;
   return (
@@ -224,18 +283,31 @@ export function ForkGraph({
               const start = x(lane.start ?? graph.start),
                 end = x(lane.end ?? now);
               const known = lane.claimedAt !== undefined && lane.claimedAt >= graph.start;
-              const branchEnd = Math.min(end, start + 20);
+              const beforeWindow = lane.claimedAt !== undefined && lane.claimedAt < graph.start;
+              const leadStart = beforeWindow ? start : Math.max(12, start - 24);
+              const leadEnd = beforeWindow || start <= 12 ? Math.min(end, start + 24) : start;
+              const solidStart = !known && (beforeWindow || start <= 12) ? leadEnd : start;
+              const branchEnd = Math.min(end, solidStart + 20);
               const mergeStart = Math.max(branchEnd, end - 28);
               return (
                 <g key={lane.id} style={silkStyle(lane.identity)}>
                   {lane.race && (
                     <path d={`M 3 ${y - 12} L 3 ${y + 12}`} className="fork-race-bracket" />
                   )}
+                  {!known && (
+                    <line
+                      className="fork-lead-in fork-lane-line"
+                      x1={leadStart}
+                      x2={leadEnd}
+                      y1={y}
+                      y2={y}
+                    />
+                  )}
                   <LaneLine
                     path={
                       known
                         ? `M ${start} 30 C ${start} ${y} ${branchEnd - 12} ${y} ${branchEnd} ${y} H ${lane.promoted ? mergeStart : end}`
-                        : `M ${start} ${y} H ${lane.promoted ? mergeStart : end}`
+                        : `M ${solidStart} ${y} H ${lane.promoted ? mergeStart : end}`
                     }
                   />
                   {lane.promoted && (
@@ -260,8 +332,8 @@ export function ForkGraph({
               {clockTime(at)}
             </span>
           ))}
-          {mainMarks.map((group, index) => {
-            const entry = graph.ledger.find((e) => e.review === group.event.id)!;
+          {mainMarks.map((group) => {
+            const entry = graph.ledger.find((e) => e.review === group.events.at(-1)!.id)!;
             const text = group.events.map((e) => `${clockTime(e.at)} ${e.label}`).join(" · ");
             const hasReceipt = state.reviews.some(
               (r) =>
@@ -292,41 +364,56 @@ export function ForkGraph({
                 >
                   <span className="fork-commit-dot" aria-hidden="true" />
                 </Tooltip>
-                {group.events.length === 1 &&
-                  innerWidth > 450 &&
-                  x(group.event.at) > 35 &&
-                  width - x(group.event.at) > 35 &&
-                  (index === 0 || group.x - mainMarks[index - 1].x > 60) &&
-                  (index === mainMarks.length - 1 || mainMarks[index + 1].x - group.x > 60) && (
-                    <code className="caption fork-sha">{entry.sha.slice(0, 7)}</code>
-                  )}
+                {mainLabels.has(group.event.id) && (
+                  <code
+                    className="caption fork-sha"
+                    style={{ left: mainLabels.get(group.event.id)! - x(group.event.at) }}
+                  >
+                    {entry.sha.slice(0, 7)}
+                  </code>
+                )}
               </div>
             );
           })}
           {layout.map(({ lane, y }) => (
             <div key={lane.id}>
-              {(lane.claimedAt === undefined ||
-                lane.claimedAt < graph.start ||
+              {(lane.claimedAt === undefined || lane.claimedAt < graph.start) && (
+                <Tooltip
+                  content={
+                    lane.claimedAt === undefined
+                      ? "Started before the loaded history"
+                      : `Started at ${clockTime(lane.claimedAt)}, before this window`
+                  }
+                  render={
+                    <button
+                      className="fork-start"
+                      aria-label={
+                        lane.claimedAt === undefined
+                          ? "Started before the loaded history"
+                          : `Started at ${clockTime(lane.claimedAt)}, before this window`
+                      }
+                      style={{
+                        left:
+                          x(lane.start ?? graph.start) <= 12 || lane.claimedAt !== undefined
+                            ? x(lane.start ?? graph.start)
+                            : x(lane.start ?? graph.start) - 24,
+                        top: y - 8,
+                      }}
+                    />
+                  }
+                >
+                  <span className="sr-only">Fork start</span>
+                </Tooltip>
+              )}
+              {((lane.claimedAt !== undefined && lane.claimedAt < graph.start) ||
                 lane.earlierPushes) && (
                 <span
                   className="fork-history caption muted"
                   style={{ left: `${percent(lane.start ?? graph.start)}%`, top: y + 10 }}
                 >
-                  {lane.claimedAt === undefined ? (
-                    <Tooltip
-                      content="Started before the loaded history"
-                      render={
-                        <button
-                          className="fork-stub"
-                          aria-label="Started before the loaded history"
-                        />
-                      }
-                    >
-                      ‹
-                    </Tooltip>
-                  ) : lane.claimedAt < graph.start ? (
-                    <span className="fork-stub">‹ since {clockTime(lane.claimedAt)}</span>
-                  ) : null}
+                  {lane.claimedAt !== undefined && lane.claimedAt < graph.start && (
+                    <span className="fork-stub">since {clockTime(lane.claimedAt)}</span>
+                  )}
                   {lane.earlierPushes && (
                     <span className="fork-earlier">Earlier pushes not shown</span>
                   )}
@@ -460,10 +547,15 @@ export function ForkGraph({
       >
         {effectiveOpen ? "▾" : "▸"} Same facts as a table
       </button>
-      <div className={`fork-table ${effectiveOpen ? "" : "fork-table-collapsed"}`} id={tableId}>
+      <div
+        className={`fork-table ${effectiveOpen ? "" : "fork-table-collapsed"}`}
+        style={effectiveOpen ? undefined : collapsedTableStyle}
+        id={tableId}
+      >
         <table>
           <caption className="caption">
-            Recorded fork events. Times are local; all loaded events are listed.
+            Recorded fork events. Times are local; each cell shows up to three events. Earlier
+            events are available on focus or hover.
           </caption>
           <thead>
             <tr>
@@ -491,24 +583,35 @@ export function ForkGraph({
                   {lane.agent}
                 </th>
                 <td>
-                  <button onClick={() => navigate(lane)}>
+                  <button tabIndex={effectiveOpen ? 0 : -1} onClick={() => navigate(lane)}>
                     <code>{lane.packet}</code>
                     {lane.race ? " (race)" : ""}
                   </button>
                 </td>
                 <td>{lane.claimedAt !== undefined ? clockTime(lane.claimedAt) : "—"}</td>
                 <td>
-                  {eventText(lane, ["push"])}
+                  <EventCell lane={lane} kinds={["push"]} open={effectiveOpen} />
                   {lane.earlierPushes && (
                     <span className="caption muted">Earlier pushes not shown</span>
                   )}
                 </td>
-                <td>{eventText(lane, ["review"])}</td>
                 <td>
-                  {eventText(lane, ["failed", "passed"])}
-                  {lane.review?.receipt?.status === "running" && " · Running"}
+                  <EventCell lane={lane} kinds={["review"]} open={effectiveOpen} />
                 </td>
-                <td>{eventText(lane, ["approved"])}</td>
+                <td>
+                  <EventCell
+                    lane={lane}
+                    kinds={["failed", "passed"]}
+                    open={effectiveOpen}
+                    empty={lane.review?.receipt?.status === "running" ? "Running" : "—"}
+                  />
+                  {lane.review?.receipt?.status === "running" &&
+                    lane.events.some((e) => e.kind === "failed" || e.kind === "passed") &&
+                    " · Running"}
+                </td>
+                <td>
+                  <EventCell lane={lane} kinds={["approved"]} open={effectiveOpen} />
+                </td>
                 <td>
                   {lane.promoted
                     ? `${clockTime(timestamp(lane.promoted.promotedAt)!)} · ${lane.promoted.sha.slice(0, 7)}`

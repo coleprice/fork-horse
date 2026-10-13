@@ -323,3 +323,22 @@ snapshot through the normal read path. These routes and controls never ship in
 production assets. Captures prove fixture rendering only; reserved root tests,
 worker-host integration, fresh-clone/D5 checks, and design/code sign-off remain
 separate acceptance gates.
+
+### Fork graph bundle fixes (FH-057b)
+
+The shared graph carries its closed-table hiding styles in the component as well as
+in CSS, so an older host stylesheet cannot reveal the accessibility twin. Closed
+cell controls leave keyboard tab order; opening the disclosure restores them.
+Unloaded starts use a dashed lead-in with a recorded-start tooltip. Main SHA labels
+reserve space for the newest promotion first, then fit older labels into the remaining
+space. Every event cell shows its three newest events, with `+n earlier` exposing the
+omitted facts on focus or hover.
+
+For offline bundle verification, build the dashboard and gatekeeper sidebar assets,
+then open `gatekeeper-fixtures.html?bundle=owner&scenario=fork-hero` or
+`gatekeeper-fixtures.html?scenario=fork-hero` on the dashboard fixture server.
+The owner route uses the built production entry and CSS against the local fixture API;
+the gatekeeper route loads its built self-contained sidebar in an opaque-origin frame
+with a synthetic host capability. Light/dark controls use the app theme path.
+`fork-history` exercises dense main labels and capped cells. These harnesses are excluded
+from production assets and prove offline bundle behavior only.

@@ -953,6 +953,22 @@ footer {
 .fork-stub {
   color: inherit;
 }
+.fork-lead-in {
+  stroke-dasharray: 3 4;
+}
+.fork-start {
+  position: absolute;
+  width: 24px;
+  height: 16px;
+  border-radius: 3px;
+}
+.fork-start:focus-visible {
+  outline: 2px solid var(--color-kumo-ring);
+}
+.fork-earlier-events {
+  color: var(--text-color-kumo-subtle);
+  white-space: nowrap;
+}
 .fork-earlier {
   font-size: 10px;
 }
@@ -1031,15 +1047,6 @@ footer {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-.fork-table-collapsed:focus-within {
-  position: static;
-  width: auto;
-  height: auto;
-  margin: 0;
-  clip-path: none;
-  white-space: normal;
-  overflow: visible;
 }
 .fork-event {
   animation: fork-arrival 150ms ease-out;

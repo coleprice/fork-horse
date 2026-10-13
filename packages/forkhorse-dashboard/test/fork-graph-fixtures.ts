@@ -2,6 +2,7 @@ import type { StateResponse } from "../src/contracts.ts";
 import { fixtureState, fixtureReceipt } from "./fixtures.ts";
 export const forkScenarios = [
   "fork-hero",
+  "fork-history",
   "fork-resolved",
   "fork-old",
   "fork-many",
@@ -110,6 +111,45 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
         receiptDigest: receipt.digest,
         recordedAt: at(30),
       });
+  }
+  if (id === "fork-history") {
+    const latest = state.reviews.find((r) => r.id === "fixture-review-1")!;
+    const basePush = state.activity.find((a) => a.repoName === latest.repoName)!;
+    for (const [i, minutes] of [130, 125, 115, 105, 95, 85].entries()) {
+      state.activity.push({
+        ...basePush,
+        sequence: 100 + i,
+        recordedAt: at(minutes),
+        eventTimestamp: at(minutes),
+      });
+      state.reviews.unshift({
+        ...latest,
+        id: `fixture-history-review-${i}`,
+        createdAt: at(minutes - 1),
+        approvedAt: at(minutes - 3),
+        receipt: { ...latest.receipt!, finishedAt: at(minutes - 2) },
+      });
+    }
+    const merged = state.reviews.find((r) => r.id === "fixture-review-0")!;
+    for (const [i, minutes] of [95, 70, 29, 27, 2].entries()) {
+      const sha = String(i + 4).repeat(40);
+      const review = {
+        ...merged,
+        id: `fixture-history-merge-${i}`,
+        sha,
+        createdAt: at(minutes + 5),
+        approvedAt: at(minutes + 2),
+        receipt: { ...merged.receipt!, finishedAt: at(minutes + 3) },
+      };
+      state.reviews.push(review);
+      state.ledger.push({
+        ...state.ledger[0],
+        id: `fixture-ledger-${i}`,
+        review: review.id,
+        after: sha,
+        recordedAt: at(minutes),
+      });
+    }
   }
   state.blockers = [
     {

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { raceScenarios, raceFixtureState } from "./race-fixtures.ts";
 import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
@@ -20,6 +21,60 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
   const states = new Map<string, ReturnType<typeof fixtureState>>();
   return (request: IncomingMessage, response: ServerResponse, next: () => void) => {
     const url = new URL(request.url ?? "/", "http://fixture.idiot.tax");
+    if (url.pathname === "/__fixtures/owner-bundle" && request.method === "GET") {
+      const project = forkScenarios.includes(url.searchParams.get("scenario") ?? "")
+        ? url.searchParams.get("scenario")!
+        : "fork-hero";
+      try {
+        const html = readFileSync(new URL("../dist/index.html", import.meta.url), "utf8");
+        const config = JSON.stringify({ projects: [{ id: project, label: project }] });
+        response.setHeader("Content-Type", "text/html");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(
+          html.replace(
+            "</body>",
+            `<script id="dashboard-config" type="application/json">${config}</script><script type="module" src="/test/owner-theme-fixture.ts"></script></body>`,
+          ),
+        );
+      } catch {
+        response.statusCode = 503;
+        response.end("Build the owner dashboard first.");
+      }
+      return;
+    }
+    if (/^\/app\/assets\/[A-Za-z0-9_.-]+$/.test(url.pathname) && request.method === "GET") {
+      try {
+        response.setHeader(
+          "Content-Type",
+          url.pathname.endsWith(".css") ? "text/css" : "text/javascript",
+        );
+        response.end(
+          readFileSync(
+            new URL(`../dist/assets/${url.pathname.split("/").at(-1)}`, import.meta.url),
+          ),
+        );
+      } catch {
+        response.statusCode = 404;
+        response.end("Fixture build asset missing.");
+      }
+      return;
+    }
+    if (url.pathname === "/__fixtures/gatekeeper-bundle" && request.method === "GET") {
+      try {
+        response.setHeader("Content-Type", "text/html");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(
+          readFileSync(
+            new URL("../../forkhorse-gatekeeper/dist/sidebar.html", import.meta.url),
+            "utf8",
+          ),
+        );
+      } catch {
+        response.statusCode = 503;
+        response.end("Build the gatekeeper sidebar assets first.");
+      }
+      return;
+    }
     // Test harness reset; this middleware is excluded from production builds.
     if (url.pathname === "/__fixtures/reset" && request.method === "POST") {
       states.clear();
