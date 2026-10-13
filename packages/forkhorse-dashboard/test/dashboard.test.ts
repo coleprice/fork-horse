@@ -486,7 +486,9 @@ test("packet states follow blocker, promotion, approval, stale review and claim 
   const review = state.reviews[0];
   assert.equal(packetStatus(id, state).label, "In review");
   review.status = "stale";
-  assert.equal(packetStatus(id, state).label, "Fork moved");
+  review.stale = true;
+  assert.equal(packetStatus(id, state).label, "Out of date");
+  review.stale = false;
   review.status = "approved";
   assert.equal(packetStatus(id, state).label, "Approved");
   review.status = "promoted";

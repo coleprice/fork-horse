@@ -30,6 +30,7 @@ import {
   recentReceipts,
   receiptGateCaption,
   reviewGate,
+  reviewState,
   reviewQueue,
   type ViewModel,
 } from "./model.ts";
@@ -135,8 +136,10 @@ export function packetStatus(id: string, state: ProjectState): { label: string; 
     return { label: "Blocked", tone: "warning" };
   const reviews = state.reviews.filter((r) => r.packet === id);
   if (reviews.some((r) => r.status === "promoted")) return { label: "Promoted", tone: "success" };
-  if (reviews.some((r) => r.status === "approved")) return { label: "Approved", tone: "success" };
-  if (reviews.some((r) => r.status === "stale")) return { label: "Fork moved", tone: "warning" };
+  if (reviews.some((r) => r.status === "approved" && reviewState(r, state).kind === "current"))
+    return { label: "Approved", tone: "success" };
+  const outdated = reviews.map((r) => reviewState(r, state)).find((cause) => cause.banner);
+  if (outdated) return { label: outdated.label, tone: "warning" };
   if (reviews.some((r) => r.status === "pending")) return { label: "In review", tone: "info" };
   if (state.claims.some((c) => c.packet === id && c.active))
     return { label: "In progress", tone: "brand" };
@@ -1001,9 +1004,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           >
                             {reviews.map((r) => {
                               const gate = reviewGate(r, state);
-                              const stale =
-                                r.status === "stale" ||
-                                state.forks.find((f) => f.repoName === r.repoName)?.head !== r.sha;
+                              const cause = reviewState(r, state);
+                              const stale = !!cause.banner;
                               return (
                                 <Table.Row key={r.id} className="review-card" onClick={actions.getReview ? (event) => {
                                   if (!(event.target as HTMLElement).closest("button, a")) actions.openReview(r.id);
@@ -1032,23 +1034,10 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell>{short(r.sha)}</Table.Cell>
                                   <Table.Cell>
                                     <Status
-                                      label={
-                                        r.returned
-                                          ? "Returned"
-                                          : stale
-                                          ? "Fork moved"
-                                          : r.status === "approved"
-                                            ? "Approved"
-                                            : "In review"
-                                      }
+                                      label={cause.label}
                                       tone={
-                                        r.returned
-                                          ? "danger"
-                                          : stale
-                                          ? "warning"
-                                          : r.status === "approved"
-                                            ? "success"
-                                            : "info"
+                                        cause.kind === "returned" ? "danger" : stale ? "warning"
+                                          : r.status === "approved" ? "success" : "info"
                                       }
                                     />
                                     <div className="caption muted folded">
@@ -1064,7 +1053,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     {r.returned && <p className="caption muted returned-preview">{r.returned.reason.split(/\r?\n/)[0]}</p>}
                                     {stale && (
                                       <div className="caption muted state-reason">
-                                        The agent must request review again.
+                                        {cause.caption}
                                       </div>
                                     )}
                                     {!stale && !r.returned &&

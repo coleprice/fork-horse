@@ -228,3 +228,24 @@ return bounds, agent restrictions, owner conflicts and existing receipt gates.
 Farrier design PASS and the superprime's code review remain separate gates.
 Use `?scenario=review-current&host=queue-only#review/review-1` in the fixture entry
 to exercise the dashboard fallback with `getReview` and `getDiff` absent.
+
+
+## FH-045 stale causes and quick durations
+
+Review detail and queue derive the first proven state from the public snapshot:
+Promoted, Returned, Fork moved, Main moved, then Out of date. Returned reviews
+never show a stale banner. Fork moved requires a known fork head different from
+the review SHA. Main moved requires a ledger entry whose latest `after` differs
+from the review base, no `current-head` reconciler alert, and an explicitly null
+`promotionPending`. It applies even when core reports `stale: false`; Approve,
+Promote and Return are hidden. Out of date requires `stale: true`. If main movement
+cannot be proven and the review is non-stale, its normal state stays visible.
+Approval binding and server checks still govern owner writes.
+
+All receipt surfaces format durations below one second in whole milliseconds
+(for example `227 ms`); values from one second retain the existing format.
+Synthetic fixture projects include `review-main-moved` (the non-stale approved
+photo-finish loser), `review-main-moved-stale`, `review-out-of-date`, and stale and
+non-stale reconciler/pending-promotion variants. Open their detail at
+`#review/review-1` or queue at `#review`. These fixtures establish offline rendering
+only. Design PASS and independent code acceptance remain external handback gates.

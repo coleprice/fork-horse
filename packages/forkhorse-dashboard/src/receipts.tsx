@@ -9,6 +9,7 @@ export function checkCount(count: number): string {
 
 export function duration(value: number | null): string {
   if (value === null || !Number.isFinite(value) || value < 0) return "";
+  if (value < 1000) return `${Math.round(value)} ms`;
   const seconds = Math.round(value / 1000);
   if (seconds >= 3600) {
     const minutes = Math.floor((seconds % 3600) / 60);

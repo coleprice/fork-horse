@@ -57,6 +57,7 @@ export interface Review {
   requestedAt?: string;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
+  stale?: boolean;
   returned?: null | { reason: string; at: string };
   approval?: { sha: string; receiptDigest: string | null } | null;
   receipt?: ReceiptSummary | null;
