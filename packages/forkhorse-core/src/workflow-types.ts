@@ -5,6 +5,8 @@ export interface Packet {
   mode?: "standard" | "race";
   /** Immutable race-only limit on input plus output tokens. */
   tokenBudget?: number;
+  /** Immutable enrolled agent; advisory only and never an entrant in this race. */
+  judge?: string;
   title: string;
   goal: string;
   paths: string[];
@@ -65,8 +67,19 @@ export interface RaceResult {
   finishedAt: string;
   ledgerEntryId: string;
 }
+export interface RaceVerdict {
+  ranking: string[];
+  rationale: string;
+  at: string;
+}
+/** Advice may exist before the immutable finish is written at race:<packet>. */
+export type RaceRecord = (RaceResult | {
+  finishedAt?: never; winner?: never; places?: never; ledgerEntryId?: never;
+}) & { verdict?: RaceVerdict };
 export interface RaceState {
   packet: string;
+  judge: string | null;
+  verdict: RaceVerdict | null;
   tokenBudget: number | null;
   status: "open" | "finished";
   finishedAt: string | null;

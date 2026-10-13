@@ -453,7 +453,8 @@ reason and at. Returned reviews cannot be approved or promoted: both return
 stale normally; the agent requests a new review. Returning does not release the claim.
 
 `GET /projects/:id/reviews/:rid` is available to the owner and that review's agent,
-including historical reviews after claim release. It returns:
+including historical reviews after claim release. A race's named judge may also
+read its entrants' reviews, subject to the exact binding described below. It returns:
 
 - `review`: public review, excluding private receipt execution identity and logs;
 - `packet`: `{id, title, goal, paths, acceptance}`;
@@ -569,7 +570,8 @@ Caller `/me.work` includes open race entries with the existing `next` rules.
 The first approved review whose canonical Git compare-and-swap succeeds wins.
 The ledger transaction records the winner's `promotedAt` and place 1, releases
 all still-open entrants, stales their outstanding reviews, and stores
-`race:<packet>` as `{winner, places, finishedAt, ledgerEntryId}`. `winner` is the
+`race:<packet>` as `{winner, places, finishedAt, ledgerEntryId}`, preserving any
+existing advisory `verdict`. `winner` is the
 agent name; `places` is an ordered array of `{agent, place}`. `ledgerEntryId`
 is the string `ledger[].id`, and that ledger entry's `race` is the packet ID.
 `/state.races[]` exposes this result (`places: []` and null finish metadata while
@@ -585,7 +587,8 @@ audit for its exact review, allowing an already-running advisory receipt to
 attach without changing final placings. Other open entrants use the existing
 release mechanism with `releasedBy: "race-finished"`; their affected blockers
 resolve with `by: "race-finished"`. Other packets' bindings remain untouched.
-Finished races refuse new or repeated entrant claims with `409 "Race finished."`.
+Finished races refuse new or repeated entrant claims with `409 "Race finished."`
+(the named judge always receives `409 "The judge can't race."`).
 
 A race promote refused on a canonical-base mismatch, including a finished race,
 keeps the usual `409 {"error":"stale base, rebase"}`. A separate small transaction
@@ -597,6 +600,35 @@ logged without changing the definite 409 response. Uncertain pushes or finish
 transaction failures retain `promotionPending` for inspection, with no partial
 ledger, finish, placement or release writes. These fixture tests are offline
 workerd evidence only; live race acceptance is separate.
+
+### Advisory race judge (FH-063)
+
+Race creation accepts an optional immutable `judge` naming an enrolled project
+agent. Standard packets reject this field. The judge cannot claim that race:
+`409 {"error":"The judge can't race."}`. It can enter other races normally.
+
+The judge's sole cross-agent read exception is `GET /reviews/:rid` and
+`GET /reviews/:rid/diff?path=...` for that race's entrants. The review must match
+the retained entrant's packet, agent and fork binding, including after withdrawal
+or race finish. Other agents' reviews outside this race remain forbidden (`403`).
+Receipt logs, fork credentials, approval, return and promotion retain their
+existing authorization rules; approval and promotion remain owner-only.
+
+`POST /projects/:id/races/:packet/verdict` accepts
+`{ranking: [agent, ...], rationale}` and returns `200 {verdict}`. Only the named
+judge may submit; the owner and other agents receive `403`. Ranking must be an
+exact permutation of the current retained entrant roster (including withdrawals),
+and rationale must be nonblank and 1–2000 characters. Invalid input gets `400`.
+Adding an entrant changes the permutation required for the next submission.
+
+The stored `race:<packet>.verdict` is `{ranking, rationale, at}`, where `at` is
+server time. The judge can replace it until owner promotion finishes the race;
+later submissions return `409`. `/state.races[]` includes `judge` (null when
+absent) and `verdict` (null until submitted). A verdict alone does not finish the
+race, prevent claims, approve work, change places or promote anything. The owner
+may choose a different winner; the finish transaction preserves the advice.
+The workerd tests use offline Artifacts fixtures; live judged-race acceptance
+requires a separate operator run.
 
 ### Cumulative usage and race token budgets
 
