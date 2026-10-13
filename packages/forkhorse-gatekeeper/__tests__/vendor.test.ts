@@ -23,16 +23,17 @@ let head = OLD, role = "agent", agent = "alpha", scopes: string[], pushes: strin
 let moveDuringPush = false, badGrant = false, redirectCore = false, redirectGit = false;
 let pulls: string[] = [];
 let workflowCalls: { path: string; method: string; body: unknown }[] = [];
+let pushFailure: "applied" | "absent" | null = null;
 let workflowMode: "standard" | "race" = "standard";
 let workflowFailure = false;
-const state = () => { const value = fixtureState("fixture"); value.packets.push({ id: "workflow-packet", mode: workflowMode, title: "Workflow fixture", goal: "Fixture", paths: [], acceptance: [] }); return value; };
+const state = () => { const value = fixtureState("fixture"); value.forks.push({ repoName: "fixture--alpha-1", agent: "alpha", remote: REMOTE, head, createdAt: "2026-01-01" }); value.packets.push({ id: "workflow-packet", mode: workflowMode, title: "Workflow fixture", goal: "Fixture", paths: [], acceptance: [] }); return { ...value, races: [] }; };
 function packets(lines: string[]): string {
   const chunks = [...lines.map(encodePktLine), FLUSH_PKT];
   return chunks.map(c => new TextDecoder().decode(c)).join("");
 }
 beforeEach(() => {
   workflowCalls = []; workflowMode = "standard"; workflowFailure = false;
-  head = OLD; role = "agent"; agent = "alpha"; scopes = []; pushes = []; unauthorized = false; moveDuringPush = false; badGrant = false; redirectCore = false; redirectGit = false; pulls = [];
+  pushFailure = null; head = OLD; role = "agent"; agent = "alpha"; scopes = []; pushes = []; unauthorized = false; moveDuringPush = false; badGrant = false; redirectCore = false; redirectGit = false; pulls = [];
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -75,7 +76,9 @@ beforeEach(() => {
       const body = new TextDecoder().decode(await request.arrayBuffer()); pushes.push(body);
       expect(body).toContain(`${OLD} ${NEXT} refs/heads/main`);
       if (moveDuringPush) return new Response(packets(["unpack ok", "ng refs/heads/main stale old sha"]));
+      if (pushFailure === "absent") throw new Error("Fixture failed before push");
       head = NEXT;
+      if (pushFailure === "applied") throw new Error("Fixture lost successful push reply");
       return new Response(packets(["unpack ok", "ok refs/heads/main"]));
     }
     throw new Error("Unexpected offline fixture request.");
@@ -313,6 +316,8 @@ it("runs production workflow calls through the account provider, with observatio
     expect(workflowCalls).toHaveLength(index);
     const action = queue.submitted[index]!;
     expect(action.description).toMatchObject({ awaitDecision: true, autoApprovable: true });
+    if (index === 0) expect(action.description.description).toBe("Create one new fork of fixture for alpha.");
+    if (index === 2) expect(action.description.description).toBe(`Request review of commit ${OLD.slice(0, 7)} on fork fixture--alpha-1 for workflow-packet.`);
     await gatekeeper.applyAction(action.id, queue.cache as unknown as GitCache);
     await gatekeeper.applyAction(action.id, queue.cache as unknown as GitCache);
     expect(workflowCalls).toHaveLength(index + 1);
@@ -331,6 +336,7 @@ it("classifies race entry from core and prevents push/workflow queue conflicts",
   workflowMode = "race";
   await session.claim("workflow-packet", "fixture--alpha-1");
   expect(queue.submitted[0]!.description.actionKind.tag).toBe("race-entry");
+  expect(queue.submitted[0]!.description.description).toBe("Enter alpha in race workflow-packet on fork fixture--alpha-1.");
   await refuse(() => session.push("main", NEXT), "pending workflow");
   await gatekeeper.rejectAction(queue.submitted[0]!.id);
   await session.push("main", NEXT);
@@ -345,14 +351,15 @@ it("classifies race entry from core and prevents push/workflow queue conflicts",
   expect(workflowCalls).toEqual([]);
 });
 
-it("does not disclose provider errors or retry an uncertain joined fork", async () => {
+it("bounds absent-join retries and keeps provider errors private", async () => {
   const { session, gatekeeper, queue, user } = await resource();
   await session.join();
   workflowFailure = true;
   await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "outcome uncertain");
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "outcome uncertain");
   workflowFailure = false;
-  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "will not be sent again");
-  expect(workflowCalls).toHaveLength(1);
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "outcome uncertain");
+  expect(workflowCalls).toHaveLength(2);
   await user.revoke();
   await refuse(() => session.context(), "connection unavailable");
 });
@@ -370,4 +377,34 @@ it("uses the injected Stable provider bearer for every workflow HTTP call instea
   await client.readReceipts("workflow-review");
   expect(getBearer).toHaveBeenCalledTimes(14);
   for (const args of getBearer.mock.calls) expect(args).toEqual([{ origin: ORIGIN, project: "fixture" }]);
+});
+
+
+it("reconciles a successful push with a lost reply from the exact head", async () => {
+  const { session, gatekeeper, queue } = await resource();
+  await session.push("main", NEXT);
+  pushFailure = "applied";
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "Git push failed");
+  expect((await session.getHead()).commitId).toBe(NEXT);
+  await gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache);
+  expect(pushes).toHaveLength(1);
+  await session.join();
+  expect(queue.submitted).toHaveLength(2);
+});
+
+it("allows one push retry at the original head and fences further or divergent attempts", async () => {
+  const { session, gatekeeper, queue } = await resource();
+  await session.push("main", NEXT);
+  pushFailure = "absent";
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "Git push failed");
+  await session.push("main", NEXT);
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "Git push failed");
+  pushFailure = null;
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "outcome uncertain");
+  expect(pushes).toHaveLength(2);
+  head = "c".repeat(40);
+  await refuse(() => session.push("main", NEXT), "outcome uncertain");
+  head = NEXT;
+  await session.getHead();
+  await session.join();
 });

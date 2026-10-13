@@ -15,7 +15,7 @@ import { oid } from "./core-client.ts";
 import { TYPES } from "./api-types.ts";
 
 interface Props { accountId: string; repoName: string }
-interface Push { branch: string; oldSha: string; newSha: string; status: "preparing" | "pending" | "applied" | "rejected" }
+interface Push { branch: string; oldSha: string; newSha: string; status: "preparing" | "pending" | "applying" | "retryable" | "applied" | "rejected"; attempts?: number }
 
 @validateRpc()
 export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekeeper<AgentForkSession> {
@@ -26,13 +26,14 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
   #workflow(): WorkflowActions {
     const account = this.#account();
     return new WorkflowActions(this.ctx.storage.kv, {
-      authorize: async () => { await account.fork(this.ctx.props.repoName); },
+      authorize: async () => { await account.fork(this.ctx.props.repoName); return account.identity(); },
       context: () => account.workflowContext(),
       execute: operation => account.executeWorkflow(operation),
       readReview: (review): Promise<ReadReviewResponse> => account.readReview(review),
       readReceipts: (review): Promise<ReadReceiptsResponse> => account.readReceipts(review),
-    }, this.#serial, () => {
-      if ([...this.ctx.storage.kv.list<Push>({ prefix: "push:" })].some(([, action]) => action.status === "preparing" || action.status === "pending")) {
+    }, this.#serial, async () => {
+      this.#reconcilePush(await this.readHead());
+      if ([...this.ctx.storage.kv.list<Push>({ prefix: "push:" })].some(([, action]) => ["preparing", "pending", "applying", "retryable"].includes(action.status))) {
         throw new Error("Resolve the pending push before submitting a workflow action.");
       }
     });
@@ -57,16 +58,33 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
     const state = await source.state();
     return { repoName: fork.repoName, branch: state.project.defaultBranch, commitId: fork.head };
   }
+  #reconcilePush(head: { branch: string; commitId: string }): void {
+    for (const [key, action] of this.ctx.storage.kv.list<Push>({ prefix: "push:" })) {
+      if (action.status !== "applying" && action.status !== "retryable") continue;
+      if (head.branch !== action.branch) { this.ctx.storage.kv.put(key, { ...action, status: "applying" }); continue; }
+      if (head.commitId === action.newSha) this.ctx.storage.kv.put(key, { ...action, status: "applied" });
+      else this.ctx.storage.kv.put(key, { ...action, status: head.commitId === action.oldSha && (action.attempts ?? 1) < 2 ? "retryable" : "applying" });
+    }
+  }
+  async readAndReconcileHead(): Promise<{ repoName: string; branch: string; commitId: string }> {
+    return this.#serial.run(async () => {
+      const head = await this.readHead();
+      this.#reconcilePush(head);
+      return head;
+    });
+  }
   async submitPush(queue: RpcStub<ApprovalQueue>, branch: string, commitId: string): Promise<void> {
     await this.#serial.run(async () => {
+      await this.#workflow().reconcileInsideQueue();
       if (this.#workflow().hasPending()) throw new Error("Resolve the pending workflow action before pushing.");
       validateBranchName(branch);
       if (!oid(commitId) || /^0+$/.test(commitId)) throw new Error("A full, nonzero commit ID is required.");
       const head = await this.readHead();
+      this.#reconcilePush(head);
       if (branch !== head.branch) throw new Error("Only the fork's default branch is supported.");
       if (head.commitId === commitId) return;
-      const actions = this.ctx.storage.kv.list<Push>({ prefix: "push:" });
-      const interrupted = [...actions].find(([, a]) => a.status === "preparing");
+      const actions = [...this.ctx.storage.kv.list<Push>({ prefix: "push:" })];
+      const interrupted = actions.find(([, a]) => a.status === "preparing" || a.status === "retryable");
       if (interrupted) {
         const [key, action] = interrupted;
         if (action.branch !== branch || action.newSha !== commitId) {
@@ -77,7 +95,8 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
         await this.#queuePush(queue, Number(key.slice(5)), action, head.repoName);
         return;
       }
-      if ([...actions].some(([, a]) => a.status === "pending")) {
+      if (actions.some(([, a]) => a.status === "applying")) throw new Error("Push outcome uncertain. Check the fork head against the approved commit; this call will not blindly resend it.");
+      if (actions.some(([, a]) => a.status === "pending")) {
         throw new Error("Resolve the pending push before submitting another.");
       }
       using cache = await queue.getGitCache();
@@ -94,8 +113,8 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
   async #queuePush(queue: RpcStub<ApprovalQueue>, id: number, action: Push, repoName: string): Promise<void> {
     try {
       await queue.submitAction(id, {
-        title: `Push ${action.newSha.slice(0, 12)} to ${action.branch}`,
-        description: `Advance fork ${repoName} on branch ${action.branch} from ${action.oldSha} to ${action.newSha}. The update fails if the branch moved.`,
+        title: `Push ${action.newSha.slice(0, 7)} to ${action.branch}`,
+        description: `Move ${action.branch} on fork ${repoName} from ${action.oldSha.slice(0, 7)} to ${action.newSha.slice(0, 7)}. This fails if the branch moved.`,
         pushedCommits: [action.newSha], implementsRevert: false, awaitDecision: true,
         actionKind: actionKinds.push, autoApprovable: true,
       });
@@ -112,11 +131,13 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
     const workflow = this.#workflow();
     if (workflow.has(id)) return workflow.apply(id);
     await this.#serial.run(async () => {
+      const head = await this.readHead();
+      this.#reconcilePush(head);
       const action = this.ctx.storage.kv.get<Push>(`push:${id}`);
       if (action?.status === "applied") return;
+      if (action?.status === "applying") throw new Error("Push outcome uncertain. Check the fork head against the approved commit; this call will not blindly resend it.");
       // A queued OS action is still approvable if its submission reply was lost.
-      if (action?.status !== "pending" && action?.status !== "preparing") throw new Error("Push is not pending approval.");
-      const head = await this.readHead();
+      if (action?.status !== "pending" && action?.status !== "preparing" && action?.status !== "retryable") throw new Error("Push is not pending approval.");
       // Recover a lost successful reply; the approved exact commit is already present.
       if (head.commitId !== action.newSha) {
         if (head.branch !== action.branch || head.commitId !== action.oldSha) throw new Error("Fork moved; discard this push and rebase.");
@@ -124,6 +145,7 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
           throw new Error("Push is not a fast-forward.");
         }
         const pack = await cache.buildPack();
+        this.ctx.storage.kv.put(`push:${id}`, { ...action, status: "applying", attempts: (action.attempts ?? 0) + 1 });
         await this.#account().push(this.ctx.props.repoName, action.branch, action.oldSha, action.newSha, pack);
       }
       this.ctx.storage.kv.put(`push:${id}`, { ...action, status: "applied" });
@@ -133,9 +155,10 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
     const workflow = this.#workflow();
     if (workflow.has(id)) return workflow.reject(id);
     await this.#serial.run(async () => {
+      this.#reconcilePush(await this.readHead());
       const action = this.ctx.storage.kv.get<Push>(`push:${id}`);
       if (!action || action.status === "rejected") return;
-      if (action.status === "applied") throw new Error("Push already applied.");
+      if (action.status === "applied" || action.status === "applying") throw new Error("Push already sent; inspect the fork head.");
       this.ctx.storage.kv.put(`push:${id}`, { ...action, status: "rejected" });
     });
   }
@@ -154,7 +177,7 @@ class ForkSession extends WorkflowSession implements AgentForkSession {
   constructor(private readonly gatekeeper: ForkGatekeeper, queue: RpcStub<ApprovalQueue>, actions: WorkflowActions) { super(actions, queue); }
   async getHead(): Promise<{ repoName: string; branch: string; commitId: string }> {
     await this.queue.authorizeObservation({ title: "Read fork head", description: "Read the connected fork's default branch and commit." });
-    const head = await this.gatekeeper.readHead();
+    const head = await this.gatekeeper.readAndReconcileHead();
     using cache = await this.queue.getGitCache();
     if (!/^0+$/.test(head.commitId)) await cache.advertiseCommit(head.commitId);
     return head;

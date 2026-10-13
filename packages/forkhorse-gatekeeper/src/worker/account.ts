@@ -166,7 +166,7 @@ export class AgentAccount extends WorkerEntrypoint<Env, AccountProps> implements
   async getSupportedResources(): Promise<SupportedResource[]> {
     const meta = await this.#account().metadata();
     const address = forkAddress({ origin: meta.coreOrigin, project: meta.project, repoName: `${meta.project}--repo-name` });
-    return [{ ...RESOURCE, description: `An agent-owned Git fork. Attach its exact address: ${address.slice(0, address.lastIndexOf("/") + 1)}<repoName>. Choose an owned fork in the resource picker.` }];
+    return [{ ...RESOURCE, description: `An agent-owned Git fork. Attach its exact address: ${address.slice(0, address.lastIndexOf("/") + 1)}<repoName>. Choose one of the connected agent's forks in the resource picker.` }];
   }
   async getGatekeeperClassFor(url: string): Promise<{ class: DurableObjectClass<Gatekeeper<any>>; resource: SupportedResource }> {
     const source = this.#account();

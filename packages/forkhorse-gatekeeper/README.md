@@ -55,13 +55,26 @@ race entry is derived from core's packet mode, not from an agent-provided label.
 A mode change before apply refuses the action. Pending Git and workflow actions
 block each other so an agent cannot request review while its push is unapplied.
 
-Queue submission retries retain the same action ID. Once a workflow request is
-sent, an ambiguous reply remains fenced: automatic retry could create a second
-fork or review. Inspect context and ask the operator to reconcile that resource;
-this package does not automatically clear uncertain outcomes. Approval-time
-calls recheck the connected account and obtain bearer authorization through the
-Stable stored-key provider. Existing queued Git pushes keep their original IDs
-and remain compatible with the new dispatcher.
+Queue submission retries retain the same action ID. After an uncertain write,
+fresh context reconciles the stored intent: a matching live claim, retained race
+entrant, newly created agent fork, exact-commit review, or removed claim proves
+the desired result. Push uses the exact remote head. Reconciliation and writes
+share the serial queue, so a read begun before a write cannot authorize a retry.
+
+Join compares the agent's fork names before and after the request: one new fork
+proves success; existing forks alone do not. Multiple new forks, a changed claim,
+a divergent push head, unavailable context, or missing evidence keep the fence
+with a message naming what to inspect. Authoritative absence allows one retry of
+the same intent; a second uncertain attempt cannot retry again. An omitted claim
+fork is resolved before approval and stays fixed across retries. No read resends
+a write; the same approved action must be applied again, or the same call can
+resubmit its approval request. Later positive evidence can clear an exhausted
+fence. Approval-time calls recheck the connected account and obtain bearer
+credentials through the Stable provider. Existing queued pushes keep their IDs.
+
+Human approval copy names the agent/project for join, the entrant/packet/fork for
+race entry, and seven-character commits for push and review. Stored operations
+and pushed-commit payloads retain full commit IDs.
 
 ## Sidebar and resource picker
 

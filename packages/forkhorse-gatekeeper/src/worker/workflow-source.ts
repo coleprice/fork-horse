@@ -12,7 +12,7 @@ export interface WorkflowTransport {
 
 export function workflowSource(transport: WorkflowTransport): WorkflowSource {
   return {
-    async authorize() { await transport.identity(); },
+    async authorize() { return transport.identity(); },
     async context() {
       const identity = await transport.identity();
       const result = await transport.request("/state") as ContextResponse;

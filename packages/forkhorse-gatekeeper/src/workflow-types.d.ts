@@ -14,7 +14,7 @@ export interface AgentWorkflowSession extends RpcTarget {
   readReceipts(review: string): Promise<ReadReceiptsResponse>;
   /** Queue one new fork. After approval, read context and attach it; never retry blindly. */
   join(): Promise<void>;
-  /** Queue a claim; omitted repoName means the latest registered fork at apply time. */
+  /** Queue a claim; omitted repoName selects the latest registered fork before approval. */
   claim(packet: string, repoName?: string): Promise<void>;
   /** Queue owner review of this exact fork commit, after its push is applied. */
   requestReview(packet: string, repoName: string, sha: string): Promise<void>;

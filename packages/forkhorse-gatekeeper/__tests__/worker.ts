@@ -28,7 +28,7 @@ export class FixtureWorkspace extends DurableObject {
     return new WorkflowActions(this.ctx.storage.kv, workflowSource({
       identity: async () => ({ agent: "fixture-agent", work: [] }),
       request: async (path, init) => {
-        if (!init) return { project: { id: "fixture" }, packets: [{ id: "fixture-packet", mode: "standard" }] };
+        if (!init) return { project: { id: "fixture" }, packets: [{ id: "fixture-packet", mode: "standard" }], forks: [], claims: [], races: [], reviews: [] };
         const calls = this.ctx.storage.kv.get<unknown[]>("fixtureCalls") ?? [];
         calls.push({ path, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null });
         this.ctx.storage.kv.put("fixtureCalls", calls);
