@@ -1,12 +1,10 @@
 import { HttpError } from "./http";
 import { publicPacket } from "./packets";
+import { openEntrants } from "./race-entrants";
 import type { Blocker, Packet, PacketArchiveAudit, Review } from "./workflow-types";
 
 /** FH-048 records; absent legacy resolution and pushing identity remain open/null. */
-type ArchiveBlocker = Pick<Blocker, "packet"> & {
-  resolved?: unknown | null;
-  pushingPacket?: string | null;
-};
+type ArchiveBlocker = Pick<Blocker, "packet"> & Partial<Pick<Blocker, "resolved" | "pushingPacket">>;
 
 /** Called only after owner authorization, under the Supervisor serialization gate. */
 export async function archivePacket(
@@ -21,9 +19,7 @@ export async function archivePacket(
     // Repeats preserve the timestamp and audit, even if later history is inconsistent.
     if ((action === "archive") === (packet.archived !== null)) return packet;
     if (action === "archive") {
-      // FH-052's fixed storage contract; closed entrants remain durable history.
-      const entrants = await txn.list<{ closedAt: string | null }>({ prefix: `entrant:${packetId}:` });
-      if (await txn.get(`claim:${packetId}`) || [...entrants.values()].some(entrant => entrant.closedAt === null))
+      if (await txn.get(`claim:${packetId}`) || (await openEntrants(txn, packetId)).length)
         throw new HttpError(409, "Packet has a live claim.");
       const reviews = await txn.list<Review>({ prefix: "review:" });
       if ([...reviews.values()].some(review => review.packet === packetId &&

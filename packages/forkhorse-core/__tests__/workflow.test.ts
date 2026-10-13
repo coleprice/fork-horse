@@ -10,6 +10,7 @@ import type {
   LedgerEntry,
   Packet,
   PacketArchiveAudit,
+  RaceState,
   ReconcilerAlert,
   Review,
 } from "../src/workflow-types";
@@ -43,6 +44,7 @@ async function mutate(
 }
 interface State {
   packets: Packet[];
+  races: RaceState[];
   claims: Claim[];
   forks: (Fork & { head: string })[];
   reviews: Review[];
@@ -108,7 +110,7 @@ async function fixture(branch = "main") {
   }
   return { id, alpha, beta, a: `${id}--alpha-1`, b: `${id}--beta-1` };
 }
-async function packet(id: string, pid = "one", paths = ["src/**"]) {
+async function packet(id: string, pid = "one", paths = ["src/**"], mode: "standard" | "race" = "standard") {
   expect(
     (
       await api(id, "/packets", OWNER, {
@@ -117,6 +119,7 @@ async function packet(id: string, pid = "one", paths = ["src/**"]) {
         goal: "Fixture goal",
         paths,
         acceptance: ["Fixture check"],
+        ...(mode === "race" ? { mode } : {}),
       })
     ).status,
   ).toBe(201);
@@ -158,6 +161,79 @@ function push(
 }
 
 describe("FH-050 packet visibility and claim guard in workerd with offline providers", () => {
+  it("counts real race entrants until both release, and keeps closed history when archived", async () => {
+    const f = await fixture();
+    await packet(f.id, "one", ["src/**"], "race");
+    for (const token of [f.alpha, f.beta]) expect((await claim(f.id, token)).status).toBe(201);
+    expect((await state(f.id)).claims).toEqual([]);
+    for (const token of [f.alpha, f.beta]) {
+      const denied = await api(f.id, "/packets/one/archive", OWNER, undefined, "POST");
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual({ error: "Packet has a live claim." });
+      expect((await api(f.id, "/packets/one/claim", token, undefined, "DELETE")).status).toBe(200);
+    }
+    const closed = (await state(f.id)).races;
+    expect(closed[0]!.entrants.every(entrant => entrant.closedAt !== null)).toBe(true);
+    expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(200);
+    expect((await state(f.id)).races).toEqual(closed);
+    for (const token of [f.alpha, f.beta]) {
+      const denied = await claim(f.id, token);
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual({ error: "Packet is archived." });
+    }
+    expect((await api(f.id, "/packets/one/claim", f.alpha, undefined, "DELETE")).status).toBe(200);
+    expect((await state(f.id)).races).toEqual(closed);
+  });
+
+  it("restores claims on an unstarted race after unarchive and preserves packet mode", async () => {
+    const f = await fixture();
+    await packet(f.id, "one", ["src/**"], "race");
+    expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(200);
+    const denied = await claim(f.id, f.alpha);
+    expect(denied.status).toBe(409);
+    expect(await denied.json()).toEqual({ error: "Packet is archived." });
+    expect((await claim(f.id, OWNER)).status).toBe(403);
+    const response = await api(f.id, "/packets/one/unarchive", OWNER, undefined, "POST");
+    expect(response.status).toBe(200);
+    expect((await response.json<{ packet: Packet }>()).packet).toMatchObject({ mode: "race", archived: null });
+    expect((await claim(f.id, f.alpha)).status).toBe(201);
+  });
+
+  it("archives a finished real race without changing results, entrants, reviews or ledger", async () => {
+    const f = await fixture();
+    await packet(f.id, "one", ["src/**"], "race");
+    for (const token of [f.alpha, f.beta]) expect((await claim(f.id, token)).status).toBe(201);
+    const winner = await review(f.id, f.alpha, f.a);
+    await review(f.id, f.beta, f.b);
+    expect((await api(f.id, `/reviews/${winner.id}/promote`, OWNER, {})).status).toBe(200);
+    const before = await state(f.id);
+    expect(before.races[0]).toMatchObject({ status: "finished", winner: "alpha" });
+    expect(before.races[0]!.entrants.every(entrant => entrant.closedAt !== null)).toBe(true);
+    for (const action of ["archive", "unarchive"]) {
+      expect((await api(f.id, `/packets/one/${action}`, OWNER, undefined, "POST")).status).toBe(200);
+      const after = await state(f.id);
+      for (const key of ["races", "reviews", "ledger", "activity", "blockers"] as const)
+        expect(after[key]).toEqual(before[key]);
+      const denied = await claim(f.id, f.beta);
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual({ error: action === "archive" ? "Packet is archived." : "Race finished." });
+    }
+  });
+
+  it("allows archive after actual owner blocker resolution and preserves permanent blocker audits", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await seedBlockers(f.id, f.b, "one");
+    for (const id of ["open", "legacy"]) {
+      expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(409);
+      expect((await api(f.id, `/blockers/${id}/resolve`, OWNER, { reason: "Collision reconciled" })).status).toBe(200);
+    }
+    const before = (await state(f.id)).blockers;
+    expect(before.find(b => b.id === "other")!.resolved).toBeNull();
+    expect((await api(f.id, "/packets/one/archive", OWNER, undefined, "POST")).status).toBe(200);
+    expect((await state(f.id)).blockers).toEqual(before);
+  });
+
   it("authorizes only owner transitions, refuses unknown packets and enforces POST", async () => {
     const f = await fixture();
     await packet(f.id);
@@ -178,7 +254,7 @@ describe("FH-050 packet visibility and claim guard in workerd with offline provi
     ["review:open", { packet: "one", promoted: false, stale: false, returned: null }],
     ["blocker:claimant", { packet: "one", pushingPacket: "other", resolved: null }],
     ["blocker:pusher", { packet: "other", pushingPacket: "one", resolved: null }],
-    ["entrant:one:alpha", { packet: "one", closedAt: null }],
+    ["entrant:one:alpha", { packet: "one", agent: "alpha", closedAt: null }],
   ])("returns HTTP 409 for %s and leaves storage unchanged", async (key, record) => {
     const f = await fixture();
     await packet(f.id);
