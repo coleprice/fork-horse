@@ -26,6 +26,7 @@ export async function dispatchApi(request: Request, env: Env, owner = false): Pr
         : suffix === "/join" ||
         suffix === "/agents" ||
         suffix === "/reviews" ||
+        suffix === "/usage" ||
         /^\/agents\/[^/]+\/rotate$/.test(suffix) ||
         /^\/forks\/[^/]+\/(commit|token)$/.test(suffix) ||
         /^\/blockers\/[^/]+\/resolve$/.test(suffix) ||

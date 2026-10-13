@@ -3,6 +3,8 @@ export interface Packet {
   id: string;
   /** Absent only in legacy storage; public reads normalize it to standard. */
   mode?: "standard" | "race";
+  /** Immutable race-only limit on input plus output tokens. */
+  tokenBudget?: number;
   title: string;
   goal: string;
   paths: string[];
@@ -20,7 +22,21 @@ export interface Claim {
   repoName: string;
   paths: string[];
   createdAt: string;
+  /** Absent only in legacy storage; public reads normalize both sources to null. */
+  usage?: UsageSources;
 }
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  model?: string;
+  source: "reported" | "metered";
+  at: string;
+}
+export interface UsageSources {
+  reported: Usage | null;
+  metered: Usage | null;
+}
+export type TokenBudgetState = "unchecked" | "within" | "near" | "over";
 /** Race history is retained at entrant:<packet>:<agent>, including after release. */
 export interface RaceEntrant extends Claim {
   firstPushAt: string | null;
@@ -43,12 +59,15 @@ export interface RaceResult {
 }
 export interface RaceState {
   packet: string;
+  tokenBudget: number | null;
   status: "open" | "finished";
   finishedAt: string | null;
   winner: string | null;
   ledgerEntryId: string | null;
   places: RaceResult["places"];
-  entrants: (Omit<RaceEntrant, "packet" | "paths" | "createdAt"> & { claimedAt: string })[];
+  entrants: (Omit<RaceEntrant, "packet" | "paths" | "createdAt"> & {
+    claimedAt: string; usage: UsageSources; budget: TokenBudgetState;
+  })[];
 }
 /** Durable release history. Claim identity and provenance only; no credentials. */
 export interface ClaimReleaseAudit {
@@ -85,6 +104,8 @@ export interface Review {
   promoted: boolean;
   returned: null | { reason: string; at: string };
   createdAt: string;
+  /** Immutable cumulative snapshot; absent only in legacy storage. */
+  usageAtReview?: UsageSources;
 }
 /** Caller-owned live work only; review execution identities and credentials are omitted. */
 export interface WorkItem {
@@ -153,10 +174,10 @@ export interface StateSnapshot {
   forks: (Fork & { head: string })[];
   packets: Packet[];
   /** Only live claims appear. Release removes the claim, but keeps historical reviews. */
-  claims: Claim[];
+  claims: (Claim & { usage: UsageSources })[];
   races: RaceState[];
   blockers: Blocker[];
-  reviews: (Review & { receipt: ReceiptSummary | null })[];
+  reviews: (Review & { receipt: ReceiptSummary | null; usageAtReview: UsageSources })[];
   ledger: LedgerEntry[];
   /** Most recent 100 entries in ascending receive sequence. */
   activity: import("./types").Activity[];
