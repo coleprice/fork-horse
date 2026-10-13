@@ -44,6 +44,7 @@ export function mountDashboard(
   const window = root.ownerDocument.defaultView!;
   const sectionFromHash = (): Section => {
     const hash = window.location.hash.slice(1).split("/")[0];
+    if (hash === "race") return "work";
     return ["overview", "work", "review", "agents"].includes(hash) ? (hash as Section) : "overview";
   };
   const reviewFromHash = () => {
@@ -63,12 +64,22 @@ export function mountDashboard(
       return undefined;
     }
   };
+  const raceFromHash = () => {
+    const match = /^#race\/(.+)$/.exec(window.location.hash);
+    try {
+      return match ? decodeURIComponent(match[1]) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  let selectedRaceId = raceFromHash();
   let section = sectionFromHash();
   let selectedReviewId = reviewFromHash();
   function openReview(id?: string) {
     if (id && !options.transport.getReview) return;
     section = "review";
     selectedReviewId = id;
+    selectedRaceId = undefined;
     const hash = id ? `review/${encodeURIComponent(id)}` : "review";
     try {
       window.history.pushState(null, "", `#${hash}`);
@@ -77,8 +88,29 @@ export function mountDashboard(
     }
     draw();
   }
+  function openRace(id?: string) {
+    const previous = selectedRaceId;
+    section = "work";
+    selectedRaceId = id;
+    selectedReviewId = undefined;
+    const hash = id ? `race/${encodeURIComponent(id)}` : "work";
+    try {
+      window.history.pushState(null, "", `#${hash}`);
+    } catch {
+      window.location.hash = hash;
+    }
+    draw();
+    if (!id && previous)
+      requestAnimationFrame(() => {
+        [...root.querySelectorAll<HTMLElement>("[data-packet-id]")]
+          .find((row) => row.dataset.packetId === previous)
+          ?.querySelector<HTMLElement>(".packet-link")
+          ?.focus();
+      });
+  }
   function setSection(value: Section) {
     section = value;
+    selectedRaceId = undefined;
     selectedReviewId = undefined;
     // srcdoc inherits the OS URL; never let native anchors navigate its frame.
     try {
@@ -92,6 +124,7 @@ export function mountDashboard(
   function onHash() {
     section = sectionFromHash();
     selectedReviewId = reviewFromHash();
+    selectedRaceId = raceFromHash();
     draw();
   }
   window.addEventListener("hashchange", onHash);
@@ -104,6 +137,8 @@ export function mountDashboard(
           view: { ...view },
           actions: {
             section,
+            raceId: selectedRaceId,
+            openRace,
             reviewId: selectedReviewId,
             openReview,
             getReview: options.transport.getReview

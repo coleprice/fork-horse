@@ -6,8 +6,9 @@
   },
   {
     "name": "large-files",
-    "tier": "quick",
-    "module": ".forkhorse/quick/large-files.js"
+    "tier": "full",
+    "image": "default",
+    "run": "node -e 'const fs=require(\"fs\"),path=require(\"path\");function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){if(entry.name===\".git\")continue;const file=path.join(dir,entry.name);if(entry.isDirectory())walk(file);else if(entry.isFile()){const stat=fs.lstatSync(file);if(stat.isFile()&&stat.size>=10000000){console.error(JSON.stringify(file)+\": \"+stat.size+\" bytes (10 MB or more); Artifacts limits each file to 32 MB. See docs/large-files.md.\");process.exit(1);}}}}walk(\".\");console.log(\"All files are below 10 MB. See docs/large-files.md for Artifacts limits.\");'"
   },
   {
     "name": "brand",

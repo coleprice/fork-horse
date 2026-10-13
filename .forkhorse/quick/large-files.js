@@ -1,3 +1,5 @@
+// Unregistered stat API example for small snapshots. Repository-wide scans use
+// the full container check in .forkhorse/checks to avoid serial RPC deadlines.
 // Decimal MB; leave headroom below the provider's 32 MB per-file limit.
 const MAX_BYTES = 10_000_000;
 
