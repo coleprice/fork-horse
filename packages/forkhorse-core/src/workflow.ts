@@ -40,6 +40,13 @@ const text = (value: unknown, max: number): value is string =>
 const list = async <T>(storage: DurableObjectStorage, prefix: string): Promise<T[]> => [
   ...(await storage.list<T>({ prefix })).values(),
 ];
+// Legacy observations stay in storage unchanged until resolved.
+type StoredBlocker = Omit<Blocker, "resolved" | "at" | "pushingPacket"> &
+  Partial<Pick<Blocker, "resolved" | "at" | "pushingPacket">>;
+const publicBlocker = (blocker: StoredBlocker): Blocker => ({
+  ...blocker, at: blocker.at ?? null, pushingPacket: blocker.pushingPacket ?? null,
+  resolved: blocker.resolved ?? null,
+});
 
 /** Called only inside the Supervisor's serialization gate, after project authentication. */
 export class Workflow {
@@ -93,10 +100,17 @@ export class Workflow {
     releasedBy: ClaimReleaseAudit["releasedBy"],
     review?: string,
   ): Promise<void> {
+    const at = now();
     await txn.delete(`claim:${claim.packet}`);
     for (const pending of (await txn.list<Review>({ prefix: "review:" })).values()) {
       if (pending.packet === claim.packet && !pending.promoted)
         await txn.put(`review:${pending.id}`, { ...pending, stale: true });
+    }
+    for (const [key, blocker] of await txn.list<StoredBlocker>({ prefix: "blocker:" })) {
+      if (blocker.packet === claim.packet && !blocker.resolved)
+        await txn.put(key, { ...publicBlocker(blocker), resolved: {
+          at, by: releasedBy === "promote" ? "promote" : "release",
+        } } satisfies Blocker);
     }
     await txn.put(`claimRelease:${review ?? crypto.randomUUID()}`, {
       packet: claim.packet,
@@ -105,7 +119,7 @@ export class Workflow {
       claimedAt: claim.createdAt,
       releasedBy,
       ...(review ? { review } : {}),
-      recordedAt: now(),
+      recordedAt: at,
     } satisfies ClaimReleaseAudit);
   }
 
@@ -277,7 +291,36 @@ export class Workflow {
       return json({ repoName: fork.repoName, packet: claim.packet, sha: prepared.sha }, 201);
     }
     if (path === "/blockers" && method === "GET")
-      return json({ blockers: await list<Blocker>(this.storage, "blocker:") });
+      return json({ blockers: (await list<StoredBlocker>(this.storage, "blocker:")).map(publicBlocker) });
+    const resolving = /^\/blockers\/([^/]+)\/resolve$/.exec(path);
+    if (resolving && method === "POST") {
+      this.owner(actor);
+      const data = await body(request);
+      if (!text(data.reason, 200)) throw new HttpError(400, "reason must be 1 to 200 characters.");
+      const reason = data.reason;
+      const blocker = await this.storage.transaction(async txn => {
+        const key = `blocker:${resolving[1]}`;
+        const stored = await txn.get<StoredBlocker>(key);
+        if (!stored) throw new HttpError(404, "Blocker not found.");
+        if (stored.resolved) return publicBlocker(stored);
+        const at = now();
+        const resolved: Blocker = { ...publicBlocker(stored), resolved: { at, by: "owner", reason } };
+        const sequence = ((await txn.get<number>("sequence")) ?? 0) + 1;
+        const activity: Activity = {
+          sequence, namespace: project.namespace, repoName: stored.repoName, agent: null,
+          ref: "", before: stored.sha, after: stored.sha, changedPaths: [],
+          changedPathCount: 0, changedPathsTruncated: false,
+          eventTimestamp: at, recordedAt: at, blockerResolution: { id: stored.id, reason },
+        };
+        await txn.put({
+          [key]: resolved,
+          sequence,
+          [`activity:${String(sequence).padStart(16, "0")}`]: activity,
+        });
+        return resolved;
+      });
+      return json({ blocker });
+    }
     if (path === "/reviews" && method === "POST") {
       const agent = this.agent(actor);
       const data = await body(request);
@@ -319,7 +362,7 @@ export class Workflow {
       if (!packet) throw new HttpError(404, "Packet not found.");
       // Historical stores can grow indefinitely; fail closed instead of scanning without a budget.
       const ledgerEntries = await this.storage.list<LedgerEntry>({ prefix: "ledger:", limit: 2049 });
-      const blockerEntries = await this.storage.list<Blocker>({ prefix: "blocker:", limit: 2049 });
+      const blockerEntries = await this.storage.list<StoredBlocker>({ prefix: "blocker:", limit: 2049 });
       if (ledgerEntries.size > 2048 || blockerEntries.size > 2048)
         throw new HttpError(413, "Review exceeds the bounded read limit.");
       const ledger = [...ledgerEntries.values()].find(entry => entry.review === review.id);
@@ -327,7 +370,7 @@ export class Workflow {
         packet: { id: packet.id, title: packet.title, goal: packet.goal, paths: packet.paths, acceptance: packet.acceptance },
         changes: changes.public, ...await reader.history(review.base, review.sha),
         promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest } : null,
-        blockers: [...blockerEntries.values()].filter(blocker => blocker.packet === review.packet),
+        blockers: [...blockerEntries.values()].filter(blocker => blocker.packet === review.packet).map(publicBlocker),
       });
     }
     const returning = /^\/reviews\/([^/]+)\/return$/.exec(path);
@@ -547,7 +590,7 @@ export class Workflow {
       forks: await Promise.all(forks.map(async (fork) => ({ ...fork, ...await publicEvents(this.storage, fork.repoName), head: heads.get(fork.repoName)! }))),
       packets: await list<Packet>(this.storage, "packet:"),
       claims: await list<Claim>(this.storage, "claim:"),
-      blockers: await list<Blocker>(this.storage, "blocker:"),
+      blockers: (await list<StoredBlocker>(this.storage, "blocker:")).map(publicBlocker),
       reviews: reviews.map(publicReview),
       ledger: (await list<LedgerEntry>(this.storage, "ledger:")).toSorted((a, b) =>
         a.recordedAt.localeCompare(b.recordedAt),
@@ -572,7 +615,11 @@ export async function recordWorkflowPush(
   forkHead?: string,
 ): Promise<void> {
   if (entry.agent) {
-    for (const claim of (await txn.list<Claim>({ prefix: "claim:" })).values()) {
+    const claims = [...(await txn.list<Claim>({ prefix: "claim:" })).values()];
+    const pushingClaims = claims.filter(claim => claim.agent === entry.agent && claim.repoName === entry.repoName);
+    // Raw push events name a fork, not a packet. Multiple bindings cannot be attributed safely.
+    const pushingPacket = pushingClaims.length === 1 ? pushingClaims[0]!.packet : null;
+    for (const claim of claims) {
       const paths = entry.changedPaths.filter((path) =>
         claim.paths.some((claimed) => overlaps(claimed, path)),
       );
@@ -586,6 +633,9 @@ export async function recordWorkflowPush(
           repoName: entry.repoName,
           sha: entry.after,
           paths,
+          at: entry.recordedAt,
+          pushingPacket,
+          resolved: null,
         };
         await txn.put(`blocker:${id}`, blocker);
       }

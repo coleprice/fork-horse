@@ -457,6 +457,32 @@ receipt and cannot constrain allocations inside the provider. Malformed or unava
 objects use the existing sanitized 502 response. Fixtures exercise these boundaries in
 actual workerd; they do not establish live Artifacts or Cloudflare acceptance.
 
+## Blocker resolution (FH-048)
+
+Blockers are permanent conflict observations. `/blockers`, `/state.blockers` and
+review detail `blockers` include open and resolved history. Every public blocker
+has `resolved: null` while open or `{at, by, reason?}` after resolution; `at` is an
+ISO timestamp and `by` is `release`, `promote` or `owner`. Legacy records without
+the field read as open without rewriting storage. `at` records the push's receive
+timestamp and `pushingPacket` identifies the pushing agent's live claim on that
+fork at observation time. Both fields read as `null` on legacy records. A fork
+with no live pushing claim or multiple live pushing claims uses `pushingPacket:
+null`, because raw push events identify the fork rather than a packet.
+
+Releasing a claim as its agent or closing it as the owner resolves every open
+blocker for that packet with `by: "release"`. Successful promotion's automatic
+claim release uses `by: "promote"`. Resolution shares the claim-release transaction,
+preserves earlier resolutions and leaves blockers for other packets untouched.
+
+Owner-only `POST /projects/:id/blockers/:bid/resolve` accepts `{reason}` (nonblank,
+1–200 characters) and returns `200 {blocker}` with `by: "owner"`. A valid repeated
+request returns the original blocker unchanged, including its timestamp and reason.
+Agents receive 403, unknown blockers 404 and invalid reasons 400. The transaction
+appends one activity entry with `agent: null`, `blockerResolution: {id, reason}`,
+an empty `ref`, identical `before`/`after` observed SHA and no changed paths; no Git
+write occurs. Repeats append no activity. These workerd tests use offline providers;
+live collision and resolution acceptance remains an operator check.
+
 ## Quick checks (FH-010)
 
 Core also exports `QuickFiles` and declares a `LOADER` Worker Loader binding.
