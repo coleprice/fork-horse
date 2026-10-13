@@ -1632,6 +1632,7 @@ footer {
 }
 
 /* FH-063c advice stays below the factual track, with existing host tokens. */
+.race-page { isolation: isolate; } /* Keep positioned lane marks beneath the shared dialog portal. */
 .judge-advice { border: 1px solid var(--color-kumo-line); background: var(--color-kumo-base); border-radius: var(--radius-lg); padding: calc(var(--spacing) * 4); display: grid; gap: calc(var(--spacing) * 3); margin-block: calc(var(--spacing) * 4); }
 .judge-advice h4, .judge-pick { display: flex; align-items: center; gap: calc(var(--spacing) * 2); }
 .judge-advice h4, .judge-advice p { margin: 0; }
