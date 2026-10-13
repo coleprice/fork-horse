@@ -598,6 +598,54 @@ transaction failures retain `promotionPending` for inspection, with no partial
 ledger, finish, placement or release writes. These fixture tests are offline
 workerd evidence only; live race acceptance is separate.
 
+### Cumulative usage and race token budgets
+
+`POST /projects/:id/usage` requires an agent credential and a live caller-owned
+claim or race entrant for the named packet:
+
+```json
+{ "packet": "one", "inputTokens": 1200, "outputTokens": 300, "model": "example-model" }
+```
+
+Both counts are integers from 0 through 1,000,000,000 inclusive. They are cumulative
+for that binding, and neither count may decrease (`409`). Equal counts are allowed.
+`model` is optional, with 1–200 characters and nonblank text. Only these request
+fields are accepted. The owner gets `403`; missing, foreign, released or finished
+bindings get `409`. The response is `{usage: {reported, metered}}`. `reported` has
+`inputTokens`, `outputTokens`, optional `model`, `source: "reported"`, and a
+server-generated ISO `at`. This endpoint never writes metered measurements.
+
+New claims and entrants start with `{reported: null, metered: null}`. Each review
+snapshots both sources as `usageAtReview`; later reports, receipts, releases and
+promotion do not change that snapshot. A new standard claim after release starts
+from zero usage history. Legacy claims, entrants and reviews normalize missing
+usage to both sources null on public reads, without rewriting storage.
+
+At packet creation, `mode: "race"` accepts an optional immutable `tokenBudget`,
+a positive safe integer for input plus output tokens. Standard packets reject it.
+`/state.claims[].usage`, `/state.reviews[].usageAtReview` and
+`/state.races[].entrants[].usage` expose the source-separated records. Each race
+also exposes `tokenBudget` (null if absent), and each entrant exposes `budget`:
+
+- `unchecked`: no budget or no usage.
+- `within`: total below 80% of the budget.
+- `near`: total at least 80%, up to and including the budget.
+- `over`: total strictly above the budget.
+
+Budget evaluation prefers metered evidence if present, otherwise reported usage.
+Metered usage stays null in this implementation; tests that seed it explicitly
+are future-compatibility fixtures. Promotion evaluates the live entrant's latest
+usage, not the review snapshot. Before Git preparation or canonical write-token
+creation, a budgeted entrant without usage gets
+`409 "Report usage first: this race has a token budget."`; one over budget gets
+`409 "Over its token budget (reported)."` (or `metered` when that source exists).
+An unbudgeted race requires no report. Totals across work are left to consumers;
+the core does not combine reported and metered counts.
+
+`__tests__/usage.test.ts` covers these contracts under workerd with offline Git,
+Artifacts and container fixtures. Fresh-clone/D5 and live budgeted-race acceptance
+remain separate operator checks.
+
 Agent enrollment, including OAuth's owner-authorized enrollment route, stores
 `createdAt`; agents in one project bootstrap share a timestamp (alphabetical
 tie-breaking is a dashboard concern). Token rotation preserves it. `/state.agents`

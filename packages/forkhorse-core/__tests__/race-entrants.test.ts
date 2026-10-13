@@ -154,7 +154,8 @@ describe("FH-052 race entrants", () => {
     expect((await state(f.id)).packets[0]?.mode).toBe("standard");
     expect((await (await api(f.id, "/packets")).json<{ packets: Packet[] }>()).packets[0]?.mode).toBe("standard");
     await claim(f.id, f.alpha, "default");
-    expect((await state(f.id)).claims[0]).toEqual({ packet: "default", agent: "alpha", repoName: f.a, paths: ["src"], createdAt: expect.any(String) });
+    expect((await state(f.id)).claims[0]).toEqual({ packet: "default", agent: "alpha", repoName: f.a,
+      paths: ["src"], createdAt: expect.any(String), usage: { reported: null, metered: null } });
     expect((await state(f.id)).races).toEqual([]);
   });
 

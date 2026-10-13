@@ -19,7 +19,11 @@ const at = (seconds: number) =>
 const entrant = (
   agent: string,
   claimed: number,
-): RaceEntrant & { closedBy: null | "release" | "owner" | "race-finished" } => ({
+): RaceEntrant & {
+  closedBy: null | "release" | "owner" | "race-finished";
+  usage: { reported: null; metered: null };
+  budget: "unchecked";
+} => ({
   agent,
   repoName: `race--${agent}-1`,
   claimedAt: at(claimed),
@@ -32,6 +36,8 @@ const entrant = (
   closedAt: null,
   closedBy: null,
   promoteRejected: null,
+  usage: { reported: null, metered: null },
+  budget: "unchecked",
 });
 // The contract test checks these slices against core's public declarations without
 // pulling the Worker environment into the browser package's compiler.
@@ -39,6 +45,7 @@ export type RaceFixture = StateResponse & {
   agents: { name: string; createdAt: string | null }[];
   races: (Race &
     Required<Pick<Race, "finishedAt" | "winner" | "ledgerEntryId" | "places">> & {
+      tokenBudget: null;
       entrants: ReturnType<typeof entrant>[];
     })[];
   reviews: (StateResponse["reviews"][number] & {
@@ -91,6 +98,7 @@ export function raceFixtureState(scenario = "race-open"): RaceFixture {
   const finished = ["race-finished", "race-photo", "race-photo-unattempted", "race-reused-forks"].includes(scenario);
   const race: RaceFixture["races"][number] = {
     packet: "race-01",
+    tokenBudget: null,
     status: finished ? ("finished" as const) : ("open" as const),
     finishedAt: finished ? at(720) : null,
     winner: finished ? "cedar" : null,

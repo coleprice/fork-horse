@@ -1,4 +1,5 @@
 import type { Claim, Packet, RaceEntrant, RaceResult, RaceState, Review } from "./workflow-types";
+import { tokenBudgetState, usageSources } from "./usage";
 
 export type { RaceEntrant } from "./workflow-types";
 
@@ -85,12 +86,14 @@ export async function raceStates(storage: Storage, packets: Packet[]): Promise<R
     const result = results.get(`race:${packet.id}`);
     return {
       packet: packet.id, status: result ? "finished" : "open",
+      tokenBudget: packet.tokenBudget ?? null,
       finishedAt: result?.finishedAt ?? null, winner: result?.winner ?? null,
       ledgerEntryId: result?.ledgerEntryId ?? null, places: result?.places ?? [],
       entrants: records.filter(entrant => entrant.packet === packet.id)
         .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt) || a.agent.localeCompare(b.agent))
         .map(({ packet: _packet, paths: _paths, createdAt, ...entrant }) => ({
           ...entrant, claimedAt: createdAt, promoteRejected: entrant.promoteRejected ?? null,
+          usage: usageSources(entrant.usage), budget: tokenBudgetState(packet.tokenBudget, entrant.usage),
         })),
     };
   });
