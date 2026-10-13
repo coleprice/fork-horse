@@ -14,13 +14,19 @@ export function parseChecks(text: string): Check[] {
   return value.map((item: unknown) => {
     if (!item || typeof item !== "object") throw new Error("Invalid check");
     const check = item as Record<string, unknown>;
-    if (Object.keys(check).toSorted().join() !== "image,name,run,tier" ||
-        typeof check.name !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(check.name) ||
-        names.has(check.name) || check.tier !== "full" ||
+    if (typeof check.name !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(check.name) || names.has(check.name))
+      throw new Error("Invalid check");
+    names.add(check.name);
+    if (check.tier === "quick") {
+      if (Object.keys(check).toSorted().join() !== "module,name,tier" ||
+          typeof check.module !== "string" || !/^\.forkhorse\/quick\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*\.js$/.test(check.module) ||
+          check.module.length > 256) throw new Error("Invalid quick check");
+      return { name: check.name, tier: "quick", module: check.module };
+    }
+    if (Object.keys(check).toSorted().join() !== "image,name,run,tier" || check.tier !== "full" ||
         typeof check.image !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(check.image) ||
         typeof check.run !== "string" || !check.run.trim() || check.run.length > 8192 ||
         check.run.includes("\0")) throw new Error("Invalid check");
-    names.add(check.name);
     return { name: check.name, tier: "full", image: check.image, run: check.run };
   });
 }

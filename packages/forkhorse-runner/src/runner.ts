@@ -1,6 +1,7 @@
 import { loadChecks } from "./checks";
+import { runQuickCheck } from "./quick";
 import { remoteUrl } from "./git";
-import type { AuthorizedReview, Check, CheckReceipt, ContainerPort, ForkRepository, Receipt, RunnerPorts, RunRequest, StoredReceipt } from "./types";
+import type { AuthorizedReview, Check, FullCheck, CheckReceipt, ContainerPort, ForkRepository, Receipt, RunnerPorts, RunRequest, StoredReceipt } from "./types";
 
 export const LOG_BYTES_PER_STREAM = 32_768;
 export const CHECK_TIMEOUT_MS = 120_000;
@@ -21,7 +22,12 @@ export function receiptJson(receipt: Receipt): string {
     generation: receipt.generation, trigger: receipt.trigger,
     checks: receipt.checks.map((r) => ({
       commit: r.commit,
-      check: { name: r.check.name, tier: r.check.tier, image: r.check.image, run: r.check.run },
+      check: r.check.tier === "quick"
+        ? { name: r.check.name, tier: r.check.tier, module: r.check.module }
+        : { name: r.check.name, tier: r.check.tier, image: r.check.image, run: r.check.run },
+      // Omit new fields for old receipts so their immutable digests remain valid.
+      ...(r.runtime !== undefined && { runtime: r.runtime }),
+      ...(r.message !== undefined && { message: r.message }),
       imageDigest: r.imageDigest, exitStatus: r.exitStatus, outcome: r.outcome,
       startedAt: r.startedAt, finishedAt: r.finishedAt, durationMs: r.durationMs,
       logs: { stdout: r.logs.stdout, stderr: r.logs.stderr, truncated: r.logs.truncated },
@@ -67,8 +73,9 @@ async function command(container: ContainerPort, argv: string[], signal: AbortSi
 }
 
 async function runCheck(ports: RunnerPorts, repo: ForkRepository, review: AuthorizedReview,
-  check: Check, image: string): Promise<CheckReceipt> {
-  const { container } = ports;
+  check: FullCheck, image: string): Promise<CheckReceipt> {
+  const container = ports.container;
+  if (!container) throw new Error("Container binding required");
   const started = Date.now();
   const controller = new AbortController();
   let token: ArtifactsCreateTokenResult | undefined;
@@ -138,7 +145,7 @@ async function runCheck(ports: RunnerPorts, repo: ForkRepository, review: Author
   const finished = Date.now();
   const logs = result?.logs ?? { stdout: "", stderr: "", truncated: false };
   return {
-    commit: review.commit, check, imageDigest: image.slice(image.lastIndexOf("sha256:")),
+    commit: review.commit, check, runtime: "container", imageDigest: image.slice(image.lastIndexOf("sha256:")),
     exitStatus: result?.exitCode ?? null, outcome,
     startedAt: new Date(started).toISOString(), finishedAt: new Date(finished).toISOString(),
     durationMs: Math.max(0, finished - started), logs, logDigest: await sha256(JSON.stringify(logs)),
@@ -154,18 +161,47 @@ export async function runReviewChecks(request: RunRequest, ports: RunnerPorts): 
     throw new Error("Invalid authorization result");
   }
   remoteUrl(review.forkRemote);
-  if (ports.container.running) throw new Error("Runner requires a fresh container");
+  if (ports.container?.running) throw new Error("Runner requires a fresh container");
   using repo = await ports.getFork(review.forkRepoName);
   const checks = await loadChecks(repo, review.commit);
-  const images = checks.map((check) => {
-    const image = Object.hasOwn(ports.container.images, check.image) ? ports.container.images[check.image] : undefined;
-    if (!image || !/@sha256:[a-f0-9]{64}$/.test(image)) throw new Error("Check image must resolve to a configured digest");
-    return image;
-  });
   const receipts: CheckReceipt[] = [];
-  for (let i = 0; i < checks.length; i++) receipts.push(await runCheck(ports, repo, review, checks[i]!, images[i]!));
+  // Execution order is quick-first even if the manifest starts with a full check.
+  const ordered = [...checks.filter(c => c.tier === "quick"), ...checks.filter(c => c.tier === "full")];
+  let quickFailed = false;
+  let fullImages: Map<string, string> | undefined;
+  for (const check of ordered) {
+    if (check.tier === "quick") {
+      const receipt = await runQuickCheck(ports.quick, repo, review, check);
+      receipts.push(receipt);
+      quickFailed ||= receipt.outcome !== "passed";
+    } else if (quickFailed) {
+      const now = new Date().toISOString();
+      const logs = { stdout: "", stderr: "", truncated: false };
+      receipts.push({ commit: review.commit, check, runtime: "container", imageDigest: "", exitStatus: null,
+        outcome: "failed", startedAt: now, finishedAt: now, durationMs: null,
+        message: "Skipped: a quick check failed.", logs, logDigest: await sha256(JSON.stringify(logs)) });
+    } else {
+      if (!fullImages) {
+        fullImages = new Map();
+        // Preserve full-tier preflight: validate every image before any container starts.
+        for (const full of checks) if (full.tier === "full") {
+          const images = ports.container?.images;
+          const image = images && Object.hasOwn(images, full.image) ? images[full.image] : undefined;
+          if (!image || !/@sha256:[a-f0-9]{64}$/.test(image)) throw new Error("Check image must resolve to a configured digest");
+          fullImages.set(full.name, image);
+        }
+      }
+      const image = fullImages.get(check.name)!;
+      receipts.push(await runCheck(ports, repo, review, check, image));
+    }
+  }
+  const hasQuick = checks.some(c => c.tier === "quick");
+  const hasFull = checks.some(c => c.tier === "full");
+  const evidence: Receipt["evidence"] = hasQuick && ports.quick?.evidence !== "dynamic-worker" ? "mocked-worker-loader"
+    : hasFull && ports.evidence !== "container" ? ports.evidence
+    : hasQuick ? hasFull ? "mixed" : "dynamic-worker" : ports.evidence;
   const receipt: Receipt = {
-    schema: 1, evidence: ports.evidence, projectId: review.projectId, reviewId: review.reviewId,
+    schema: 1, evidence, projectId: review.projectId, reviewId: review.reviewId,
     forkRepoName: review.forkRepoName, commit: review.commit, generation: review.generation,
     trigger: review.trigger, checks: receipts,
   };
@@ -179,16 +215,26 @@ export async function runReviewChecks(request: RunRequest, ports: RunnerPorts): 
 export async function requirePassingReceipt(record: StoredReceipt | null, expected: {
   projectId: string; reviewId: string; forkRepoName: string; commit: string; generation: string;
   checks: Check[]; digest: string | null; requireReceipt?: boolean;
+  /** Digests independently read by core from the exact reviewed commit. */
+  moduleDigests?: Record<string, string>;
 }): Promise<void> {
   if (expected.requireReceipt === false) return;
-  if (!record || record.receipt.schema !== 1 || record.receipt.evidence !== "container" ||
+  if (!record || record.receipt.schema !== 1 || !["container", "dynamic-worker", "mixed"].includes(record.receipt.evidence) ||
       record.digest !== expected.digest || await sha256(receiptJson(record.receipt)) !== record.digest ||
       ["projectId", "reviewId", "forkRepoName", "commit", "generation"].some((key) =>
         record.receipt[key as keyof Receipt] !== expected[key as keyof typeof expected]) ||
       !expected.checks.length || record.receipt.checks.length !== expected.checks.length ||
-      record.receipt.checks.some((r, i) => r.commit !== expected.commit || r.outcome !== "passed" || r.exitStatus !== 0 ||
-        ["name", "tier", "image", "run"].some((key) =>
-          r.check[key as keyof Check] !== expected.checks[i]?.[key as keyof Check]))) {
-    throw new Error("A current passing container receipt is required");
+      record.receipt.checks.some((r, i) => {
+        const checks = [...expected.checks.filter(c => c.tier === "quick"), ...expected.checks.filter(c => c.tier === "full")];
+        const check = checks[i];
+        if (r.commit !== expected.commit || r.outcome !== "passed" || r.exitStatus !== 0 ||
+            !check || r.check.name !== check.name || r.check.tier !== check.tier) return true;
+        if (check.tier === "quick") return r.check.tier !== "quick" || r.check.module !== check.module ||
+          r.runtime !== "dynamic-worker" || !["dynamic-worker", "mixed"].includes(record.receipt.evidence) ||
+          !/^module:sha256:[a-f0-9]{64}$/.test(r.imageDigest) || r.imageDigest !== expected.moduleDigests?.[check.module];
+        return r.check.tier !== "full" || r.check.image !== check.image || r.check.run !== check.run ||
+          (r.runtime !== undefined && r.runtime !== "container") || !["container", "mixed"].includes(record.receipt.evidence);
+      })) {
+    throw new Error("A current passing check receipt is required");
   }
 }

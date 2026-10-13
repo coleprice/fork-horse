@@ -14,6 +14,7 @@ export default defineConfig({
           scriptPath: new URL("./__tests__/git-http-fixture.js", import.meta.url).pathname,
           compatibilityDate: "2026-10-11",
         }],
+        workerLoaders: { LOADER: {} },
         compatibilityDate: "2026-10-11",
         compatibilityFlags: ["nodejs_compat"],
         durableObjects: { SUPERVISOR: { className: "TestSupervisor", useSQLite: true }, RECEIPT_RUNNER: { className: "ReceiptRunner", useSQLite: true } },
