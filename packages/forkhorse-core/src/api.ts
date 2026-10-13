@@ -21,13 +21,14 @@ export async function dispatchApi(request: Request, env: Env, owner = false): Pr
       const suffix = match[2]!;
       const methods =
         suffix === "/settings" ? ["PATCH"]
+        : /^\/reviews\/[^/]+(?:\/diff)?$/.test(suffix) ? ["GET"]
         : /^\/reviews\/[^/]+\/receipt$/.test(suffix) ? ["GET"]
         : suffix === "/join" ||
         suffix === "/agents" ||
         suffix === "/reviews" ||
         /^\/agents\/[^/]+\/rotate$/.test(suffix) ||
         /^\/forks\/[^/]+\/(commit|token)$/.test(suffix) ||
-        /^\/reviews\/[^/]+\/(approve|promote)$/.test(suffix)
+        /^\/reviews\/[^/]+\/(approve|promote|return)$/.test(suffix)
           ? ["POST"]
           : /^\/forks\/[^/]+\/tokens$/.test(suffix)
             ? ["DELETE"]

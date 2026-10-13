@@ -52,6 +52,7 @@ export interface Review {
   approval: { sha: string; receiptDigest: string | null } | null;
   stale: boolean;
   promoted: boolean;
+  returned: null | { reason: string; at: string };
   createdAt: string;
 }
 export interface LedgerEntry {
