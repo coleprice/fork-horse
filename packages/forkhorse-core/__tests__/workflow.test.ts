@@ -638,13 +638,14 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
 });
 
 
+async function ready() {
+  const f = await fixture();
+  await packet(f.id);
+  await claim(f.id, f.alpha);
+  return { ...f, review: await review(f.id, f.alpha, f.a) };
+}
+
 describe("FH-039 return and detail API in workerd with offline providers", () => {
-  async function ready() {
-    const f = await fixture();
-    await packet(f.id);
-    await claim(f.id, f.alpha);
-    return { ...f, review: await review(f.id, f.alpha, f.a) };
-  }
 
   it("returns atomically, clears approval, persists audit, blocks approval/promotion and becomes stale after push", async () => {
     const f = await ready();
@@ -723,7 +724,7 @@ describe("FH-039 return and detail API in workerd with offline providers", () =>
       api(f.id, `/reviews/${f.review.id}/return`, OWNER, { reason: "Revise" }),
       api(f.id, `/reviews/${f.review.id}/promote`, OWNER, {}),
     ]);
-    expect(responses.map(r => r.status).sort()).toEqual([200, 409]);
+    expect(responses.map(r => r.status).toSorted()).toEqual([200, 409]);
     const snap = await state(f.id);
     expect(snap.reviews[0]!.returned !== null).toBe(!snap.reviews[0]!.promoted);
     const g = await ready();
@@ -774,7 +775,7 @@ describe("FH-039 return and detail API in workerd with offline providers", () =>
       const response = await api(f.id, route, token);
       expect(response.status).toBe(200);
       const detail = await response.json<{ review: Review; packet: unknown; changes: { base: string; head: string }; commits: unknown[]; commitsTruncated: boolean; promotion: unknown; blockers: { id: string }[] }>();
-      expect(Object.keys(detail).sort()).toEqual(["blockers", "changes", "commits", "commitsTruncated", "packet", "promotion", "review"]);
+      expect(Object.keys(detail).toSorted()).toEqual(["blockers", "changes", "commits", "commitsTruncated", "packet", "promotion", "review"]);
       expect(detail.review.returned).toBeNull();
       expect(detail.packet).toEqual({ id: "one", title: "one", goal: "Fixture goal", paths: ["src/**"], acceptance: ["Fixture check"] });
       expect(detail.changes).toMatchObject({ base: BEFORE, head: AFTER });

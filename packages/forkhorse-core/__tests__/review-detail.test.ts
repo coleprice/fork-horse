@@ -53,7 +53,7 @@ describe("bounded exact-commit review reads in workerd (offline Artifacts fixtur
 
   it("supports the empty base and unchanged histories", async () => {
     const f = await fixture();
-    expect((await f.reader.changes(ZERO_SHA, BEFORE)).public.files.every(f => f.status === "added")).toBe(true);
+    expect((await f.reader.changes(ZERO_SHA, BEFORE)).public.files.every(file => file.status === "added")).toBe(true);
     expect(await f.reader.history(BEFORE, BEFORE)).toEqual({ commits: [], commitsTruncated: false });
   });
 

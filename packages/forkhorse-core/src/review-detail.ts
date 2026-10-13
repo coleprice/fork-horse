@@ -16,7 +16,7 @@ export interface ReviewFile { path: string; status: "added" | "modified" | "dele
 /** Git paths are data, never filesystem paths or refs. Reject ambiguous tree components. */
 function component(name: string): boolean {
   return !!name && name !== "." && name !== ".." && name.toLowerCase() !== ".git" &&
-    !/[\\/\u0000-\u001f\u007f]/.test(name);
+    !/[\\/]/.test(name) && ![...name].some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
 }
 
 /** Request-local cache and hard object/byte budgets for exact-commit repository reads. */
@@ -71,7 +71,7 @@ export class ReviewReader {
 
   async changes(base: string, head: string) {
     const before = await this.snapshot(base), after = await this.snapshot(head);
-    const files: ReviewFile[] = [...new Set([...before.keys(), ...after.keys()])].sort()
+    const files: ReviewFile[] = [...new Set([...before.keys(), ...after.keys()])].toSorted()
       .filter(path => before.get(path)?.hash !== after.get(path)?.hash ||
         before.get(path)?.mode !== after.get(path)?.mode || before.get(path)?.type !== after.get(path)?.type)
       .map(path => ({ path, status: !before.has(path) ? "added" : !after.has(path) ? "deleted" : "modified" }));
@@ -94,7 +94,7 @@ export class ReviewReader {
     const excluded = await walk(base, new Set());
     const included = await walk(head, excluded);
     const commits = [...included].map(sha => this.commits.get(sha)!)
-      .sort((a, b) => b.committedAt - a.committedAt || a.hash.localeCompare(b.hash));
+      .toSorted((a, b) => b.committedAt - a.committedAt || a.hash.localeCompare(b.hash));
     return { commits: commits.slice(0, 50).map(commit => ({
       sha: commit.hash, subject: commit.message.split(/\r?\n/, 1)[0]!, authorName: commit.author.name,
       packetTrailer: trailer(commit.message, "Fork-Horse-Packet"),
@@ -103,7 +103,7 @@ export class ReviewReader {
   }
 
   async diff(path: string, changes: Awaited<ReturnType<ReviewReader["changes"]>>) {
-    const file = changes.public.files.find(file => file.path === path);
+    const file = changes.public.files.find(candidate => candidate.path === path);
     if (!file) throw new HttpError(404, "Changed path not found.");
     const content = async (entry: Entry | undefined): Promise<string | null> => {
       if (!entry) return "";
@@ -134,11 +134,12 @@ function trailer(message: string, key: string): string | null {
   return values.length ? values.at(-1)!.slice(key.length + 2).trim() || null : null;
 }
 
+const lines = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+
 /** Linear-time unified replacement hunk, with shared edges trimmed to three context lines.
  * Avoids quadratic diff work for adversarial input. A capped patch is explicitly incomplete. */
 function patch(path: string, status: ReviewFile["status"], before: string, after: string) {
   if (before === after) return { patch: "", truncated: false };
-  const lines = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   const a = lines(before), b = lines(after);
   let prefix = 0, suffix = 0;
   while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++;
