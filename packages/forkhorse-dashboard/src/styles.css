@@ -682,3 +682,6 @@ footer {
   .review-header { flex-direction: column; }
   .review-milestones { grid-template-columns: minmax(0, 1fr); }
 }
+/* Grid children must shrink below a unified diff's intrinsic line width. */
+.review-detail > *, .review-file { min-width: 0; }
+.review-diff { width: 100%; box-sizing: border-box; }
