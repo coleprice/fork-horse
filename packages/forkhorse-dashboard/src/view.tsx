@@ -33,6 +33,7 @@ import {
   type ViewModel,
 } from "./model.ts";
 import type { Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
+import { relativeTime as relative } from "./time.ts";
 
 export type Section = "overview" | "work" | "review" | "agents";
 export interface ViewActions {
@@ -50,14 +51,6 @@ export interface ViewActions {
 }
 const short = (value: string) => <code title={value}>{value.slice(0, 7)}</code>;
 const empty = (title: string) => <Empty size="sm" title={title} />;
-function relative(value: string) {
-  const elapsed = Math.max(0, Date.now() - Date.parse(value));
-  if (!Number.isFinite(elapsed)) return "";
-  if (elapsed < 60_000) return "Just now";
-  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)} min ago`;
-  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)} hr ago`;
-  return `${Math.floor(elapsed / 86_400_000)} days ago`;
-}
 type Tone = "info" | "brand" | "success" | "warning" | "danger";
 function Status({ label, tone = "info" }: { label: string; tone?: Tone }) {
   // Kumo's neutral dot text meets the host contrast requirement; the dot uses a status token.
@@ -765,8 +758,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         <p className="muted">
                           {state.ledger.length ? (
                             <>
-                              Last promotion: {short(lastPromotion!.sha)} ·{" "}
-                              {relative(lastPromotion!.promotedAt)}
+                              Last promotion:{" "}
+                              <code className="last-promotion-sha" title={lastPromotion!.sha}>
+                                {lastPromotion!.sha.slice(0, 7)}
+                              </code>{" "}
+                              · {relative(lastPromotion!.promotedAt)}
                               {lastReceipt?.receipt && (
                                 <>
                                   {" · "}
@@ -1091,51 +1087,66 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       <section id="recent-receipts" aria-labelledby="recent-receipts-heading">
                         <h2 id="recent-receipts-heading">Recent receipts</h2>
                         {history.length ? (
-                          <Table>
-                            <Table.Body>
-                              {history.map((review) => (
-                                <Table.Row key={review.id}>
-                                  <Table.Cell className="receipt-history-cell">
-                                    <Button
-                                      variant="ghost"
-                                      className="receipt-history-row"
-                                      aria-label={`View receipt for ${review.packet} at ${review.sha.slice(0, 7)}`}
-                                      onClick={() => showReceipt(review.id)}
-                                    >
-                                      <span className="receipt-history-packet">
-                                        {review.packet}
-                                      </span>
-                                      {short(review.sha)}
-                                      <ReceiptBadge
-                                        status={review.receipt.status}
-                                        recheck={
-                                          state.project.settings?.requireReceipt === true &&
-                                          review.receipt.trigger === "before-promote"
-                                        }
-                                      />
-                                      <span className="caption muted tabular">
-                                        {review.receipt.checks.length} checks
-                                        {duration(review.receipt.durationMs) &&
-                                          ` · ${duration(review.receipt.durationMs)}`}
-                                      </span>
-                                      <span className="caption muted">
-                                        {review.receipt.trigger === "before-promote"
-                                          ? "Before promote"
-                                          : "On review"}
-                                      </span>
-                                      <span className="caption muted">
-                                        {review.receipt.finishedAt && (
-                                          <time dateTime={review.receipt.finishedAt}>
-                                            {relative(review.receipt.finishedAt)}
-                                          </time>
-                                        )}
-                                      </span>
-                                    </Button>
-                                  </Table.Cell>
-                                </Table.Row>
-                              ))}
-                            </Table.Body>
-                          </Table>
+                          <DataTable
+                            kind="receipt-history"
+                            headings={[
+                              "Packet",
+                              "Head",
+                              "Outcome",
+                              "Checks",
+                              "Trigger",
+                              "Finished",
+                            ]}
+                          >
+                            {history.map((review) => (
+                              <Table.Row
+                                key={review.id}
+                                className="receipt-history-row"
+                                onClick={() => showReceipt(review.id)}
+                              >
+                                <Table.Cell>
+                                  <button
+                                    type="button"
+                                    className="claim-link receipt-history-link"
+                                    aria-label={`View receipt for ${review.packet} at ${review.sha.slice(0, 7)}`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      showReceipt(review.id);
+                                    }}
+                                  >
+                                    {review.packet}
+                                  </button>
+                                </Table.Cell>
+                                <Table.Cell>{short(review.sha)}</Table.Cell>
+                                <Table.Cell>
+                                  <ReceiptBadge
+                                    status={review.receipt.status}
+                                    recheck={
+                                      state.project.settings?.requireReceipt === true &&
+                                      review.receipt.trigger === "before-promote"
+                                    }
+                                  />
+                                </Table.Cell>
+                                <Table.Cell className="caption muted tabular">
+                                  {review.receipt.checks.length} checks
+                                  {duration(review.receipt.durationMs) &&
+                                    ` · ${duration(review.receipt.durationMs)}`}
+                                </Table.Cell>
+                                <Table.Cell className="caption muted">
+                                  {review.receipt.trigger === "before-promote"
+                                    ? "Before promote"
+                                    : "On review"}
+                                </Table.Cell>
+                                <Table.Cell className="caption muted">
+                                  {review.receipt.finishedAt && (
+                                    <time dateTime={review.receipt.finishedAt}>
+                                      {relative(review.receipt.finishedAt)}
+                                    </time>
+                                  )}
+                                </Table.Cell>
+                              </Table.Row>
+                            ))}
+                          </DataTable>
                         ) : (
                           <p className="muted">No receipts yet.</p>
                         )}

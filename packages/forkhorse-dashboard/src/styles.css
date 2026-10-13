@@ -610,27 +610,22 @@ footer {
   margin-inline-start: calc(var(--spacing) * 7);
 }
 
-/* One keyboard target opens each historical receipt; metadata wraps within the host frame. */
-.receipt-history-cell {
-  padding: 0;
-}
-.receipt-history-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
-  width: 100%;
-  height: auto;
-  justify-content: stretch;
-  text-align: left;
-  gap: calc(var(--spacing) * 3);
-  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 2);
-}
-.receipt-history-row > * {
-  min-width: 0;
-}
-.receipt-history-packet {
+/* History uses the queue's 14px table and underlined packet controls. */
+.table-receipt-history th:nth-child(1) { width: 18%; }
+.table-receipt-history th:nth-child(2) { width: 12%; }
+.table-receipt-history th:nth-child(3) { width: 16%; }
+.table-receipt-history th:nth-child(4) { width: 20%; }
+.table-receipt-history th:nth-child(5) { width: 18%; }
+.table-receipt-history th:nth-child(6) { width: 16%; }
+.receipt-history-row { cursor: pointer; }
+.receipt-history-link {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.last-promotion-sha {
+  font-family: var(--font-mono);
 }
 .promotion-receipt {
   display: inline-flex;
@@ -640,13 +635,19 @@ footer {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-@container (max-width: 819px) {
-  .receipt-history-row {
+/* Retain the accepted stacked history below 900px without widening the frame. */
+@media (max-width: 899px) {
+  .table-receipt-history thead { display: none; }
+  .table-receipt-history tbody { display: block; }
+  .table-receipt-history .receipt-history-row {
+    display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
+    padding-block: calc(var(--spacing) * 2);
   }
+  .table-receipt-history td { min-width: 0; }
 }
 @media (max-width: 639px) {
-  .receipt-history-row {
+  .table-receipt-history .receipt-history-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }

@@ -11,6 +11,7 @@ import {
   reviewGate,
   stateView,
 } from "../src/model.ts";
+import { relativeTime } from "../src/time.ts";
 import { duration, ReceiptDetails } from "../src/receipts.tsx";
 import { fixtureOwnerReceipt, fixtureReceipt, fixtureState } from "./fixtures.ts";
 import { createElement } from "react";
@@ -458,14 +459,14 @@ test("promoted history and Last promotion open the same receipt with owner-only 
     try {
       await until(() => c.root.querySelectorAll(".receipt-history-row").length === 5);
       assert.equal(c.root.querySelectorAll(".review-card").length, 7);
-      const rows = [...c.root.querySelectorAll<HTMLButtonElement>(".receipt-history-row")];
-      assert.match(rows[0].textContent!, /history-6.*7777777/);
-      assert.match(rows[0].textContent!, /3 checks · 41 s/);
+      const rows = [...c.root.querySelectorAll<HTMLButtonElement>(".receipt-history-link")];
+      assert.match(rows[0].closest("tr")!.textContent!, /history-6.*7777777/);
+      assert.match(rows[0].closest("tr")!.textContent!, /3 checks · 41 s/);
       assert.match(
-        rows[0].textContent!,
+        rows[0].closest("tr")!.textContent!,
         id === "history-required" ? /Before promote/ : /On review/,
       );
-      assert.ok(rows[0].querySelector("time"));
+      assert.ok(rows[0].closest("tr")!.querySelector("time"));
       rows[0].focus();
       rows[0].click();
       await until(
@@ -499,7 +500,7 @@ test("promoted history and Last promotion open the same receipt with owner-only 
     const agent = setup(id, false);
     try {
       await until(() => !!agent.root.querySelector(".receipt-history-row"));
-      agent.root.querySelector<HTMLButtonElement>(".receipt-history-row")!.click();
+      agent.root.querySelector<HTMLButtonElement>(".receipt-history-link")!.click();
       await until(() => !!agent.root.querySelector(".receipt-details"));
       assert.doesNotMatch(agent.root.textContent!, /View logs|Hide logs/);
       assert.equal(
@@ -518,6 +519,50 @@ test("empty history is honest even while receipt-free reviews exist", async () =
     await until(() => !!c.root.querySelector("#recent-receipts"));
     assert.equal(c.root.querySelector("#recent-receipts p")!.textContent, "No receipts yet.");
     assert.equal(c.root.querySelector(".receipt-history-row"), null);
+  } finally {
+    c.close();
+  }
+});
+
+test("receipt duration hours and relative time boundaries use singular days and whole hours", () => {
+  for (const [milliseconds, expected] of [
+    [3_599_499, "59 min 59 s"],
+    [3_599_500, "1 hr"],
+    [3_600_000, "1 hr"],
+    [3_660_000, "1 hr 1 min"],
+    [5_040_000, "1 hr 24 min"],
+    [86_400_000, "24 hr"],
+  ] as const)
+    assert.equal(duration(milliseconds), expected);
+  const start = "2026-10-12T00:00:00Z";
+  const epoch = Date.parse(start);
+  assert.equal(relativeTime(start, epoch + 60_000), "1 min ago");
+  assert.equal(relativeTime(start, epoch + 3_600_000), "1 hr ago");
+  assert.equal(relativeTime(start, epoch + 86_400_000), "1 day ago");
+  assert.equal(relativeTime(start, epoch + 172_800_000), "2 days ago");
+  assert.equal(relativeTime(start, epoch + 86_400_000, "hour"), "24 hr ago");
+});
+
+test("history has the queue's table headers, a packet control per row, and long-running relative copy", async () => {
+  const c = setup("history-required");
+  try {
+    await until(() => c.root.querySelectorAll(".receipt-history-row").length === 5);
+    assert.deepEqual(
+      [...c.root.querySelectorAll("#recent-receipts th")].map((h) => h.textContent),
+      ["Packet", "Head", "Outcome", "Checks", "Trigger", "Finished"],
+    );
+    assert.equal(c.root.querySelectorAll(".receipt-history-link").length, 5);
+    assert.equal(c.root.querySelector(".last-promotion-sha")!.tagName, "CODE");
+    assert.equal(c.root.querySelector(".last-promotion-sha")!.textContent, "7777777");
+    assert.match(
+      c.root.querySelector(".review-card .receipt-cell")!.textContent!,
+      /Started \d+ hr ago/,
+    );
+    assert.doesNotMatch(c.root.textContent!, /1 days ago|Started \d{3,} min/);
+    c.root.querySelectorAll<HTMLElement>(".receipt-history-row")[1].click();
+    await until(
+      () => c.root.querySelector(".receipt-details")?.textContent?.includes("history-5") === true,
+    );
   } finally {
     c.close();
   }

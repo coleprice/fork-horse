@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, ClipboardText } from "@cloudflare/kumo";
+import { relativeTime } from "./time.ts";
 import type { OwnerReceipt, ReceiptStatus, ReceiptSummary, Review } from "./contracts.ts";
 
 export function duration(value: number | null): string {
   if (value === null || !Number.isFinite(value) || value < 0) return "";
   const seconds = Math.round(value / 1000);
+  if (seconds >= 3600) {
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${Math.floor(seconds / 3600)} hr${minutes ? ` ${minutes} min` : ""}`;
+  }
   return seconds < 60
     ? `${seconds} s`
     : `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} s` : ""}`;
@@ -62,7 +67,9 @@ export function ReceiptCell({
       caption =
         receipt.trigger === "before-promote" && required
           ? "Before promote"
-          : `Started ${duration(Math.max(0, now - Date.parse(receipt.startedAt)))} ago`;
+          : now - Date.parse(receipt.startedAt) >= 3_600_000
+            ? `Started ${relativeTime(receipt.startedAt, now, "hour")}`
+            : `Started ${duration(Math.max(0, now - Date.parse(receipt.startedAt)))} ago`;
       break;
     case "passed":
       caption = `${receipt.checks.length} checks${duration(receipt.durationMs) ? ` · ${duration(receipt.durationMs)}` : ""}`;
