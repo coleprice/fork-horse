@@ -270,6 +270,13 @@ The reviewed `race-silk-*`, `race-cloth-ink`, and
 `race-hurdle-ink` values live in `src/host-tokens.json`, with identity always carried
 by the number. Missing ledger evidence or activity counts are omitted.
 
+Results counts only default-branch pushes recorded on each entrant's fork from its
+claim through its closure, the race finish, or the current time. It shares
+the fork graph's packet interval filter. If the oldest loaded activity is later
+than any entrant's claim, Results omits Pushes rather than showing a partial count.
+`race-reused-forks` exercises historical fork totals of 20 and 3 with one push each
+inside the race; the Results counts are 1 and 1.
+
 The race view uses the accepted FH-057 `LaneRunner`, `LaneMarker`, `LaneConnector`
 and enrollment identity helpers from `src/lane.tsx`. Marker shapes and silk styling
 are shared with the fork graph; race-specific CSS only places them in the track.

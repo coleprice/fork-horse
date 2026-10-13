@@ -222,6 +222,60 @@ test("missing ledger and activity never invent before/after or push counts", () 
   value.activity = [];
   assert.doesNotMatch(html(value), /aaaaaaa → ccccccc|<th[^>]*>Pushes/);
 });
+function resultsPushes(value: ViewModel) {
+  const dom = new JSDOM(html(value));
+  return [...dom.window.document.querySelectorAll(".race-results tbody tr")].map((row) => [
+    row.querySelector(".race-runner strong")!.textContent,
+    row.querySelector('[data-label="Pushes"]')?.textContent,
+  ]);
+}
+test("reused forks count only their race pushes, independently of loaded activity order", () => {
+  const value = view("race-reused-forks");
+  const race = value.state!.races![0];
+  assert.deepEqual(race.entrants.map((entry) =>
+    value.activity.filter((event) => event.repoName === entry.repoName).length,
+  ), [3, 20]);
+  assert.deepEqual(resultsPushes(value), [["cedar", "1"], ["birch", "1"]]);
+  value.activity.reverse();
+  assert.deepEqual(resultsPushes(value), [["cedar", "1"], ["birch", "1"]]);
+});
+test("race pushes include interval endpoints, exclude unrelated Git events, and honor close/finish/now", (t) => {
+  const value = view("race-reused-forks");
+  const race = value.state!.races![0];
+  const birch = race.entrants.find((entry) => entry.agent === "birch")!;
+  const event = value.activity.find((entry) => entry.repoName === birch.repoName)!;
+  const push = (at: string, fields = {}) => ({ ...event, recordedAt: at, ...fields });
+  birch.closedAt = "2026-10-13T14:04:00.000Z";
+  value.activity = [
+    push(birch.claimedAt), push(birch.closedAt),
+    // Provider event time never brings an out-of-window receive back into this race.
+    push("2026-10-13T14:01:59.999Z", { eventTimestamp: birch.claimedAt }),
+    push("2026-10-13T14:04:00.001Z", { eventTimestamp: birch.closedAt }),
+    push(birch.claimedAt, { ref: "refs/heads/other" }),
+    push(birch.claimedAt, { after: "0".repeat(40) }),
+    push(birch.claimedAt, { repoName: "unrelated-fork" }),
+    push("invalid"),
+  ];
+  assert.deepEqual(resultsPushes(value), [["cedar", "0"], ["birch", "2"]]);
+  birch.closedAt = null;
+  race.finishedAt = "2026-10-13T14:04:00.000Z";
+  assert.equal(resultsPushes(value)[1][1], "2");
+  race.finishedAt = null;
+  t.mock.method(Date, "now", () => Date.parse("2026-10-13T14:04:00.000Z"));
+  assert.equal(resultsPushes(value)[1][1], "2");
+});
+test("incomplete loaded race history hides the entire Pushes column and its caption", () => {
+  const value = view("race-reused-forks");
+  // Coverage includes cedar's later claim, but not birch's earlier claim.
+  const laterClaim = value.state!.races![0].entrants.find((entry) => entry.agent === "cedar")!.claimedAt;
+  value.activity = value.activity.filter((event) =>
+    Date.parse(event.recordedAt) >= Date.parse(laterClaim),
+  );
+  value.activity.unshift({ ...value.activity[0], recordedAt: laterClaim, repoName: value.state!.project.repoName });
+  assert.doesNotMatch(html(value), /<th[^>]*>Pushes|data-label="Pushes"|Pushes from loaded activity/);
+  value.activity = [];
+  assert.doesNotMatch(html(value), /data-label="Pushes"|Pushes from loaded activity/);
+});
 test("advisory approval skips hollow check marker with a connector and remains truthful", () => {
   const value = view("race-advisory");
   const dom = new JSDOM(html(value));

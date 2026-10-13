@@ -7,6 +7,7 @@ import type { Brand, ProjectState, Race, RaceEntrant } from "./contracts.ts";
 import type { ViewModel } from "./model.ts";
 import type { ViewActions } from "./view.tsx";
 import { duration, receiptWord } from "./receipts.tsx";
+import { oldestLoadedActivity, packetPushes } from "./fork-graph-model.ts";
 import {
   entrantResult,
   entrantReviews,
@@ -251,9 +252,12 @@ export function RaceView({
   const placed = entrants
     .filter((entry) => entry.place !== null)
     .toSorted((a, b) => a.place! - b.place!);
-  const pushesAvailable = entrants.some((entrant) =>
-    view.activity.some((event) => event.repoName === entrant.repoName),
-  );
+  const oldestLoaded = oldestLoadedActivity(view.activity);
+  const pushesAvailable = oldestLoaded !== Infinity && entrants.every((entrant) => {
+    const claimed = timestamp(entrant.claimedAt);
+    return claimed !== undefined && oldestLoaded <= claimed;
+  });
+  const now = Date.now();
   return (
     <article className="race-page" aria-labelledby="race-title">
       {back}
@@ -373,8 +377,10 @@ export function RaceView({
                 const receipts = entrantReviews(state, race, entrant).flatMap((review) =>
                   review.receipt ? [review.receipt] : [],
                 );
-                const pushes = view.activity.filter(
-                  (event) => event.repoName === entrant.repoName,
+                const pushes = packetPushes(
+                  view.activity, entrant.repoName, state.project.defaultBranch,
+                  timestamp(entrant.claimedAt) ?? Infinity,
+                  timestamp(entrant.closedAt) ?? timestamp(race.finishedAt) ?? now,
                 ).length;
                 return (
                   <tr key={entrant.repoName} style={laneSilkStyle(state, entrant.agent)}>
@@ -387,7 +393,7 @@ export function RaceView({
                     <td data-label="Time to promote">
                       {entrant.promotedAt ? raceSplit(entrant.promotedAt, start) : "—"}
                     </td>
-                    {pushesAvailable && <td data-label="Pushes">{pushes || "—"}</td>}
+                    {pushesAvailable && <td data-label="Pushes">{pushes}</td>}
                     <td data-label="Checks passed">
                       {receipts.length
                         ? `${receipts.filter((receipt) => receipt.status === "passed").length} of ${receipts.length}`

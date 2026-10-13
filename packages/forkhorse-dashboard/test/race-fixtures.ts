@@ -12,6 +12,7 @@ export const raceScenarios = [
   "race-unknown",
   "race-standard",
   "race-advisory",
+  "race-reused-forks",
 ];
 const at = (seconds: number) =>
   new Date(Date.parse("2026-10-13T14:02:00Z") + seconds * 1000).toISOString();
@@ -87,7 +88,7 @@ export function raceFixtureState(scenario = "race-open"): RaceFixture {
     receiptPassedAt: at(480),
     approvedAt: at(600),
   });
-  const finished = ["race-finished", "race-photo", "race-photo-unattempted"].includes(scenario);
+  const finished = ["race-finished", "race-photo", "race-photo-unattempted", "race-reused-forks"].includes(scenario);
   const race: RaceFixture["races"][number] = {
     packet: "race-01",
     status: finished ? ("finished" as const) : ("open" as const),
@@ -142,6 +143,10 @@ export function raceFixtureState(scenario = "race-open"): RaceFixture {
         race: race.packet,
       },
     ];
+  }
+  if (scenario === "race-reused-forks") {
+    race.entrants = [cedar, birch];
+    race.places = race.places.filter((entry) => entry.agent !== "amber");
   }
   if (scenario === "race-advisory") cedar.receiptPassedAt = null;
   if (scenario === "race-empty") race.entrants = [];
@@ -213,5 +218,23 @@ export function raceFixtureState(scenario = "race-open"): RaceFixture {
       eventTimestamp: entry.firstPushAt!,
       recordedAt: entry.firstPushAt!,
     }));
+  // A canonical event at the first claim establishes loaded history coverage.
+  state.activity.unshift({
+    sequence: 0, namespace: "fixture", repoName: state.project.repoName, agent: null,
+    ref: "refs/heads/main", before: "f".repeat(40), after: HEAD, changedPaths: [],
+    eventTimestamp: at(0), recordedAt: at(0),
+  });
+  if (scenario === "race-reused-forks") {
+    const history = [birch, cedar].flatMap((entry, forkIndex) =>
+      Array.from({ length: forkIndex === 0 ? 19 : 2 }, (_, index) => ({
+        ...state.activity.find((event) => event.repoName === entry.repoName)!,
+        recordedAt: at(-60 * (index + 1)),
+        eventTimestamp: at(-60 * (index + 1)),
+      })),
+    );
+    state.activity = [...history, ...state.activity]
+      .toSorted((a, b) => Date.parse(a.recordedAt) - Date.parse(b.recordedAt))
+      .map((event, index) => ({ ...event, sequence: index + 1 }));
+  }
   return state;
 }
