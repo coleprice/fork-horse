@@ -251,7 +251,7 @@ export function ForkGraph({
                             ? "fork-state-danger"
                             : lane.state === "Timed out" || lane.state === "Couldn't run"
                               ? "fork-state-warning"
-                              : lane.state === "Racing"
+                              : lane.state === "Racing" || lane.state === "In progress"
                                 ? "fork-state-brand"
                                 : ""
                     }`}
