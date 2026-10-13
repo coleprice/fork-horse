@@ -51,6 +51,7 @@ export interface ProjectState {
     sha: string;
     promotedAt: string;
     receiptDigest?: string | null;
+    race?: string;
   }[];
   reconcilerAlerts: {
     sha: string;
@@ -90,7 +91,14 @@ export interface ReceiptSummary {
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
-  checks: { name: string; tier: "full"; outcome: ReceiptStatus; durationMs: number | null }[];
+  checks: {
+    name: string;
+    tier: "full" | "quick";
+    runtime?: "container" | "dynamic-worker";
+    message?: string;
+    outcome: ReceiptStatus;
+    durationMs: number | null;
+  }[];
 }
 /** Stored runner receipt returned by the owner-only endpoint. No bearer token plumbing. */
 export interface OwnerReceipt {
@@ -233,6 +241,7 @@ export interface LedgerEntry {
   after: string;
   receiptDigest: string | null;
   recordedAt: string;
+  race?: string;
 }
 
 /** FH-039 fixed bounded detail contract. Public reads never contain logs or tokens. */
@@ -270,27 +279,28 @@ export interface ReviewDiff {
   truncated: boolean;
 }
 
-/** Optional FH-052/053 read projection; absent races never produce invented entrants. */
+/** Optional FH-052/053 read projection; absent evidence is never synthesized. */
+export interface RaceEntrant {
+  agent: string;
+  repoName: string;
+  claimedAt: string;
+  firstPushAt: string | null;
+  reviewRequestedAt: string | null;
+  receiptPassedAt: string | null;
+  approvedAt: string | null;
+  promotedAt: string | null;
+  place: number | null;
+  closedAt: string | null;
+  closedBy?: "release" | "owner" | "race-finished" | null;
+  promoteRejected?: { at: string; expected: string; found: string } | null;
+}
 export interface Race {
   packet: string;
   status: "open" | "finished";
-  finishedAt: string | null;
-  winner: string | null;
-  ledgerEntryId: string | null;
-  entrants: {
-    agent: string;
-    repoName: string;
-    claimedAt: string;
-    firstPushAt: string | null;
-    reviewRequestedAt: string | null;
-    receiptPassedAt: string | null;
-    approvedAt: string | null;
-    promotedAt: string | null;
-    place: number | null;
-    closedAt: string | null;
-    closedBy: "release" | "owner" | "race-finished" | null;
-    promoteRejected?: { at: string; expected: string; found: string } | null;
-  }[];
+  entrants: RaceEntrant[];
+  finishedAt?: string | null;
+  winner?: string | null;
+  /** Exact string reference to ledger[].id; never an array position. */
+  ledgerEntryId?: string | null;
+  places?: { agent: string; place: number }[];
 }
-
-export type RaceEntrant = Race["entrants"][number];
