@@ -221,6 +221,20 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
   assert.equal(opened[0], "fixture-01");
   assert.match(table.textContent!, /checks failed/);
   assert.match(table.textContent!, /checks passed/);
+  const runningRow = [...table.querySelectorAll("tbody tr")].find((row) =>
+    row.textContent!.includes("fixture-03"),
+  )!;
+  assert.equal(
+    runningRow.querySelectorAll("td")[4].querySelector(".fork-cell-visible")!.textContent!.trim(),
+    "Running",
+  );
+  const checkedRow = [...table.querySelectorAll("tbody tr")].find((row) =>
+    row.textContent!.includes("fixture-02"),
+  )!;
+  assert.match(
+    checkedRow.querySelectorAll("td")[4].querySelector(".fork-cell-visible")!.textContent!,
+    /failed.*passed/,
+  );
   await act(async () =>
     root.render(
       createElement(
@@ -268,7 +282,11 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
   assert.ok(capped.length >= 4);
   for (const hint of capped) {
     assert.match(hint.textContent!, /\+\d+ earlier/);
-    assert.equal((hint.parentElement!.textContent!.match(/\d{2}:\d{2}/g) ?? []).length, 3);
+    const visible = hint.parentElement!.querySelector(".fork-cell-visible")!.textContent!;
+    assert.equal((visible.match(/\d{2}:\d{2}/g) ?? []).length, 3);
+    assert.doesNotMatch(visible, /push|review requested|approved|checks/);
+    assert.match(hint.getAttribute("aria-label")!, /earlier events:/);
+    assert.ok(hint.parentElement!.querySelector(".sr-only")!.textContent);
     assert.equal((hint as HTMLElement).tabIndex, 0);
   }
   // The no-layout DOM shim cannot measure SHA-label space; real-bundle captures check geometry.

@@ -16,11 +16,29 @@ import {
 
 const eventText = (events: ForkLane["events"]) =>
   events.map((e) => `${clockTime(e.at)} ${e.label}`).join(" · ");
-function EventCell({ lane, kinds, open }: { lane: ForkLane; kinds: string[]; open: boolean }) {
+function EventCell({
+  lane,
+  kinds,
+  open,
+  empty = "—",
+}: {
+  lane: ForkLane;
+  kinds: string[];
+  open: boolean;
+  empty?: string;
+}) {
   const { shown, earlier } = tableEvents(lane.events, kinds);
   return (
     <>
-      {eventText(shown) || "—"}
+      <span className="fork-cell-visible" aria-hidden="true">
+        {shown
+          .map(
+            (e) =>
+              `${clockTime(e.at)}${e.kind === "passed" || e.kind === "failed" ? ` ${e.label.split(" · ")[0].replace(/^checks /, "")}` : ""}`,
+          )
+          .join(" · ") || empty}
+      </span>
+      <span className="sr-only">{eventText(shown) || empty}</span>
       {earlier.length > 0 && (
         <Tooltip
           content={eventText(earlier)}
@@ -581,8 +599,15 @@ export function ForkGraph({
                   <EventCell lane={lane} kinds={["review"]} open={effectiveOpen} />
                 </td>
                 <td>
-                  <EventCell lane={lane} kinds={["failed", "passed"]} open={effectiveOpen} />
-                  {lane.review?.receipt?.status === "running" && " · Running"}
+                  <EventCell
+                    lane={lane}
+                    kinds={["failed", "passed"]}
+                    open={effectiveOpen}
+                    empty={lane.review?.receipt?.status === "running" ? "Running" : "—"}
+                  />
+                  {lane.review?.receipt?.status === "running" &&
+                    lane.events.some((e) => e.kind === "failed" || e.kind === "passed") &&
+                    " · Running"}
                 </td>
                 <td>
                   <EventCell lane={lane} kinds={["approved"]} open={effectiveOpen} />
