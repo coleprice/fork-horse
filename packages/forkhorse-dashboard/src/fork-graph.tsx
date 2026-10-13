@@ -329,15 +329,18 @@ export function ForkGraph({
           <span className="fork-now caption" style={{ left: `${percent(now)}%` }}>
             now
           </span>
-          {ticks.map((at) => (
-            <span
-              className="fork-tick caption muted"
-              key={at}
-              style={{ left: `${percent(at)}%`, top: height - 22 }}
-            >
-              {clockTime(at)}
-            </span>
-          ))}
+          {/* Reserve half of a 48px HH:mm label; the grid lines keep every tick. */}
+          {ticks
+            .filter((at) => x(at) >= 24 && x(at) <= width - 24)
+            .map((at) => (
+              <span
+                className="fork-tick caption muted"
+                key={at}
+                style={{ left: `${percent(at)}%`, top: height - 22 }}
+              >
+                {clockTime(at)}
+              </span>
+            ))}
           {mainMarks.map((group) => {
             const entry = graph.ledger.find((e) => e.review === group.events.at(-1)!.id)!;
             const text = group.events.map((e) => `${clockTime(e.at)} ${e.label}`).join(" · ");

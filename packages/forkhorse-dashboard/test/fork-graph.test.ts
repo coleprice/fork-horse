@@ -10,6 +10,7 @@ import {
   foldMarks,
   collisionLink,
   mainShaLabels,
+  clockTime,
   tableEvents,
 } from "../src/fork-graph-model.ts";
 import { agentIdentities, saddlecloth } from "../src/lane.tsx";
@@ -136,6 +137,51 @@ test("collision rings sit beside the pushing lane and links break around unrelat
   const grouped = collisionLink(80, 238, [80, 174, 238]);
   assert.equal(grouped.ringY, 112);
   assert.ok(grouped.segments.every((s) => s.top + s.height <= 166 || s.top >= 182));
+});
+test("near-start hour grid stays while its clipped centered label is omitted", async () => {
+  const { JSDOM } = createRequire(import.meta.url)("jsdom");
+  const dom = new JSDOM("<div id='root'></div>", { url: "https://fixture.idiot.tax" });
+  installDom(dom.window);
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+    value: true,
+    configurable: true,
+  });
+  const originalBounds = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  // Fixture geometry only; the browser capture verifies actual text bounds.
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    const bounds = originalBounds.call(this);
+    return this.classList.contains("fork-plot") ? { ...bounds, width: 640 } : bounds;
+  };
+  const root = createRoot(document.getElementById("root")!);
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ForkGraph, {
+          state: fixture("fork-hour-edge"),
+          owner: false,
+          openReview: () => {},
+          openPacket: () => {},
+          openReceipt: () => {},
+          now,
+        }),
+      ),
+    ),
+  );
+  const grid = [...document.querySelectorAll(".fork-grid")];
+  const labels = [...document.querySelectorAll<HTMLElement>(".fork-tick")];
+  assert.equal(grid.length, 4);
+  assert.ok(parseFloat(grid[0].getAttribute("x1")!) < 4, "Near-start grid line is retained");
+  assert.equal(labels.length, 3);
+  assert.ok(!labels.some((label) => label.textContent === clockTime(now - 4 * 3600000)));
+  assert.ok(
+    labels.every((label) => {
+      const center = (parseFloat(label.style.left) * 640) / 100;
+      return center >= 24 && center <= 640 - 24;
+    }),
+  );
+  await act(async () => root.unmount());
 });
 test("fixture DOM leaves closed table in accessibility tree, supports navigation and storage denial", async () => {
   const { JSDOM } = createRequire(import.meta.url)("jsdom");

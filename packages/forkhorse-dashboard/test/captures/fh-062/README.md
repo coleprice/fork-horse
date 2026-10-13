@@ -139,9 +139,33 @@ older candidate stages. Operator root/fresh-clone/D5/workerd checks, accepted FH
 integration, FH-049 or FH-057c if accepted, Saddler PASS, and owner review remain open.
 No publication, live account action, or Board edit occurred.
 
+## FH-057c follow-up
+
+After explicit resume and acceptance authority, the clean branch head remained
+`594b51b5d4d914b51dac2e0cc01b30f92e8da57b` and fresh `origin/main` verified exactly
+`05efc0a346a7e91d4f4e56b52eb4266f12475f5b`. These are the normal merge's two
+parents. The accepted change applied without conflicts. The merged edge-label
+filter drops centered hour labels without 24 px clearance at either plot edge,
+while retaining every hour grid line. Tokens/Compare, shared race-window Pushes,
+state-owned table clipping, compact cells, and accessible full event facts remain.
+
+| Latest follow-up command | Result |
+| --- | --- |
+| `CI=true pnpm --filter forkhorse-dashboard exec node --import ./test/jsx-runtime.ts --test test/race.test.ts test/usage.test.ts test/fork-graph.test.ts` | Exit 0; 43 passed, 0 failed, including accepted edge-label regression |
+| `CI=true pnpm --filter forkhorse-dashboard types:check` | Exit 0 |
+| `CI=true pnpm exec vp lint packages/forkhorse-dashboard` | Exit 0; no findings |
+| `git -c core.fsmonitor=false diff --cached --check` | Exit 0 |
+
+This follow-up ran only the authorized affected tests, types, and scoped lint.
+Existing captures describe earlier integration stages; no new browser, build,
+root/fresh-clone/D5, workerd, live, publication, or Board work was performed.
+FH-060 remains pending. FH-049 if it lands and the separate FH-057d state-dot
+change require accepted-main authority before integration. Saddler PASS and
+operator/owner acceptance remain open. No unaccepted feature branch was copied.
+
 ## Candidate changed paths
 
-Complete candidate delta against accepted FH-057b main `c3dec6e43994b49007b6ad06ab55d13c61607955`:
+Complete candidate delta against accepted FH-057c main `05efc0a346a7e91d4f4e56b52eb4266f12475f5b`:
 
 ```text
 packages/forkhorse-dashboard/README.md

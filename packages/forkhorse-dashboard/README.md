@@ -386,6 +386,9 @@ Accepted FH-057b main `c3dec6e43994b49007b6ad06ab55d13c61607955` is normally
 merged onto the local FH-062 head `edb9903c9829a4871b0814fc5bb978a2395ed1d4`.
 Its table clipping, focus behavior, compact visible event cells, and full accessible
 event labels compose with the usage tooltip and Tokens column.
+Accepted FH-057c main `05efc0a346a7e91d4f4e56b52eb4266f12475f5b` is normally
+merged onto the saved local FH-062 head `594b51b5d4d914b51dac2e0cc01b30f92e8da57b`.
+The graph omits hour labels without room at plot edges and retains every hour grid line.
 Final integration is held for accepted FH-060 and overlapping FH-049 if it lands. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
 serialized operator checks. Saddler PASS and owner review remain open. This local
 candidate has no live Cloudflare, deployment, or owner-acceptance evidence.
