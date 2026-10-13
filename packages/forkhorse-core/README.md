@@ -457,6 +457,40 @@ receipt and cannot constrain allocations inside the provider. Malformed or unava
 objects use the existing sanitized 502 response. Fixtures exercise these boundaries in
 actual workerd; they do not establish live Artifacts or Cloudflare acceptance.
 
+## Blocker resolution (FH-048)
+
+Blockers are permanent conflict observations. `/blockers`, `/state.blockers` and
+review detail `blockers` include open and resolved history. Every public blocker
+has `resolved: null` while open or `{at, by, reason?}` after resolution; `at` is an
+ISO timestamp and `by` is `release`, `promote` or `owner`. Legacy records without
+the field read as open without rewriting storage. `at` records the push's receive
+timestamp and `pushingPacket` identifies the pushing agent's live claim on that
+fork at observation time. Both fields read as `null` on legacy records. A fork
+with no live pushing claim or multiple live pushing claims uses `pushingPacket:
+null`, because raw push events identify the fork rather than a packet.
+
+Releasing a claim as its agent or closing it as the owner resolves every open
+blocker whose claimant `packet` or `pushingPacket` is that packet with `by: "release"`. Successful promotion's automatic
+claim release uses `by: "promote"`. Resolution shares the claim-release transaction,
+preserves earlier resolutions and leaves blockers for other packets untouched.
+
+Owner-only `POST /projects/:id/blockers/:bid/resolve` accepts `{reason}` (nonblank,
+1–200 characters) and returns `200 {blocker}` with `by: "owner"`. A valid repeated
+request returns the original blocker unchanged, including its timestamp and reason.
+Agents receive 403, unknown blockers 404 and invalid reasons 400. The transaction
+persists the resolution timestamp, owner provenance and reason on the permanent
+blocker record as its audit. Activity remains Git-push-only; resolution leaves
+the activity log and receive sequence unchanged. These workerd tests use offline providers;
+live collision and resolution acceptance remains an operator check.
+
+Approve and promote return 409 with `"This fork pushed into paths another agent
+has claimed. The owner must resolve the blocker first."` when an open blocker
+matches the review's `repoName` and either matches its packet through
+`pushingPacket` or has `pushingPacket: null` (including legacy observations).
+Claimant reviews on a different fork remain ungated. Resolved history never
+blocks a review. The check occurs before receipt/Git work and is repeated before
+approval persistence and after promotion preparation.
+
 ## Quick checks (FH-010)
 
 Core also exports `QuickFiles` and declares a `LOADER` Worker Loader binding.
@@ -467,3 +501,72 @@ approval verifies quick module source digests independently; generation, claim,
 CAS and advisory-mode semantics are unchanged. See [receipts](../../docs/receipts.md).
 The workerd suite exercises real local Dynamic Workers with fixture repositories
 and mocked containers. Deployed latency and no-container live smoke remain open.
+
+### Race packets (FH-052 / FH-053)
+
+An owner may set `mode: "race"` on `POST /projects/:id/packets`. Omission and
+legacy records read as `"standard"`; a packet's mode cannot change. Standard
+claims retain their existing `claim:<packet>` storage and workflow rules.
+
+A race supports at most **three distinct entrants ever**, each with one immutable
+caller-owned fork binding. Repeating an open claim is idempotent. Race entrants
+may overlap each other's paths, while claims on other packets retain the existing
+overlap rules. The same-race push exemption applies only to the entrant's bound
+fork; other packet collisions remain blockers. Push attribution counts both standard
+claims and open race entries; more than one binding on the pushing fork keeps
+`pushingPacket: null`, preserving the gate for every review from that fork.
+
+Entrants live at `entrant:<packet>:<agent>`. Records are never deleted or reused;
+`closedAt === null` means open. Agent `DELETE /packets/:pid/claim` closes only that
+agent's entry. An owner's DELETE requires JSON `{ "agent": "builder" }` for a race.
+A closed entrant cannot re-enter, and still counts toward the cap. Release stales
+only that entrant's reviews and resolves only collisions where that entry was the
+claimant or the uniquely identified pusher. Peer collisions remain open.
+`openEntrants(storage, packet?)` exports the shared open-entry rule for other core
+consumers.
+
+`/state.races` exposes entrants in claim order with `claimedAt`, `firstPushAt`,
+`reviewRequestedAt`, `receiptPassedAt`, `approvedAt`, `promotedAt`, `place`,
+`closedAt`, and `closedBy`. Milestones are first-occurrence timestamps, otherwise
+null. Successful commit API writes and observed pushes on the default branch
+record the first push; queue events predating the claim do not. Receipt milestones
+require an attached passing receipt for the matching entrant/review generation.
+Caller `/me.work` includes open race entries with the existing `next` rules.
+
+The first approved review whose canonical Git compare-and-swap succeeds wins.
+The ledger transaction records the winner's `promotedAt` and place 1, releases
+all still-open entrants, stales their outstanding reviews, and stores
+`race:<packet>` as `{winner, places, finishedAt, ledgerEntryId}`. `winner` is the
+agent name; `places` is an ordered array of `{agent, place}`. `ledgerEntryId`
+is the string `ledger[].id`, and that ledger entry's `race` is the packet ID.
+`/state.races[]` exposes this result (`places: []` and null finish metadata while
+open), keeping its entrants in claim order with individual `place` values.
+
+Remaining places rank entrants still running before those that left earlier,
+then by the furthest milestone: Claimed → First push → Review requested → Checks
+passed → Approved → Promoted. Ties use the earliest time at that milestone,
+then agent name for identical timestamps. Entries closed at the finish get
+`closedBy: "race-finished"`; prior withdrawals retain their `release`/`owner`
+reason and original closing time. The winner retains a `releasedBy: "promote"`
+audit for its exact review, allowing an already-running advisory receipt to
+attach without changing final placings. Other open entrants use the existing
+release mechanism with `releasedBy: "race-finished"`; their affected blockers
+resolve with `by: "race-finished"`. Other packets' bindings remain untouched.
+Finished races refuse new or repeated entrant claims with `409 "Race finished."`.
+
+A race promote refused on a canonical-base mismatch, including a finished race,
+keeps the usual `409 {"error":"stale base, rebase"}`. A separate small transaction
+retains the entrant's first `promoteRejected: {at, expected, found}`; `expected`
+is that review's base and `found` is the canonical head read at refusal.
+`/state.races[].entrants[]` exposes the record, or null before any such refusal.
+Later requests do not overwrite it. A failure to persist this diagnostic is
+logged without changing the definite 409 response. Uncertain pushes or finish
+transaction failures retain `promotionPending` for inspection, with no partial
+ledger, finish, placement or release writes. These fixture tests are offline
+workerd evidence only; live race acceptance is separate.
+
+Agent enrollment, including OAuth's owner-authorized enrollment route, stores
+`createdAt`; agents in one project bootstrap share a timestamp (alphabetical
+tie-breaking is a dashboard concern). Token rotation preserves it. `/state.agents`
+exposes only `name` and `createdAt`; legacy agents report null and are not
+backfilled. No sequence is stored.
