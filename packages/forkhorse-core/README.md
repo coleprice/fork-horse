@@ -274,6 +274,9 @@ use receipts to gate approval or promotion. Null means **no check receipt**, not
 passing checks. Moving the fork head or releasing its claim invalidates an
 outstanding review. Both approve and promote read the fork head fresh rather than
 relying only on queued push events. State also computes stale status from fresh heads.
+Recorded fork pushes compare reviews with the freshly read default-branch head,
+so a delayed older event cannot stale a review of the current commit. If Artifacts
+throws or returns an empty branch log, invalidation falls back to the event's head.
 
 With `requireReceipt: true`, promote waits for a new successful before-promote
 execution and compares its generation/commit/digest, including for reviews approved

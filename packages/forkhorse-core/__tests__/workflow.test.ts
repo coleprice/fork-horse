@@ -98,7 +98,7 @@ async function packet(id: string, pid = "one", paths = ["src/**"]) {
 async function claim(id: string, token: string, pid = "one", data: unknown = {}) {
   return api(id, `/packets/${pid}/claim`, token, data);
 }
-async function review(id: string, token: string, repoName: string, pid = "one", sha = AFTER) {
+async function review(id: string, token: string, repoName: string, pid = "one", sha = AFTER, approve = true) {
   await mutate(id, (instance) => {
     instance.fixture.heads.set(repoName, sha);
   });
@@ -114,7 +114,7 @@ async function review(id: string, token: string, repoName: string, pid = "one", 
       await new Promise(resolve => setTimeout(resolve, 1));
     }
   });
-  expect((await api(id, `/reviews/${requested.id}/approve`, OWNER, {})).status).toBe(200);
+  if (approve) expect((await api(id, `/reviews/${requested.id}/approve`, OWNER, {})).status).toBe(200);
   return requested;
 }
 function push(
@@ -486,6 +486,79 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     });
   });
 
+  it.each(["main", "release/candidate"])("keeps a newer review current when older push events arrive on %s", async (branch) => {
+    const f = await fixture(branch);
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    // Two remote pushes happen before either queued event is delivered.
+    const older = await review(f.id, f.alpha, f.a);
+    const newerSha = "b".repeat(40);
+    const newer = await review(f.id, f.alpha, f.a, "one", newerSha, false);
+    await mutate(f.id, (instance) => { instance.fixture.calls.length = 0; });
+    const firstEvent = push(f.a, BEFORE, AFTER, `refs/heads/${branch}`);
+    const secondEvent = push(f.a, AFTER, newerSha, `refs/heads/${branch}`);
+    for (const event of [firstEvent, secondEvent]) {
+      expect(await stub(f.id).recordPush(event)).toBe(true);
+      await mutate(f.id, async (instance, objectState) => {
+        // Inspect stored flags: /state also reads heads and could mask a broken write.
+        expect(await objectState.storage.get<Review>(`review:${newer.id}`)).toMatchObject({ sha: newerSha, stale: false });
+        expect(await objectState.storage.get<Review>(`review:${older.id}`)).toMatchObject({ stale: true });
+        expect(instance.fixture.calls.filter(call => call.method === "log").at(-1)).toMatchObject({ repo: f.a, ref: branch });
+      });
+      expect((await api(f.id, `/reviews/${newer.id}/approve`, OWNER, {})).status).toBe(200);
+    }
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get("sequence")).toBe(2);
+    });
+    expect(await stub(f.id).recordPush(firstEvent)).toBe(true);
+    await mutate(f.id, async (_instance, objectState) => {
+      expect(await objectState.storage.get("sequence")).toBe(2);
+      expect(await objectState.storage.get<Review>(`review:${newer.id}`)).toMatchObject({ stale: false });
+    });
+  });
+
+  it.each(["throws", "empty"])("falls back to the event head when the fork log %s", async (failure) => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const older = await review(f.id, f.alpha, f.a, "one", BEFORE);
+    const current = await review(f.id, f.alpha, f.a);
+    await mutate(f.id, (instance) => {
+      const get = instance.fixture.get.bind(instance.fixture);
+      vi.spyOn(instance.fixture, "get").mockImplementation(async name => {
+        const repo = await get(name);
+        repo.log = async () => {
+          if (failure === "throws") throw new Error("offline-provider-failure");
+          return [];
+        };
+        return repo;
+      });
+    });
+    try {
+      expect(await stub(f.id).recordPush(push(f.a))).toBe(true);
+      await mutate(f.id, async (_instance, objectState) => {
+        expect(await objectState.storage.get<Review>(`review:${current.id}`)).toMatchObject({ stale: false });
+        expect(await objectState.storage.get<Review>(`review:${older.id}`)).toMatchObject({ stale: true });
+        expect(await objectState.storage.get("sequence")).toBe(1);
+      });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("leaves default-branch reviews current on a non-default-branch push", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a);
+    await mutate(f.id, (instance) => { instance.fixture.calls.length = 0; });
+    expect(await stub(f.id).recordPush(push(f.a, AFTER, BEFORE, "refs/heads/topic"))).toBe(true);
+    await mutate(f.id, async (instance, objectState) => {
+      expect(await objectState.storage.get<Review>(`review:${r.id}`)).toMatchObject({ stale: false });
+      expect(instance.fixture.calls.some(call => call.method === "log")).toBe(false);
+    });
+  });
+
   it("refuses a stale approval even before a push notification arrives", async () => {
     const f = await fixture();
     await packet(f.id);
@@ -670,6 +743,7 @@ describe("FH-039 return and detail API in workerd with offline providers", () =>
       expect(denied.status).toBe(409);
       expect(await denied.json()).toEqual({ error: "Review was returned to the agent." });
     }
+    await mutate(f.id, (instance) => { instance.fixture.heads.set(f.a, BEFORE); });
     await stub(f.id).recordPush(push(f.a, AFTER, BEFORE));
     expect((await state(f.id)).reviews[0]).toMatchObject({ stale: true, returned: returned.returned });
     const fresh = await review(f.id, f.alpha, f.a);
