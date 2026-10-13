@@ -18,6 +18,7 @@ import {
 } from "@cloudflare/kumo";
 import { ArrowLeft, ArrowLineUp, Pulse, Warning, X } from "@phosphor-icons/react";
 import {
+  checkCount,
   duration,
   ReceiptAnnouncements,
   ReceiptBadge,
@@ -208,6 +209,8 @@ function ReviewActions({
     review.receiptDigest === confirmation.digest &&
     view.state!.project.defaultBranch === confirmation.branch;
   const gate = reviewGate(review, view.state!);
+  const rechecking =
+    required && review.receipt?.status === "running" && review.receipt.trigger === "before-promote";
   if (!actions.owner) return null;
   return (
     <>
@@ -223,7 +226,7 @@ function ReviewActions({
           Approve
         </Button>
       )}
-      {gate.promote && (
+      {gate.promote && !promoting && !rechecking && (
         <Button
           size="sm"
           variant="secondary"
@@ -1128,7 +1131,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   />
                                 </Table.Cell>
                                 <Table.Cell className="caption muted tabular">
-                                  {review.receipt.checks.length} checks
+                                  {checkCount(review.receipt.checks.length)}
                                   {duration(review.receipt.durationMs) &&
                                     ` · ${duration(review.receipt.durationMs)}`}
                                 </Table.Cell>

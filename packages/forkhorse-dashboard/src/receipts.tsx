@@ -3,6 +3,10 @@ import { Badge, Button, ClipboardText } from "@cloudflare/kumo";
 import { relativeTime } from "./time.ts";
 import type { OwnerReceipt, ReceiptStatus, ReceiptSummary, Review } from "./contracts.ts";
 
+export function checkCount(count: number): string {
+  return `${count} ${count === 1 ? "check" : "checks"}`;
+}
+
 export function duration(value: number | null): string {
   if (value === null || !Number.isFinite(value) || value < 0) return "";
   const seconds = Math.round(value / 1000);
@@ -72,7 +76,7 @@ export function ReceiptCell({
             : `Started ${duration(Math.max(0, now - Date.parse(receipt.startedAt)))} ago`;
       break;
     case "passed":
-      caption = `${receipt.checks.length} checks${duration(receipt.durationMs) ? ` · ${duration(receipt.durationMs)}` : ""}`;
+      caption = `${checkCount(receipt.checks.length)}${duration(receipt.durationMs) ? ` · ${duration(receipt.durationMs)}` : ""}`;
       break;
     case "failed":
       caption = (

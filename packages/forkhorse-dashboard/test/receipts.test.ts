@@ -126,6 +126,82 @@ test("receipt wire maps every status without logs; durations and timeout use sup
   }
 });
 
+test("queue and recent receipts use singular and plural check counts, including failed totals", async () => {
+  for (const count of [1, 2]) {
+    const c = setup("history-required");
+    try {
+      await until(() => !!c.root.querySelector(".receipt-history-row"));
+      for (const review of c.wire.reviews) {
+        if (review.receipt) {
+          review.receipt.checks = review.receipt.checks.slice(0, count);
+          review.receipt.durationMs = 4000;
+        }
+      }
+      await c.app.refresh();
+      const expected = `${count} ${count === 1 ? "check" : "checks"} · 4 s`;
+      await until(() =>
+        c.root.querySelector(".receipt-history-row")!.textContent!.includes(expected),
+      );
+      const passed = c.root.querySelector('[data-review="receipt-3"]')!.closest("tr")!;
+      assert.ok(passed.querySelector(".receipt-cell")!.textContent!.includes(expected));
+      const history = [...c.root.querySelectorAll(".receipt-history-row")];
+      assert.equal(history.length, 5);
+      assert.ok(history.every((row) => row.textContent!.includes(expected)));
+      const failed = c.root.querySelectorAll(".review-card")[3];
+      assert.ok(failed.textContent!.includes(`1 of ${count} failed`));
+      assert.doesNotMatch(c.root.textContent!, /1 checks/);
+    } finally {
+      c.close();
+    }
+  }
+});
+
+test("Promote stays hidden during an in-flight re-check and returns after an interrupted run", async () => {
+  const wire = fixtureState("receipts");
+  const review = wire.reviews[2];
+  let finish: (() => void) | undefined;
+  let promoteCalls = 0;
+  const c = setup("receipts", true, async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("/state")) return Response.json(wire);
+    if (path.endsWith("/activity")) return Response.json({ activity: [], nextAfter: 0 });
+    if (path.endsWith("/promote")) {
+      promoteCalls++;
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      review.receipt = fixtureReceipt("timed-out", "before-promote");
+      return Response.json({ error: "Checks failed before promote." }, { status: 409 });
+    }
+    return Response.json({ error: "Fixture missing route" }, { status: 404 });
+  });
+  const selector = '[data-action="promote"][data-review="receipt-3"]';
+  try {
+    await until(() => !!c.root.querySelector(selector));
+    c.root.querySelector<HTMLButtonElement>(selector)!.click();
+    await until(() => !!c.dom.window.document.querySelector('[data-action="confirm-promote"]'));
+    c.dom.window.document.querySelector('[data-action="confirm-promote"]')!.click();
+    await until(() => !!finish);
+    assert.equal(c.root.querySelector(selector), null);
+    const confirm = c.dom.window.document.querySelector(
+      '[data-action="confirm-promote"]',
+    ) as HTMLButtonElement;
+    assert.equal(confirm.textContent, "Re-checking…");
+    assert.equal(confirm.disabled, true);
+    assert.equal(promoteCalls, 1);
+    finish!();
+    await until(() => !!c.root.querySelector(selector));
+    assert.match(
+      c.root.querySelector(selector)!.closest("tr")!.textContent!,
+      /Promote runs the checks again/,
+    );
+    assert.equal(promoteCalls, 1, "interrupted runs are never automatically retried");
+  } finally {
+    finish?.();
+    c.close();
+  }
+});
+
 test("advisory receipt outcomes never gate; approved reviews re-satisfy the gate after setting flip", () => {
   const state = stateView(fixtureState("advisory"));
   for (const review of state.reviews) {
@@ -392,6 +468,8 @@ test("approved before-promote outcomes distinguish failed code from an interrupt
     const rows = [...c.root.querySelectorAll(".review-card")];
     assert.match(rows[1].textContent!, /Approved/);
     assert.doesNotMatch(rows[1].textContent!, /Waiting for checks/);
+    assert.match(rows[1].textContent!, /Re-checking/);
+    assert.equal(rows[1].querySelector('[data-action="promote"]'), null);
     assert.equal(rows[2].querySelector('[data-action="promote"]'), null);
     assert.ok(rows[4].querySelector('[data-action="promote"]'));
     assert.match(rows[4].textContent!, /Promote runs the checks again/);
