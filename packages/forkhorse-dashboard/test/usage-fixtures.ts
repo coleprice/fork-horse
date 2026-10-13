@@ -3,6 +3,7 @@ import { reviewFixtureState, reviewFixtureDetail } from "./review-fixtures.ts";
 
 export const usageScenarios = [
   "usage-race",
+  "usage-no-review",
   "usage-over",
   "usage-unchecked",
   "usage-both",
@@ -101,6 +102,13 @@ export function usageFixtureState(id = "usage-race", now = Date.now()): StateRes
     recordedAt: e.firstPushAt!,
     eventTimestamp: e.firstPushAt!,
   }));
+  if (id === "usage-no-review") {
+    state.reviews = state.reviews.slice(0, 2);
+    const entrant = state.races[0].entrants[2];
+    entrant.reviewRequestedAt = null;
+    entrant.receiptPassedAt = null;
+    entrant.approvedAt = null;
+  }
   if (id === "usage-over") {
     state.reviews = [state.reviews[2]];
   }
