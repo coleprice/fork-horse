@@ -4,6 +4,7 @@ export const forkScenarios = [
   "fork-hero",
   "fork-history",
   "fork-hour-edge",
+  "fork-states",
   "fork-resolved",
   "fork-old",
   "fork-many",
@@ -30,7 +31,7 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
   state.reviews = [];
   state.activity = [];
   state.ledger = [];
-  for (let i = 0; i < (id === "fork-many" ? 11 : 3); i++) {
+  for (let i = 0; i < (id === "fork-many" ? 11 : id === "fork-states" ? 7 : 3); i++) {
     const agent = names[i % 3],
       packet = `fixture-${String(i + 1).padStart(2, "0")}`,
       repoName = `fixture-fork-${i + 1}`,
@@ -59,10 +60,27 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
         paths: [`fixture-${i}/**`],
         createdAt: at(id === "fork-old" ? 500 : 180 - i * 20),
       });
+    const status =
+      id === "fork-states"
+        ? (
+            [
+              "passed",
+              "passed",
+              "running",
+              "failed",
+              "timed-out",
+              "infrastructure-error",
+              "passed",
+            ] as const
+          )[i]
+        : i === 2
+          ? "running"
+          : "passed";
+    const approved = id === "fork-states" ? i < 2 : i !== 2;
     const receipt = {
-      ...fixtureReceipt(i === 2 ? "running" : "passed"),
+      ...fixtureReceipt(status),
       startedAt: at(75 - i * 10),
-      finishedAt: i === 2 ? null : at(70 - i * 10),
+      finishedAt: status === "running" ? null : at(70 - i * 10),
     };
     state.reviews.push({
       id: `fixture-review-${i}`,
@@ -73,8 +91,8 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
       base: "a".repeat(40),
       receiptDigest: receipt.digest,
       receipt,
-      approval: i === 2 ? null : { sha, receiptDigest: receipt.digest },
-      approvedAt: i === 2 ? null : at(60 - i * 10),
+      approval: approved ? { sha, receiptDigest: receipt.digest } : null,
+      approvedAt: approved ? at(60 - i * 10) : null,
       stale: false,
       promoted: i === 0,
       createdAt: at(100 - i * 10),

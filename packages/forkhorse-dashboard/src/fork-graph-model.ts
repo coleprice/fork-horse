@@ -193,9 +193,13 @@ export function forkGraph(state: ProjectState, now = Date.now(), choice: WindowC
           ? "Checks running"
           : latest.status === "approved"
             ? "Approved"
-            : latest.receipt && latest.receipt.status !== "passed"
-              ? "Checks failed"
-              : "In review";
+            : latest.receipt?.status === "timed-out"
+              ? "Timed out"
+              : latest.receipt?.status === "infrastructure-error"
+                ? "Couldn't run"
+                : latest.receipt && latest.receipt.status !== "passed"
+                  ? "Checks failed"
+                  : "In review";
     // Activity is Git pushes only. A fork reused for a later packet must not inherit earlier pushes.
     const previousEnd = Math.max(
       0,

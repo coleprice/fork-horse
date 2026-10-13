@@ -867,6 +867,12 @@ footer {
 .fork-state-info > span {
   color: var(--text-color-kumo-info);
 }
+.fork-state-danger > span {
+  color: var(--text-color-kumo-danger);
+}
+.fork-state-warning > span {
+  color: var(--text-color-kumo-warning);
+}
 .fork-state-brand > span {
   color: var(--text-color-kumo-brand);
 }
