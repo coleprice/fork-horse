@@ -11,6 +11,39 @@ export interface UsageSources {
   metered: Usage | null;
 }
 export type TokenBudgetState = "unchecked" | "within" | "near" | "over";
+export interface BlockerResolution {
+  at: string;
+  by: "release" | "promote" | "owner";
+  reason?: string;
+}
+/** FH-048 public history. Missing fields on legacy records mean open/unknown. */
+export interface WireBlocker {
+  id: string;
+  packet: string;
+  claimingAgent: string;
+  pushingAgent: string;
+  repoName: string;
+  sha: string;
+  paths: string[];
+  resolved?: BlockerResolution | null;
+  at?: string | null;
+  pushingPacket?: string | null;
+}
+export interface BlockerView {
+  id: string;
+  agent: string;
+  packet: string;
+  paths: string[];
+  reason: string;
+  resolved: boolean;
+  resolution?: BlockerResolution | null;
+  claimingAgent?: string;
+  pushingAgent?: string;
+  sha?: string;
+  repoName?: string;
+  at?: string | null;
+  pushingPacket?: string | null;
+}
 
 /** View projection of the public FH-005 wire state; never includes credentials. */
 export interface ProjectState {
@@ -44,20 +77,7 @@ export interface ProjectState {
     usage?: UsageSources;
     createdAt?: string;
   }[];
-  blockers: {
-    id: string;
-    agent: string;
-    packet: string;
-    paths: string[];
-    reason: string;
-    resolved: boolean;
-    claimingAgent?: string;
-    pushingAgent?: string;
-    sha?: string;
-    repoName?: string;
-    at?: string | null;
-    pushingPacket?: string | null;
-  }[];
+  blockers: BlockerView[];
   races?: Race[];
   reviews: Review[];
   ledger: {
@@ -172,6 +192,7 @@ export interface DashboardTransport {
     review: string,
     reason: string,
   ): Promise<{ review: StateResponse["reviews"][number] }>;
+  resolveBlocker?(project: string, blocker: string, reason: string): Promise<{ blocker: WireBlocker }>;
   getState(project: string): Promise<ProjectState>;
   getActivity(project: string, after?: number): Promise<ActivityPage>;
   approve(project: string, review: string): Promise<unknown>;
@@ -186,7 +207,7 @@ export interface DashboardTransport {
   subscribe?(project: string, invalidate: () => void): () => void;
 }
 
-/** FH-005 JSON snapshot. Only live claims appear; blockers currently have no resolution field. */
+/** FH-005 JSON snapshot. Only live claims appear; blockers retain resolved history. */
 export interface StateResponse {
   project: {
     id: string;
@@ -208,18 +229,7 @@ export interface StateResponse {
   }[];
   packets: ProjectState["packets"];
   claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string; usage?: UsageSources }[];
-  blockers: {
-    id: string;
-    packet: string;
-    claimingAgent: string;
-    pushingAgent: string;
-    repoName: string;
-    sha: string;
-    paths: string[];
-    at?: string | null;
-    pushingPacket?: string | null;
-    resolved?: { at: string; by: "release" | "promote" | "owner"; reason?: string } | null;
-  }[];
+  blockers: WireBlocker[];
   races?: Race[];
   reviews: {
     approvedAt?: string | null;

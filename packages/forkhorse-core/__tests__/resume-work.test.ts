@@ -85,6 +85,7 @@ async function setup(requireReceipt = true, head = AFTER, values?: Partial<Revie
       goal: "Continue",
       paths: ["src"],
       acceptance: [],
+      archived: null,
     } satisfies Packet);
     await storage.put("claim:resume", {
       packet: "resume",

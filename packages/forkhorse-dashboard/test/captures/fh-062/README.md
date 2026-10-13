@@ -226,9 +226,63 @@ at `6ce9674`. Cleanup checks verify the archive and staged scope. No history rew
 publication, live action, or unaccepted FH-060 integration occurred. FH-060 acceptance
 remains required before the next plain-main integration. Other packet gates remain.
 
+## Accepted FH-060 integration
+
+Fresh `origin/main` verified exactly `f1910e6f571ed7359d30db37d3ddca86f9236803`
+after explicit acceptance and normal-merge authority. The saved local first parent
+is `d8befb64e9232c67a78044447aa8ec81445555c8`; accepted main is the second parent.
+No rebase or feature-branch copying occurred. Five conflicts were confined to
+`src/contracts.ts`, `src/fixture-main.ts`, `src/model.ts`, `src/view.tsx`, and
+`test/fixture-api.ts`. Resolution combines usage and collision types/scenarios,
+retains accepted pushing-fork collision gates and role-specific explanations,
+and applies current entrant budget gating after the collision is resolved.
+The queue keeps the eight-fix usage refusal in Actions only.
+
+Accepted FH-049 collision UI and FH-050 archive contract arrive through accepted
+main. Every path outside the dashboard matches accepted main exactly; no authored
+core, runner, deployment, Board, or upstream change was made. The unchanged pin is
+`8cbfb2b67e3da6222e4d7faeade0ff88eb4253bf`. Accepted state dots and edge-hour labels,
+shared passing-receipt Checks and race-window Pushes, source-separated ratios,
+compact accessible figures, no full-tie caption, unbudgeted behavior, and phone
+Compare layout retain the eight-fix source. A new regression checks that resolving
+an accepted collision cannot bypass an over/unchecked current entrant budget.
+
+| Latest command | Result |
+| --- | --- |
+| `CI=true pnpm --filter forkhorse-dashboard exec node --import ./test/jsx-runtime.ts --test test/race.test.ts test/usage.test.ts test/fork-graph.test.ts test/review.test.ts test/receipts.test.ts test/collisions.test.ts test/dashboard.test.ts test/needs-you.test.ts` | Exit 0; 120 passed, 0 failed |
+| `CI=true pnpm --filter forkhorse-dashboard exec node --import ./test/jsx-runtime.ts --test test/usage.test.ts` | Exit 0; 16 passed, 0 failed after adding the combined gate regression; 121 unique affected tests across these runs |
+| `CI=true pnpm --filter forkhorse-dashboard types:check` | Exit 0 after final regression |
+| `CI=true pnpm exec vp lint packages/forkhorse-dashboard` | Exit 0 after final regression |
+| `git -c core.fsmonitor=false diff --check` | Exit 0 |
+
+The same literal-color scan above returned exit 1 with zero matches. Existing
+fixture duplicate-project-key warnings remain. No heavy root/fresh-D5, workerd,
+Saddler, live, publication, deployment, route migration, or Board work ran.
+Those serialized operator/owner checks remain open. Reported upstream deployment
+and live acceptance are coordinator evidence, not evidence produced by this branch.
+
+Three refreshed JPGs remain external in `fh-062-fh060-integration-evidence.tar.gz`.
+Archive SHA-256: `dc7dd8e389b4a21768961217d66f758266239760ed0f8f6b0007e7e4bc5ce79c`.
+The operator handback supplies its local location. Unpack the basename, enter
+`fh-062-fh060-integration-evidence`, and run `shasum -a 256 -c SHA256SUMS`.
+All three expanded files and archive members were verified. This new bundle does
+not replace the preserved original twenty-one-image bundle above.
+
+| External filename | Offline integration evidence |
+| --- | --- |
+| unchecked-queue.jpg | Light docked queue, 1280 by 720; table client/scroll/wrapper each 880px, each refusal once in Actions |
+| over-review.jpg | Dark over-budget detail; source/freshness segments, three milestone cells, no Promote |
+| collision-review.jpg | Dark accepted collision detail; banner/actions coexist with explicit Not reported usage |
+
+These captures were justified by the merged queue/detail gate and collision UI.
+No browser API write occurred. The temporary tab closed, viewport reset, and
+loopback server stopped (intentional SIGINT exit 130). Its initial sandbox bind
+failed with EPERM (exit 1); the authorized loopback retry started successfully.
+
 ## Candidate changed paths
 
-Complete current-tree candidate delta against accepted FH-057d main `1749a394caa4f78b7fbf6a1645659e89e78e9b99`:
+Complete current-tree candidate delta against accepted FH-060 main
+`f1910e6f571ed7359d30db37d3ddca86f9236803`:
 
 ```text
 packages/forkhorse-dashboard/README.md

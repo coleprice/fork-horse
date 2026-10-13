@@ -128,6 +128,31 @@ test("promotion follows current entrant state rather than the older review snaps
     true,
   );
 });
+test("accepted collision gating remains ahead of current entrant usage gating for both roles", () => {
+  const state = fixture();
+  const review = state.reviews[2];
+  const blocker = {
+    id: "usage-collision", agent: review.agent, pushingAgent: review.agent,
+    claimingAgent: "claiming-agent", packet: "claimed-packet", pushingPacket: review.packet,
+    repoName: review.repoName, sha: review.sha, paths: ["src/shared.ts"],
+    reason: "Fixture collision", resolved: false,
+  };
+  state.blockers.push(blocker);
+  for (const owner of [true, false]) {
+    const gate = reviewGate(review, state, owner);
+    assert.equal(gate.approve, false);
+    assert.equal(gate.promote, false);
+    assert.match(gate.reason, /Blocked: this fork pushed into claimed-packet/);
+    assert.ok(gate.reason.includes(owner ? "Mark the collision resolved first." : "Waiting for the owner."));
+  }
+  blocker.resolved = true;
+  assert.equal(reviewGate(review, state).reason, "Over its token budget (reported). It can't win this race.");
+  state.races![0].entrants[2].budget = "unchecked";
+  assert.equal(reviewGate(review, state).promote, false);
+  assert.equal(reviewGate(review, state).reason, "Report usage first: this race has a token budget.");
+  state.races![0].tokenBudget = null;
+  assert.equal(reviewGate(review, state).promote, true);
+});
 test("today totals deduplicate claims, race entrants and superseded review snapshots by binding and source", () => {
   const state = fixture("usage-both");
   const r = state.reviews[0];

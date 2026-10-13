@@ -3,8 +3,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Banner, Button, ClipboardText, Dialog, Tooltip, Textarea } from "@cloudflare/kumo";
 import { ArrowUUpLeft, Copy, Warning } from "@phosphor-icons/react";
 import type { Review, ReviewDetail, ReviewDiff } from "./contracts.ts";
-import { reviewState, reviewView, type ViewModel } from "./model.ts";
-import { type ViewActions, ReviewActions, Paths } from "./view.tsx";
+import { blockerView, blockerGatesReview, reviewState, reviewView, type ViewModel } from "./model.ts";
+import { type ViewActions, ReviewActions } from "./view.tsx";
+import { CollisionBanner, CollisionRows } from "./collisions.tsx";
 import { ApiError } from "./transport.ts";
 import { checkCount, duration, ReceiptBadge } from "./receipts.tsx";
 import { relativeTime } from "./time.ts";
@@ -490,13 +491,8 @@ export function ReviewView({
             blockers: [
               ...new Map(
                 [
+                  ...(detail?.blockers ?? []).map(blockerView),
                   ...snapshot.blockers,
-                  ...(detail?.blockers ?? []).map((blocker) => ({
-                    ...blocker,
-                    agent: blocker.pushingAgent,
-                    reason: `Push from ${blocker.pushingAgent} overlaps ${blocker.claimingAgent}'s live claim.`,
-                    resolved: false,
-                  })),
                 ].map((blocker) => [blocker.id, blocker]),
               ).values(),
             ],
@@ -695,25 +691,16 @@ export function ReviewView({
           </Dialog>
         </Dialog.Root>
       )}
-      {detail.blockers.length > 0 && (
-        <section>
-          <h2>Blockers</h2>
-          {detail.blockers.map((b) => (
-            <Banner
-              key={b.id}
-              variant="alert"
-              icon={<Warning size={20} />}
-              title={`${b.packet} · ${b.pushingAgent}`}
-              description={
-                <>
-                  Push from {b.pushingAgent} overlaps {b.claimingAgent}'s live claim.{" "}
-                  <Paths paths={b.paths} />
-                </>
-              }
-            />
-          ))}
-        </section>
-      )}
+      {(() => {
+        const collisions = detailView.state?.blockers.filter((b) => blockerGatesReview(b, review)) ?? [];
+        return collisions.length > 0 && <section className="blockers">
+          <h2>Collisions</h2>
+          {collisions.filter((b) => !b.resolved).map((b) =>
+            <CollisionBanner key={b.id} blocker={b} owner={actions.owner}
+              open={actions.openCollision} showPacket={actions.showPacket ?? (() => {})} disabled={view.busy} />)}
+          <CollisionRows blockers={collisions.filter((b) => b.resolved)} owner={actions.owner} />
+        </section>;
+      })()}
       <section>
         <h2>Request</h2>
         <p className="caption muted">Goal</p>

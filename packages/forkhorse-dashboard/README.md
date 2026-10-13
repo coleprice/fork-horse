@@ -98,8 +98,7 @@ host adapter implements that interface from its authorized `ui` capability.
   reviews, ledger, recent activity, reconciler alerts and `promotionPending`.
 - Approval state comes from `{sha, receiptDigest}` or `null`; `stale` and `promoted`
   are explicit flags. A changed approval SHA is treated as stale. Digest binding applies to required review-created receipts; a fresh before-promote run or advisory receipt movement does not mean the fork moved.
-- Blockers show the pushing and claiming agents. There is no resolution field in
-  the current wire contract, so returned blockers are shown as open.
+- FH-048 blockers retain `resolved: null | {at, by, reason?}` history. Missing legacy resolution reads as open; missing `at` and `pushingPacket` read as unknown. Open blockers gate the pushing fork and attributed packet (all reviews on that fork when attribution is null), never the claimant.
 - FH-032 adds `project.settings.requireReceipt` and the five-state `reviews[].receipt` summary: status, trigger, digest, timestamps, duration and check outcomes. No logs enter `/state`.
 - Owner-only `GET /projects/:id/reviews/:rid/receipt` returns the stored `{digest, receipt}` runner record. The panel shows the last 200 log lines and can expand all bounded output. A changed receipt/selection discards late responses. Agents have no log control or request.
 - Owner-only `PATCH /projects/:id/settings` sends only `{requireReceipt}` and reloads authoritative state. An absent setting is unavailable, never synthesized as On or Off.
@@ -253,6 +252,14 @@ non-stale reconciler/pending-promotion variants. Open their detail at
 `#review/review-1` or queue at `#review`. These fixtures establish offline rendering
 only. Design PASS and independent code acceptance remain external handback gates.
 
+## FH-049 collision resolution (FH-048 integrated; final acceptance pending)
+
+Owner-only `POST /projects/:id/blockers/:bid/resolve` sends `{reason}` (1–200 characters, with non-whitespace content) through the same-origin session. Agents have no control or request. The dialog shows paths and editable secondary quick-reason buttons in a wrapping row, supports Cmd/Ctrl+Enter, and refreshes authoritative state after success or uncertainty without retrying a write. A repeat uses the returned resolution cause. The resolution record supplies the audit history; no activity event is assumed.
+
+Resolved collisions remain as quiet rows in packet details and matching pushing-fork review details, excluded from counts, gates and Needs you. FH-048 review detail retains its claimant-packet filter; pushing-fork gates and history derive from all `/state.blockers`. Snapshot blockers survive an omitted detail list; a refreshed snapshot wins over stale detail resolution. Needs you opens and focuses the collision; success returns focus to Collisions and offers Open review in a 10-second toast and once on the newest resolved history row while the pushing packet has a current review. Legacy push times are never synthesized.
+
+The `collision-*` scenarios are local contract fixtures, including history, 404, generic failure and claim-release/promote races. They provide no live core or Cloudflare acceptance.
+
 ## Recorded races (FH-055)
 
 Race packets open a read-only full-width page at `#race/<packet>` in either host.
@@ -400,6 +407,10 @@ Accepted FH-057d main `1749a394caa4f78b7fbf6a1645659e89e78e9b99` is normally
 merged onto saved FH-062 head `761b777bf2c170fe0b6e6674d330458d157d2111`.
 Failed checks retain danger dots, timed-out/infrastructure receipts warning dots,
 and review/running receipts info dots, alongside the usage tooltip and Tokens column.
-Final integration is held for accepted FH-060 and overlapping FH-049 if it lands. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
+Accepted FH-060 main `f1910e6f571ed7359d30db37d3ddca86f9236803`, including
+FH-049 collision UI and FH-050 archive contract, is normally merged onto saved
+FH-062 head `d8befb64e9232c67a78044447aa8ec81445555c8`. Collision gates retain
+owner/agent explanations; resolving a collision leaves the current entrant budget
+gate in force. All eight design fixes remain. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
 serialized operator checks. Saddler PASS and owner review remain open. This local
 candidate has no live Cloudflare, deployment, or owner-acceptance evidence.

@@ -1,6 +1,6 @@
 import type { Brand, DashboardTransport, ProjectOption } from "./contracts.ts";
 import { ApiError } from "./transport.ts";
-import { assertState, reviewGate, reviewState, type ViewModel } from "./model.ts";
+import { assertState, blockerGatesReview, blockedLabel, reviewGate, reviewState, type ViewModel } from "./model.ts";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -149,6 +149,8 @@ export function mountDashboard(
               : undefined,
             returnReview:
               options.owner !== false && options.transport.returnReview ? returnReview : undefined,
+            resolveBlocker:
+              options.owner !== false && options.transport.resolveBlocker ? resolveBlocker : undefined,
             setSection,
             selectProject,
             retry: refresh,
@@ -222,6 +224,7 @@ export function mountDashboard(
   async function refresh() {
     if (disposed || !view.project || view.busy) return;
     view.notice = undefined;
+    view.noticeReview = undefined;
     await load();
     if (invalidated) {
       invalidated = false;
@@ -244,6 +247,7 @@ export function mountDashboard(
     view.state = undefined;
     view.activity = [];
     view.notice = undefined;
+    view.noticeReview = undefined;
     invalidated = false;
     await load();
     if (disposed) return;
@@ -268,6 +272,7 @@ export function mountDashboard(
     view.busy = true;
     view.error = undefined;
     view.notice = undefined;
+    view.noticeReview = undefined;
     draw();
     let message: string;
     try {
@@ -325,6 +330,7 @@ export function mountDashboard(
       return false;
     view.busy = true;
     view.notice = undefined;
+    view.noticeReview = undefined;
     draw();
     try {
       await options.transport.returnReview(view.project, id, reason);
@@ -340,12 +346,50 @@ export function mountDashboard(
     return true;
   }
 
+  async function resolveBlocker(id: string, reason: string) {
+    if (options.owner === false || view.busy || !view.state || !options.transport.resolveBlocker ||
+        reason.trim().length < 1 || reason.length > 200)
+      throw new Error("Collision action unavailable.");
+    // The server is idempotent: keep an opened dialog usable if a claim ends meanwhile.
+    const blocker = view.state.blockers.find((b) => b.id === id);
+    const project = view.project;
+    if (!blocker) throw new ApiError(404, "Collision unavailable.");
+    view.busy = true;
+    view.notice = undefined;
+    view.noticeReview = undefined;
+    view.noticeSha = undefined;
+    draw();
+    let result;
+    try {
+      result = await options.transport.resolveBlocker(project, id, reason);
+      if (!result.blocker.resolved) throw new Error("Resolution missing from response.");
+    } catch (error) {
+      // Reads only after uncertain writes. The dialog owns safe error copy.
+      if (!disposed && project === view.project) await load();
+      throw error;
+    }
+    if (disposed || project !== view.project) return result.blocker;
+    await load();
+    if (disposed || project !== view.project) return result.blocker;
+    const resolution = result.blocker.resolved!;
+    const blocked = blockedLabel(blocker);
+    view.noticeReview = view.state?.reviews.find((r) => blockerGatesReview(blocker, r) &&
+      reviewState(r, view.state!).kind === "current" && r.status !== "stale" &&
+      view.state!.forks.some((f) => f.repoName === r.repoName && f.head === r.sha))?.id;
+    view.notice = resolution.by === "owner"
+      ? `Marked resolved: ${blocked} is unblocked`
+      : `${blocked} was already unblocked when a claim was ${resolution.by === "promote" ? "promoted" : "released"}.`;
+    draw();
+    return result.blocker;
+  }
+
   async function setSettings(requireReceipt: boolean) {
     if (options.owner === false || view.busy || !options.transport.setSettings || !view.state)
       return;
     view.busy = true;
     view.error = undefined;
     view.notice = undefined;
+    view.noticeReview = undefined;
     draw();
     try {
       await options.transport.setSettings(view.project, { requireReceipt });

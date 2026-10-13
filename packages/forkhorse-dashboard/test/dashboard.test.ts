@@ -163,7 +163,7 @@ test("review rows explain blocker gates and activity is empty only after a succe
         const blocked = Array.from(dom.window.document.querySelectorAll(".review-card")).find(
           (row) => row.textContent!.includes("api-02"),
         )!;
-        assert.match(blocked.textContent!, /Resolve the packet's blockers first/);
+        assert.match(blocked.textContent!, /Blocked: this fork pushed into api-02's claimed paths/);
         assert.equal(activity.querySelectorAll("p").length, 1);
       } else {
         assert.equal(activity.textContent, "");
@@ -309,7 +309,8 @@ test("head, receipt and blocker gates never authorize stale or incomplete review
   review.receiptDigest = null;
   assert.equal(reviewGate(review, state).approve, false);
   review.receiptDigest = DIGEST;
-  state.blockers[0].packet = review.packet;
+  state.blockers[0].repoName = review.repoName;
+  state.blockers[0].pushingPacket = review.packet;
   assert.equal(reviewGate(review, state).approve, false);
   assert.throws(() => assertState({ ...state, reviews: undefined } as never), /contract/);
 });
@@ -493,7 +494,7 @@ test("packet states follow blocker, promotion, approval, stale review and claim 
   assert.equal(packetStatus(id, state).label, "Approved");
   review.status = "promoted";
   assert.equal(packetStatus(id, state).label, "Promoted");
-  state.blockers[0].packet = id;
+  state.blockers[0].pushingPacket = id;
   assert.equal(packetStatus(id, state).label, "Blocked");
   state.blockers = [];
   state.reviews = [];

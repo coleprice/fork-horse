@@ -707,6 +707,26 @@ footer {
 .needs-you-open { display: flex; align-items: center; gap: var(--spacing); flex-shrink: 0; font-size: var(--text-xs); color: var(--text-color-kumo-subtle); padding-top: var(--spacing); }
 .needs-you-empty { display: flex; align-items: center; gap: calc(var(--spacing) * 2); margin-bottom: 0; }
 
+/* FH-049 history stays quiet; only unresolved collisions use warning banners. */
+.collision-heading { font-size: var(--text-sm); line-height: var(--text-sm--line-height); }
+.collision-history { display: grid; gap: calc(var(--spacing) * 3); }
+.collision-row { min-width: 0; overflow-wrap: anywhere; }
+.collision-row .collision-copy .path-summary { max-width: 100%; }
+.collision-dialog .collision-copy .path-summary { max-width: min(20rem, 100%); }
+
+.collision-highlight:focus-within { background: var(--color-kumo-tint); }
+.collision-quick-reasons { display: flex; flex-wrap: wrap; gap: calc(var(--spacing) * 2); margin-block: calc(var(--spacing) * 3); }
+.collision-quick-reasons button { max-width: 100%; height: auto; white-space: normal; text-align: left; justify-content: flex-start; }
+.collision-evidence { margin-block: calc(var(--spacing) * 3); }
+
+.collision-dialog { max-height: calc(100dvh - 5rem); overflow-y: auto; }
+
+/* Stack actions so a narrow warning keeps its collision evidence readable. */
+@media (max-width: 639px) {
+  .collision-banner > div { flex-direction: column; align-items: flex-start; }
+  .collision-banner .collision-copy .path-summary { max-width: 100%; }
+}
+
 /* Shared FH-055/FH-057 identity: silk means agent; shape and state words mean outcome. */
 .race-saddlecloth {
   display: inline-flex;
