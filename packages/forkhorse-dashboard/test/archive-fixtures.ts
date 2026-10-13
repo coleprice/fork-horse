@@ -1,4 +1,4 @@
-import type { StateResponse } from "../src/contracts.ts";
+import type { Race, StateResponse } from "../src/contracts.ts";
 import { reviewFixtureState } from "./review-fixtures.ts";
 
 /** FH-050/052 contract fixtures. Never evidence of core, Cloudflare or owner acceptance. */
@@ -42,7 +42,7 @@ export function archiveFixtureState(id = "archive-ready"): StateResponse {
         createdAt: "2026-10-13T14:00:00Z",
       },
     ];
-  if (id === "archive-race") state.races = [{ packet: "FH-040", entrants: [{ closedAt: null }] }];
+  if (id === "archive-race") state.races = [archiveRace()];
   if (id === "archive-review" || id === "archive-main-moved") {
     state.reviews[0].promoted = false;
     if (id === "archive-main-moved") state.ledger[0].after = "7".repeat(40);
@@ -62,4 +62,16 @@ export function archiveFixtureState(id = "archive-ready"): StateResponse {
       },
     ];
   return state;
+}
+
+/** Complete accepted FH-052/053 race wire shape for archive gate fixtures. */
+export function archiveRace(closedAt: string | null = null): Race {
+  return {
+    packet: "FH-040", status: "open", finishedAt: null, winner: null, ledgerEntryId: null,
+    entrants: [{
+      agent: "builder", repoName: "fixture--builder-1", claimedAt: "2026-10-13T14:00:00Z",
+      firstPushAt: null, reviewRequestedAt: null, receiptPassedAt: null, approvedAt: null,
+      promotedAt: null, place: null, closedAt, closedBy: closedAt ? "release" : null,
+    }],
+  };
 }

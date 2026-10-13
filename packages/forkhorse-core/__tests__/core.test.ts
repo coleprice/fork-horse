@@ -98,7 +98,7 @@ describe("core Worker and real supervisor Durable Objects with offline Artifacts
       expect(JSON.stringify(stored.storage)).not.toContain(agent.apiToken);
       expect(stored.storage).toContainEqual([
         `agent:${agent.agent}`,
-        { name: agent.agent, tokenHash: await digest(agent.apiToken) },
+        { name: agent.agent, tokenHash: await digest(agent.apiToken), createdAt: expect.any(String) },
       ]);
     }
     const duplicate = await api("/projects", OWNER, { id: created.project.id, agents: ["alpha"] });

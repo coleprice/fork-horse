@@ -10,10 +10,9 @@ export interface ProjectState {
   };
   canonicalHead?: string;
   recentActivity?: Activity[];
-  agents: { name: string }[];
+  agents: { name: string; createdAt?: string | null }[];
   forks: { agent: string; repoName: string; head: string; events?: "pending" | "active" }[];
   packets: Packet[];
-  races?: { packet: string; entrants: { closedAt: string | null }[] }[];
   claims: {
     packet: string;
     agent: string;
@@ -29,14 +28,23 @@ export interface ProjectState {
     paths: string[];
     reason: string;
     resolved: boolean | null | { at: string; by: string };
-    pushingPacket?: string | null;
     claimingAgent?: string;
     pushingAgent?: string;
     sha?: string;
     repoName?: string;
+    at?: string | null;
+    pushingPacket?: string | null;
   }[];
+  races?: Race[];
   reviews: Review[];
-  ledger: { review: string; sha: string; promotedAt: string; receiptDigest?: string | null }[];
+  ledger: {
+    id?: string;
+    before?: string;
+    review: string;
+    sha: string;
+    promotedAt: string;
+    receiptDigest?: string | null;
+  }[];
   reconcilerAlerts: {
     sha: string;
     message: string;
@@ -55,6 +63,7 @@ export interface Packet {
   goal: string;
   paths: string[];
   acceptance: string[];
+  mode?: "standard" | "race";
   /** Absent legacy records are treated as null. */
   archived?: null | { at: string; by: "owner" };
 }
@@ -67,6 +76,7 @@ export interface Review {
   sha: string;
   receiptDigest: string | null;
   requestedAt?: string;
+  approvedAt?: string | null;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
   /** Raw core flag, independent of the derived display status. */
@@ -170,7 +180,7 @@ export interface StateResponse {
     events?: "pending" | "active";
     settings?: { requireReceipt: boolean };
   };
-  agents: { name: string }[];
+  agents: { name: string; createdAt?: string | null }[];
   forks: {
     agent: string;
     repoName: string;
@@ -180,20 +190,22 @@ export interface StateResponse {
     events?: "pending" | "active";
   }[];
   packets: ProjectState["packets"];
-  races?: ProjectState["races"];
   claims: { packet: string; agent: string; repoName: string; paths: string[]; createdAt: string }[];
   blockers: {
     id: string;
     packet: string;
     claimingAgent: string;
     pushingAgent: string;
-    pushingPacket?: string | null;
-    resolved?: null | { at: string; by: string };
     repoName: string;
     sha: string;
     paths: string[];
+    at?: string | null;
+    pushingPacket?: string | null;
+    resolved?: { at: string; by: "release" | "promote" | "owner"; reason?: string } | null;
   }[];
+  races?: Race[];
   reviews: {
+    approvedAt?: string | null;
     id: string;
     packet: string;
     agent: string;
@@ -265,3 +277,28 @@ export interface ReviewDiff {
   patch: string;
   truncated: boolean;
 }
+
+/** Optional FH-052/053 read projection; absent races never produce invented entrants. */
+export interface Race {
+  packet: string;
+  status: "open" | "finished";
+  finishedAt: string | null;
+  winner: string | null;
+  ledgerEntryId: string | null;
+  entrants: {
+    agent: string;
+    repoName: string;
+    claimedAt: string;
+    firstPushAt: string | null;
+    reviewRequestedAt: string | null;
+    receiptPassedAt: string | null;
+    approvedAt: string | null;
+    promotedAt: string | null;
+    place: number | null;
+    closedAt: string | null;
+    closedBy: "release" | "owner" | "race-finished" | null;
+    promoteRejected?: { at: string; expected: string; found: string } | null;
+  }[];
+}
+
+export type RaceEntrant = Race["entrants"][number];

@@ -1,4 +1,6 @@
 import { archiveScenarios } from "../test/archive-fixtures.ts";
+
+import { forkScenarios } from "../test/fork-graph-fixtures.ts";
 import { needsScenarios } from "../test/needs-you-fixtures.ts";
 import { reviewScenarios } from "../test/review-fixtures.ts";
 import { applyAppTheme, followSystemTheme } from "./theme.ts";
@@ -29,6 +31,23 @@ fixtureTransport.live = {
     for (const listener of statusListeners) listener(false);
   },
 };
+if (new URL(location.href).searchParams.get("scenario") === "fork-live") {
+  const listeners = new Set<() => void>();
+  fixtureTransport.subscribe = (_project, invalidate) => {
+    listeners.add(invalidate);
+    return () => {
+      listeners.delete(invalidate);
+    };
+  };
+  const push = document.createElement("button");
+  push.textContent = "Fixture new push";
+  push.style.cssText = "position:fixed;bottom:32px;left:0;z-index:30";
+  push.addEventListener("click", async () => {
+    await fetch("/__fixtures/fork-live-push", { method: "POST" });
+    for (const listener of listeners) listener();
+  });
+  document.body.append(push);
+}
 mountDashboard(document.getElementById("dashboard")!, {
   brand: __DASHBOARD_BRAND__,
   fixture: true,
@@ -46,6 +65,7 @@ mountDashboard(document.getElementById("dashboard")!, {
       ...archiveScenarios,
       ...reviewScenarios,
       ...needsScenarios,
+      ...forkScenarios,
       "large",
       "first",
       "partial",

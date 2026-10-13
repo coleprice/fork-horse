@@ -13,7 +13,7 @@ import {
   workPackets,
 } from "../src/model.ts";
 import { ownerNeeds } from "../src/needs-you-model.ts";
-import { archiveFixtureState } from "./archive-fixtures.ts";
+import { archiveFixtureState, archiveRace } from "./archive-fixtures.ts";
 import { reviewFixtureDetail } from "./review-fixtures.ts";
 const { JSDOM } = createRequire(import.meta.url)("jsdom");
 const brand = { name: "Fixture product", tagline: "Fixture" };
@@ -40,7 +40,7 @@ function setup(id = "archive-ready", owner = true, failure = 0, hash = "#work") 
         return Response.json({ activity: state.activity, nextAfter: 0 });
       if (path.endsWith("/reviews/review-1")) return Response.json(reviewFixtureDetail(state));
       if (/\/(unarchive|archive)$/.test(path)) {
-        if (failure === 409) state.races = [{ packet: "FH-040", entrants: [{ closedAt: null }] }];
+        if (failure === 409) state.races = [archiveRace()];
         if (failure === 404) state.packets = state.packets.filter((p) => p.id !== "FH-040");
         if (failure)
           return Response.json({ error: "Raw server error forbidden" }, { status: failure });
@@ -100,7 +100,7 @@ test("archive predicate mirrors raw core review, claim, race and both blocker id
   r.stale = false;
   r.returned = { reason: "Try again", at: "2026-10-13T14:00:00Z" };
   assert.equal(canArchive(stateView(wire), "FH-040"), true);
-  wire.races = [{ packet: "FH-040", entrants: [{ closedAt: "2026-10-13T14:00:00Z" }] }];
+  wire.races = [archiveRace("2026-10-13T14:00:00Z")];
   assert.equal(canArchive(stateView(wire), "FH-040"), true);
   assert.equal(canArchive(stateView(wire), "FH-READY"), true, "never started");
   const blockerWire = archiveFixtureState("archive-blocker");

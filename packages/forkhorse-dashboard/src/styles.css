@@ -717,3 +717,430 @@ footer {
 .archive-heading > .receipt-error-line {
   flex-basis: 100%;
 }
+
+/* Shared FH-055/FH-057 identity: silk means agent; shape and state words mean outcome. */
+.race-saddlecloth {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--lane-silk);
+  color: var(--race-cloth-ink);
+  font-size: 14px;
+  font-weight: 800;
+}
+.race-runner {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  align-items: flex-start;
+}
+.race-runner-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 4px;
+}
+.race-fork {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lane-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-kumo-base);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: var(--lane-silk, var(--entrant-silk));
+  color: var(--lane-silk, var(--entrant-silk));
+  box-shadow: 0 0 0 1px var(--lane-silk, var(--entrant-silk));
+  font-size: 14px;
+  line-height: 1;
+}
+.lane-marker-review,
+.lane-marker-unreached {
+  background: var(--color-kumo-base);
+  border: 2px solid var(--lane-silk, var(--entrant-silk));
+  box-shadow: 0 0 0 2px var(--color-kumo-base);
+}
+.lane-marker-unreached {
+  border-color: var(--color-kumo-ring);
+}
+.lane-marker-approved {
+  background: var(--color-kumo-base);
+  box-shadow: 0 0 0 2px var(--color-kumo-base);
+  border: 0;
+  border-radius: 0;
+  font-size: 20px;
+}
+.lane-marker-passed,
+.lane-marker-failed {
+  width: 22px;
+  height: 22px;
+  color: var(--race-hurdle-ink);
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 0 0 1px var(--color-kumo-ring);
+}
+.lane-marker-passed {
+  background: var(--color-kumo-success);
+}
+.lane-marker-failed {
+  background: var(--color-kumo-danger);
+}
+.lane-marker-promoted {
+  background: var(--color-kumo-success);
+  color: var(--color-kumo-success);
+}
+.fork-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.fork-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.fork-header h2 {
+  margin: 0;
+}
+.fork-window {
+  text-align: right;
+}
+.fork-chips {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 12px;
+}
+.fork-window-chip[aria-pressed="true"] {
+  background: var(--color-kumo-tint);
+  color: var(--text-color-kumo-strong);
+  box-shadow: inset 0 0 0 1px var(--color-kumo-ring);
+  font-weight: 600;
+}
+.fork-picture {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-width: 0;
+}
+.fork-labels,
+.fork-plot {
+  position: relative;
+  min-width: 0;
+}
+.fork-plot {
+  overflow: clip;
+}
+.fork-plot svg {
+  position: absolute;
+  inset: 0;
+}
+.fork-main-label {
+  position: absolute;
+  top: 20px;
+}
+.fork-lane-label {
+  position: absolute;
+  left: 0;
+  width: 198px;
+  display: flex;
+  text-align: left;
+  gap: 8px;
+  align-items: center;
+}
+.fork-lane-label strong {
+  display: block;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 156px;
+}
+.fork-lane-label code {
+  display: block;
+}
+.fork-state {
+  display: block;
+  color: var(--text-color-kumo-subtle);
+}
+.fork-state-success > span {
+  color: var(--text-color-kumo-success);
+}
+.fork-state-info > span {
+  color: var(--text-color-kumo-info);
+}
+.fork-state-brand > span {
+  color: var(--text-color-kumo-brand);
+}
+.fork-race-label {
+  position: absolute;
+  left: 0;
+  width: 205px;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.fork-main-line {
+  stroke: var(--text-color-kumo-strong);
+  stroke-width: 3;
+}
+.lane-line,
+.fork-lane-line {
+  stroke: var(--lane-silk);
+  stroke-width: 2;
+  fill: none;
+}
+.fork-grid {
+  stroke: var(--color-kumo-hairline, var(--color-kumo-line));
+  stroke-width: 1;
+}
+.fork-race-bracket,
+.fork-now-line {
+  stroke: var(--text-color-kumo-subtle);
+  stroke-width: 1;
+  fill: none;
+}
+.fork-now {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+}
+.fork-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.fork-main-mark,
+.fork-event,
+.fork-collision-ring {
+  position: absolute;
+}
+.fork-mark-button {
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2;
+}
+.fork-main-mark .fork-mark-button {
+  position: absolute;
+}
+.fork-commit-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-color-kumo-strong);
+  border: 2px solid var(--color-kumo-base);
+  box-shadow: 0 0 0 1px var(--text-color-kumo-strong);
+}
+.fork-sha {
+  position: absolute;
+  top: -26px;
+  transform: translateX(-50%);
+  background: var(--color-kumo-base);
+  padding: 0 3px;
+  white-space: nowrap;
+}
+.fork-history {
+  position: absolute;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: calc(100% - 12px);
+  background: var(--color-kumo-base);
+  padding-right: 4px;
+  white-space: nowrap;
+}
+.fork-stub {
+  color: inherit;
+}
+.fork-earlier {
+  font-size: 10px;
+}
+.fork-collision {
+  color: var(--color-kumo-danger);
+}
+.fork-collision.resolved {
+  color: var(--color-kumo-ring);
+}
+.fork-collision-line {
+  position: absolute;
+  border-left: 1px dashed currentColor;
+}
+.fork-collision-ring {
+  width: 20px;
+  height: 20px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: var(--color-kumo-base);
+  font-size: 12px;
+}
+.fork-collision-caption {
+  position: absolute;
+  color: var(--text-color-kumo-subtle);
+  white-space: nowrap;
+  background: var(--color-kumo-base);
+  padding-inline: 4px;
+}
+.fork-collision-caption.right {
+  margin-left: 16px;
+}
+.fork-collision-caption.left {
+  margin-left: -16px;
+  transform: translateX(-100%);
+}
+.fork-legend {
+  border-top: 1px solid var(--color-kumo-line);
+  padding-top: 12px;
+}
+.fork-disclosure {
+  margin-top: 8px;
+  text-decoration: underline;
+  font-size: 12px;
+}
+.fork-table {
+  max-width: 100%;
+}
+.fork-table table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.fork-table th,
+.fork-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-kumo-line);
+  overflow-wrap: anywhere;
+}
+.fork-table td .caption {
+  display: block;
+}
+.fork-table th .race-saddlecloth {
+  margin-right: 4px;
+}
+/* Unlike native closed details, this disclosure always leaves its facts in the accessibility tree. */
+.fork-table-collapsed {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.fork-table-collapsed:focus-within {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  clip-path: none;
+  white-space: normal;
+  overflow: visible;
+}
+.fork-event {
+  animation: fork-arrival 150ms ease-out;
+}
+@keyframes fork-arrival {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fork-event {
+    animation: none;
+  }
+}
+@media (max-width: 639px) {
+  .fork-picture {
+    display: none;
+  }
+  .fork-window {
+    display: none;
+  }
+  .fork-legend {
+    display: none;
+  }
+  .fork-table,
+  .fork-table-collapsed {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    clip-path: none;
+    white-space: normal;
+    overflow: visible;
+  }
+  .fork-table table,
+  .fork-table thead,
+  .fork-table tbody,
+  .fork-table tr,
+  .fork-table th,
+  .fork-table td {
+    display: block;
+  }
+  .fork-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .fork-table tr {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--color-kumo-line);
+  }
+  .fork-table th,
+  .fork-table td {
+    border: 0;
+    padding: 4px 0;
+  }
+  .fork-table td::before {
+    display: inline-block;
+    width: 78px;
+    color: var(--text-color-kumo-subtle);
+  }
+  .fork-table td:nth-child(2)::before {
+    content: "Packet";
+  }
+  .fork-table td:nth-child(3)::before {
+    content: "Claimed";
+  }
+  .fork-table td:nth-child(4)::before {
+    content: "Pushes";
+  }
+  .fork-table td:nth-child(5)::before {
+    content: "Review";
+  }
+  .fork-table td:nth-child(6)::before {
+    content: "Checks";
+  }
+  .fork-table td:nth-child(7)::before {
+    content: "Approved";
+  }
+  .fork-table td:nth-child(8)::before {
+    content: "Promoted";
+  }
+}
+@media (max-width: 639px) {
+  .fork-table caption { display: block; text-align: left; padding-block: 12px; }
+}
+
+.lane-connector { position: absolute; top: 29px; left: 50%; width: 100%; height: 2px; background: var(--lane-silk,var(--entrant-silk)); }

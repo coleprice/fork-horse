@@ -1,4 +1,6 @@
-import { archiveFixtureState, archiveScenarios } from "./archive-fixtures.ts";
+import { archiveFixtureState, archiveScenarios, archiveRace } from "./archive-fixtures.ts";
+
+import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
   reviewScenarios,
@@ -22,6 +24,22 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     // Test harness reset; this middleware is excluded from production builds.
     if (url.pathname === "/__fixtures/reset" && request.method === "POST") {
       states.clear();
+      response.statusCode = 204;
+      response.end();
+      return;
+    }
+    if (url.pathname === "/__fixtures/fork-live-push" && request.method === "POST") {
+      const state = states.get("fork-live");
+      if (state) {
+        const previous = state.activity.find((a) => a.repoName === "fixture-fork-3")!;
+        const at = new Date().toISOString();
+        state.activity.push({
+          ...previous,
+          sequence: state.activity.length + 100,
+          recordedAt: at,
+          eventTimestamp: at,
+        });
+      }
       response.statusCode = 204;
       response.end();
       return;
@@ -58,7 +76,7 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
           send({ error: "Fixture packet missing." }, 404);
         } else if (!packet) send({ error: "Packet not found." }, 404);
         else if (id === "archive-conflict") {
-          state.races = [{ packet: packet.id, entrants: [{ closedAt: null }] }];
+          state.races = [{ ...archiveRace(), packet: packet.id }];
           send({ error: "Fixture raw conflict must not be displayed." }, 409);
         } else if (id === "archive-error") send({ error: "Fixture raw failure must not be displayed." }, 503);
         else {
@@ -68,7 +86,17 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       }
       return;
     }
-    const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+
+    const forkRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (forkRoute && forkScenarios.includes(forkRoute[1])) {
+      if (!states.has(forkRoute[1])) states.set(forkRoute[1], forkFixtureState(forkRoute[1]));
+      const state = states.get(forkRoute[1])!;
+      send(forkRoute[2] === "state" ? state : { activity: [], nextAfter: 0 });
+      return;
+    }
+    const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(
+      url.pathname,
+    );
     if (needsRoute && needsScenarios.includes(needsRoute[1])) {
       const id = needsRoute[1];
       const state = needsFixtureState(id);
@@ -77,7 +105,11 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       else {
         const review = state.reviews.find((r) => r.id === needsRoute[3]);
         if (!review) send({ error: "Fixture review not found." }, 404);
-        else send({ ...reviewFixtureDetail({ ...state, reviews: [review] }), packet: state.packets.find((p) => p.id === review.packet)! });
+        else
+          send({
+            ...reviewFixtureDetail({ ...state, reviews: [review] }),
+            packet: state.packets.find((p) => p.id === review.packet)!,
+          });
       }
       return;
     }

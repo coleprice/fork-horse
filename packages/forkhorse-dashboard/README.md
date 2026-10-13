@@ -282,3 +282,39 @@ blocker and archive 409/404/error. Package tests and local captures establish
 fixture behavior only. Integration after FH-049/FH-050 by plain merge, reserved
 root/fresh-clone/D5 acceptance, Saddler's design PASS and Superprime's code review
 remain separate handback gates.
+
+### Forks on Overview (FH-057)
+
+The read-only hero projects `/state` into a clock-time graph above Needs you. It uses
+live claims, loaded push activity, reviews and their current receipt summaries, and
+ledger `recordedAt` times. Optional FH-052/053 races appear only when supplied.
+Dense events fold at the measured plot width; their tooltips and the always-accessible
+table retain the recorded facts. Below 640px only the table renders. The graph caps
+at eight lanes with in-place expansion, a 24-hour maximum default window, guarded
+viewer disclosure storage, and reduced-motion support.
+
+`src/lane.tsx` owns the shared primitives for FH-055 and FH-057:
+`LaneRunner({entrant, state})`, `laneSilkStyle(state, agent)`, `saddlecloth(state, agent)`,
+`Saddlecloth({identity})`, `LaneMarker({kind})`, `LaneLine({path})` (SVG), and
+`LaneConnector({reached})` (decorative race-table connector). Marker kinds include
+`unreached`, `reached`, `claim`, `push`, `review`, `passed`, `failed`, `approved`, and
+`promoted`. `agentIdentities(agents)` ranks legacy agents alphabetically before
+agents ordered by enrollment timestamp, with alphabetical tie-breaking. The number
+always accompanies the repeating `race-silk-1/2/3` colors. Unknown agents get no
+invented number. Both `--lane-silk` and FH-055's `--entrant-silk` are supported.
+
+Missing history stays missing: a promoted lane without its claim uses its earliest
+loaded event and an open stub, with no invented branch junction. Standard review
+approval timestamps and released standard claims are not exposed by the current
+core snapshot. Approval marks render only if a recorded `approvedAt` is supplied;
+the Approved state word remains available without a timestamp. Race release and
+approval times come from recorded entrant fields. Earlier push history is explicitly
+labeled when the loaded activity cannot cover a claim's start.
+
+Fixture scenarios: `fork-hero`, `fork-resolved`, `fork-old`, `fork-many`, `fork-empty`,
+`fork-dense`, and `fork-live` on `fixtures.html?scenario=…`. The live scenario has a
+**Fixture new push** control that appends a synthetic push and invalidates the
+snapshot through the normal read path. These routes and controls never ship in
+production assets. Captures prove fixture rendering only; reserved root tests,
+worker-host integration, fresh-clone/D5 checks, and design/code sign-off remain
+separate acceptance gates.
