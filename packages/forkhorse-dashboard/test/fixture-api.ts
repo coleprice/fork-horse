@@ -1,3 +1,4 @@
+import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
   reviewScenarios,
@@ -25,6 +26,22 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       response.end();
       return;
     }
+    if (url.pathname === "/__fixtures/fork-live-push" && request.method === "POST") {
+      const state = states.get("fork-live");
+      if (state) {
+        const previous = state.activity.find((a) => a.repoName === "fixture-fork-3")!;
+        const at = new Date().toISOString();
+        state.activity.push({
+          ...previous,
+          sequence: state.activity.length + 100,
+          recordedAt: at,
+          eventTimestamp: at,
+        });
+      }
+      response.statusCode = 204;
+      response.end();
+      return;
+    }
     if (!url.pathname.startsWith("/projects/")) {
       next();
       return;
@@ -36,7 +53,16 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
     }
-    const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    const forkRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (forkRoute && forkScenarios.includes(forkRoute[1])) {
+      if (!states.has(forkRoute[1])) states.set(forkRoute[1], forkFixtureState(forkRoute[1]));
+      const state = states.get(forkRoute[1])!;
+      send(forkRoute[2] === "state" ? state : { activity: [], nextAfter: 0 });
+      return;
+    }
+    const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(
+      url.pathname,
+    );
     if (needsRoute && needsScenarios.includes(needsRoute[1])) {
       const id = needsRoute[1];
       const state = needsFixtureState(id);
@@ -45,7 +71,11 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       else {
         const review = state.reviews.find((r) => r.id === needsRoute[3]);
         if (!review) send({ error: "Fixture review not found." }, 404);
-        else send({ ...reviewFixtureDetail({ ...state, reviews: [review] }), packet: state.packets.find((p) => p.id === review.packet)! });
+        else
+          send({
+            ...reviewFixtureDetail({ ...state, reviews: [review] }),
+            packet: state.packets.find((p) => p.id === review.packet)!,
+          });
       }
       return;
     }
