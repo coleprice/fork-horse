@@ -5,7 +5,14 @@ import { test } from "node:test";
 import { createRoot } from "react-dom/client";
 import { createElement, act } from "react";
 import { TooltipProvider } from "@cloudflare/kumo";
-import { forkGraph, foldMarks, collisionLink } from "../src/fork-graph-model.ts";
+import {
+  forkGraph,
+  foldMarks,
+  collisionLink,
+  mainShaLabels,
+  clockTime,
+  tableEvents,
+} from "../src/fork-graph-model.ts";
 import { agentIdentities, saddlecloth } from "../src/lane.tsx";
 import { ForkGraph } from "../src/fork-graph.tsx";
 import { stateView } from "../src/model.ts";
@@ -85,6 +92,29 @@ test("folding at measured width preserves every event and prioritizes checks ove
   assert.ok(cluster.events.some((e) => e.kind === "approved"));
   assert.equal(folded.flatMap((g) => g.events).length, lane.events.length);
 });
+test("main SHA labels favor the newest mark and pack older labels only in remaining space", () => {
+  const marks = [
+    { id: "older", at: 1, x: 110 },
+    { id: "middle", at: 2, x: 185 },
+    { id: "newest", at: 3, x: 195 },
+  ];
+  assert.deepEqual([...mainShaLabels(marks, 300).keys()], ["newest", "older"]);
+  assert.equal(mainShaLabels([{ id: "edge", at: 4, x: 290 }], 300).get("edge"), 210);
+  assert.deepEqual([...mainShaLabels(marks.toReversed(), 300)], [...mainShaLabels(marks, 300)]);
+  assert.equal(mainShaLabels(marks, 90).size, 0);
+});
+test("table cells cap all event kinds to their latest three and retain earlier facts", () => {
+  const events = forkGraph(fixture("fork-history"), now).lanes.find(
+    (l) => l.packet === "fixture-02",
+  )!.events;
+  for (const kinds of [["push"], ["review"], ["passed", "failed"], ["approved"]]) {
+    const matching = events.filter((event) => kinds.includes(event.kind));
+    const { shown, earlier } = tableEvents(events.toReversed(), kinds);
+    assert.equal(shown.length, 3);
+    assert.ok(earlier.length > 0);
+    assert.deepEqual([...earlier, ...shown], matching);
+  }
+});
 test("collision rings sit beside the pushing lane and links break around unrelated lanes", () => {
   assert.deepEqual(collisionLink(80, 208, [80, 144, 208]), {
     ringY: 112,
@@ -107,6 +137,101 @@ test("collision rings sit beside the pushing lane and links break around unrelat
   const grouped = collisionLink(80, 238, [80, 174, 238]);
   assert.equal(grouped.ringY, 112);
   assert.ok(grouped.segments.every((s) => s.top + s.height <= 166 || s.top >= 182));
+});
+test("near-start hour grid stays while its clipped centered label is omitted", async () => {
+  const { JSDOM } = createRequire(import.meta.url)("jsdom");
+  const dom = new JSDOM("<div id='root'></div>", { url: "https://fixture.idiot.tax" });
+  installDom(dom.window);
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+    value: true,
+    configurable: true,
+  });
+  const originalBounds = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  // Fixture geometry only; the browser capture verifies actual text bounds.
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    const bounds = originalBounds.call(this);
+    return this.classList.contains("fork-plot") ? { ...bounds, width: 640 } : bounds;
+  };
+  const root = createRoot(document.getElementById("root")!);
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ForkGraph, {
+          state: fixture("fork-hour-edge"),
+          owner: false,
+          openReview: () => {},
+          openPacket: () => {},
+          openReceipt: () => {},
+          now,
+        }),
+      ),
+    ),
+  );
+  const grid = [...document.querySelectorAll(".fork-grid")];
+  const labels = [...document.querySelectorAll<HTMLElement>(".fork-tick")];
+  assert.equal(grid.length, 4);
+  assert.ok(parseFloat(grid[0].getAttribute("x1")!) < 4, "Near-start grid line is retained");
+  assert.equal(labels.length, 3);
+  assert.ok(!labels.some((label) => label.textContent === clockTime(now - 4 * 3600000)));
+  assert.ok(
+    labels.every((label) => {
+      const center = (parseFloat(label.style.left) * 640) / 100;
+      return center >= 24 && center <= 640 - 24;
+    }),
+  );
+  await act(async () => root.unmount());
+});
+test("lane state labels and dots distinguish failed checks, warnings and review", async () => {
+  const state = fixture("fork-states");
+  const expected = [
+    ["Promoted to main", "success"],
+    ["Approved", "success"],
+    ["Checks running", "info"],
+    ["Checks failed", "danger"],
+    ["Timed out", "warning"],
+    ["Couldn't run", "warning"],
+    ["In review", "info"],
+    ["Racing", "brand"],
+  ];
+  const states = forkGraph(state, now).lanes.map((lane) => lane.state);
+  for (const [word] of expected) assert.ok(states.includes(word), word);
+  const { JSDOM } = createRequire(import.meta.url)("jsdom");
+  const dom = new JSDOM("<div id='root'></div>", { url: "https://fixture.idiot.tax" });
+  installDom(dom.window);
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+    value: true,
+    configurable: true,
+  });
+  const root = createRoot(document.getElementById("root")!);
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ForkGraph, {
+          state,
+          owner: false,
+          openReview: () => {},
+          openPacket: () => {},
+          openReceipt: () => {},
+          now,
+        }),
+      ),
+    ),
+  );
+  for (const [word, tone] of expected) {
+    const labels = [...document.querySelectorAll(".fork-state")].filter(
+      (label) => label.textContent!.trim() === `● ${word}`,
+    );
+    assert.ok(labels.length, word);
+    assert.ok(
+      labels.every((label) => label.classList.contains(`fork-state-${tone}`)),
+      `${word}: ${tone}`,
+    );
+  }
+  await act(async () => root.unmount());
 });
 test("fixture DOM leaves closed table in accessibility tree, supports navigation and storage denial", async () => {
   const { JSDOM } = createRequire(import.meta.url)("jsdom");
@@ -140,8 +265,9 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
       ),
     ),
   );
-  const unknownStart = document.querySelector<HTMLButtonElement>("button.fork-stub")!;
-  assert.equal(unknownStart.textContent, "‹");
+  const unknownStart = document.querySelector<HTMLButtonElement>("button.fork-start")!;
+  assert.equal(unknownStart.textContent, "Fork start");
+  assert.equal(document.querySelectorAll(".fork-lead-in").length, 1);
   assert.equal(unknownStart.getAttribute("aria-label"), "Started before the loaded history");
   for (const [word, tone] of [
     ["Approved", "success"],
@@ -174,9 +300,15 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
   assert.equal(table.getAttribute("hidden"), null);
   assert.equal(table.getAttribute("aria-hidden"), null);
   const disclosure = document.querySelector<HTMLButtonElement>(".fork-disclosure")!;
+  assert.equal(getComputedStyle(table).position, "absolute");
+  assert.equal(getComputedStyle(table).width, "1px");
+  assert.equal(getComputedStyle(table).clipPath, "inset(50%)");
+  assert.ok([...table.querySelectorAll("button")].every((button) => button.tabIndex === -1));
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
   await act(async () => disclosure.click());
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+  assert.equal(table.style.clipPath, "");
+  assert.ok([...table.querySelectorAll("button")].every((button) => button.tabIndex === 0));
   await act(async () =>
     [...document.querySelectorAll<HTMLButtonElement>(".fork-lane-label")]
       .find((b) => b.textContent!.includes("fixture-01"))!
@@ -185,6 +317,20 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
   assert.equal(opened[0], "fixture-01");
   assert.match(table.textContent!, /checks failed/);
   assert.match(table.textContent!, /checks passed/);
+  const runningRow = [...table.querySelectorAll("tbody tr")].find((row) =>
+    row.textContent!.includes("fixture-03"),
+  )!;
+  assert.equal(
+    runningRow.querySelectorAll("td")[4].querySelector(".fork-cell-visible")!.textContent!.trim(),
+    "Running",
+  );
+  const checkedRow = [...table.querySelectorAll("tbody tr")].find((row) =>
+    row.textContent!.includes("fixture-02"),
+  )!;
+  assert.match(
+    checkedRow.querySelectorAll("td")[4].querySelector(".fork-cell-visible")!.textContent!,
+    /failed.*passed/,
+  );
   await act(async () =>
     root.render(
       createElement(
@@ -206,12 +352,40 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
   );
   assert.ok(oldHistory.length);
   for (const history of oldHistory) {
-    assert.match(history.querySelector(".fork-stub")!.textContent!, /^‹ since \d{2}:\d{2}$/);
+    assert.match(history.querySelector(".fork-stub")!.textContent!, /^since \d{2}:\d{2}$/);
     assert.equal(
       history.querySelector(".fork-stub")!.nextElementSibling!.textContent,
       "Earlier pushes not shown",
     );
   }
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ForkGraph, {
+          state: fixture("fork-history"),
+          owner: false,
+          openReview: () => {},
+          openPacket: () => {},
+          openReceipt: () => {},
+          now,
+        }),
+      ),
+    ),
+  );
+  const capped = [...document.querySelectorAll(".fork-earlier-events")];
+  assert.ok(capped.length >= 4);
+  for (const hint of capped) {
+    assert.match(hint.textContent!, /\+\d+ earlier/);
+    const visible = hint.parentElement!.querySelector(".fork-cell-visible")!.textContent!;
+    assert.equal((visible.match(/\d{2}:\d{2}/g) ?? []).length, 3);
+    assert.doesNotMatch(visible, /push|review requested|approved|checks/);
+    assert.match(hint.getAttribute("aria-label")!, /earlier events:/);
+    assert.ok(hint.parentElement!.querySelector(".sr-only")!.textContent);
+    assert.equal((hint as HTMLElement).tabIndex, 0);
+  }
+  // The no-layout DOM shim cannot measure SHA-label space; real-bundle captures check geometry.
   await act(async () => root.unmount());
   dom.window.close();
 });

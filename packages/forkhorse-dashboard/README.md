@@ -253,6 +253,41 @@ non-stale reconciler/pending-promotion variants. Open their detail at
 `#review/review-1` or queue at `#review`. These fixtures establish offline rendering
 only. Design PASS and independent code acceptance remain external handback gates.
 
+## Recorded races (FH-055)
+
+Race packets open a read-only full-width page at `#race/<packet>` in either host.
+The track is a semantic table and becomes stacked lanes below 640px. It shows only
+recorded milestones in claim order (equal timestamps sort by agent): Claimed, First push, Review requested, Checks
+passed, Approved, Promoted. The shared race clock starts at the earliest claim;
+there is no running timer or estimated progress. Results use core's recorded places.
+
+The optional FH-052/053 projection carries `races`, agent enrollment `createdAt`,
+and `ledgerEntryId` (the exact string `ledger[].id`). Legacy agents are numbered
+alphabetically first, then enrolled agents by `createdAt`; response order never
+assigns identity. Fixture race, enrollment, ledger and review slices are checked
+against the core public types, including recorded `places` and quick receipts.
+The reviewed `race-silk-*`, `race-cloth-ink`, and
+`race-hurdle-ink` values live in `src/host-tokens.json`, with identity always carried
+by the number. Missing ledger evidence or activity counts are omitted.
+
+Results counts only default-branch pushes recorded on each entrant's fork from its
+claim through its closure, the race finish, or the current time. It shares
+the fork graph's packet interval filter. If the oldest loaded activity is later
+than any entrant's claim, Results omits Pushes rather than showing a partial count.
+`race-reused-forks` exercises historical fork totals of 20 and 3 with one push each
+inside the race; the Results counts are 1 and 1.
+
+The race view uses the accepted FH-057 `LaneRunner`, `LaneMarker`, `LaneConnector`
+and enrollment identity helpers from `src/lane.tsx`. Marker shapes and silk styling
+are shared with the fork graph; race-specific CSS only places them in the track.
+
+The offline fixture harness includes `race-open`, `race-finished`, `race-photo`,
+`race-empty`, `race-loading`, `race-error`, `race-unknown`, `race-standard`, and
+`race-advisory`. Open `fixtures.html?scenario=race-photo#race/race-01` for the recorded
+rejection panel, or `?scenario=race-open#work`, `#review`, and `#overview` for its
+Work badge, Promote warning, and Needs you copy. These snapshots are synthetic;
+they do not establish live race, deployment, or owner acceptance.
+
 ### Forks on Overview (FH-057)
 
 The read-only hero projects `/state` into a clock-time graph above Needs you. It uses
@@ -288,3 +323,22 @@ snapshot through the normal read path. These routes and controls never ship in
 production assets. Captures prove fixture rendering only; reserved root tests,
 worker-host integration, fresh-clone/D5 checks, and design/code sign-off remain
 separate acceptance gates.
+
+### Fork graph bundle fixes (FH-057b)
+
+The shared graph carries its closed-table hiding styles in the component as well as
+in CSS, so an older host stylesheet cannot reveal the accessibility twin. Closed
+cell controls leave keyboard tab order; opening the disclosure restores them.
+Unloaded starts use a dashed lead-in with a recorded-start tooltip. Main SHA labels
+reserve space for the newest promotion first, then fit older labels into the remaining
+space. Every event cell shows its three newest events, with `+n earlier` exposing the
+omitted facts on focus or hover.
+
+For offline bundle verification, build the dashboard and gatekeeper sidebar assets,
+then open `gatekeeper-fixtures.html?bundle=owner&scenario=fork-hero` or
+`gatekeeper-fixtures.html?scenario=fork-hero` on the dashboard fixture server.
+The owner route uses the built production entry and CSS against the local fixture API;
+the gatekeeper route loads its built self-contained sidebar in an opaque-origin frame
+with a synthetic host capability. Light/dark controls use the app theme path.
+`fork-history` exercises dense main labels and capped cells. These harnesses are excluded
+from production assets and prove offline bundle behavior only.
