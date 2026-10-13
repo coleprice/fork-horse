@@ -35,7 +35,8 @@ export class ReviewReader {
     if (!commit || commit.hash !== sha || !SHA.test(commit.treeHash) ||
         commit.parents.length > 64 || !commit.parents.every(p => SHA.test(p)) ||
         !Number.isFinite(commit.committedAt)) throw invalid();
-    if (encoder.encode(commit.message).length > MAX_PATCH ||
+    if (commit.message.length > MAX_PATCH || commit.author.name.length > 4096 ||
+        encoder.encode(commit.message).length > MAX_PATCH ||
         encoder.encode(commit.author.name).length > 4096) throw limit();
     this.metadataBytes += encoder.encode(commit.message).length + encoder.encode(commit.author.name).length;
     if (this.metadataBytes > 2 * MAX_BLOB) throw limit();
@@ -56,6 +57,7 @@ export class ReviewReader {
       if (this.entries > MAX_ENTRIES) throw limit();
       const names = new Set<string>();
       for (const entry of tree) {
+        if (entry.name.length > 4096) throw limit();
         if (!component(entry.name) || !SHA.test(entry.hash) || names.has(entry.name) ||
             !["tree", "blob", "exec", "symlink", "gitlink"].includes(entry.type)) throw invalid();
         names.add(entry.name);

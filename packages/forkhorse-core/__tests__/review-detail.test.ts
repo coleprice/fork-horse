@@ -77,6 +77,16 @@ describe("bounded exact-commit review reads in workerd (offline Artifacts fixtur
     expect(f.artifacts.calls.filter(c => c.method === "readCommit").length).toBeLessThan(2060);
   });
 
+  it("rejects oversized metadata before UTF-8 encoding and bounds author fields", async () => {
+    const f = await fixture();
+    f.artifacts.reviewCommits.set(AFTER, commit(AFTER, [], 1, "x".repeat(65537)));
+    await expect(f.reader.history(ZERO_SHA, AFTER)).rejects.toMatchObject({ status: 413 });
+    const hugeAuthor = commit(AFTER, []);
+    hugeAuthor.author.name = "x".repeat(4097);
+    f.artifacts.reviewCommits.set(AFTER, hugeAuthor);
+    await expect(new ReviewReader(f.repo).history(ZERO_SHA, AFTER)).rejects.toMatchObject({ status: 413 });
+  });
+
   it("renders additions, deletions, replacements and missing newlines as unified diffs", async () => {
     const f = await fixture();
     f.artifacts.reviewBlobs.set("7".repeat(40), new Blob(["old\n"]));
