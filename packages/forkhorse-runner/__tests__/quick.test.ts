@@ -7,10 +7,12 @@ import { QUICK_TIMEOUT_MS } from "../src/quick";
 import { Snapshot, QUICK_READ_BYTES, QUICK_LIST_PATHS } from "../src/snapshot";
 import { runReviewChecks, requirePassingReceipt, receiptJson, sha256 } from "../src/runner";
 import type { Check, QuickCheck } from "../src/types";
-import { check, COMMIT, fixture, request, review } from "./fixtures";
+import { check, COMMIT, fixture, IMAGE, processResult, request, review } from "./fixtures";
 // Vite loads the actual repo check unchanged into the real Dynamic Worker.
 // @ts-expect-error raw source is provided by Vite, not the Worker type library.
 import largeFilesSource from "../../../.forkhorse/quick/large-files.js?raw";
+// @ts-expect-error raw manifest is provided by Vite.
+import checksSource from "../../../.forkhorse/checks?raw";
 
 const quick: QuickCheck = { name: "quick", tier: "quick", module: ".forkhorse/quick/check.js" };
 const ROOT = "c".repeat(40), DIR = "d".repeat(40), CHECKS = "e".repeat(40), QUICK = "f".repeat(40), MODULE = "1".repeat(40), FILE = "2".repeat(40);
@@ -33,6 +35,33 @@ async function run(f: ReturnType<typeof quickFixture>) {
     return runReviewChecks(request, f.ports);
   });
 }
+
+describe("registered large-files full tier with explicitly mocked containers under workerd", () => {
+  it("registers one checkout command in the default image and keeps the example unregistered", () => {
+    const checks = parseChecks(checksSource);
+    expect(checks.filter(entry => entry.tier === "quick")).toEqual([
+      {name:"brand-quick",tier:"quick",module:".forkhorse/quick/brand.js"},
+    ]);
+    const large = checks.find(entry => entry.name === "large-files");
+    expect(large).toMatchObject({tier:"full",image:"default"});
+    expect(large && large.tier === "full" && large.run.startsWith("node -e ")).toBe(true);
+  });
+  it.each([0, 1])("dispatches the exact registered full command and retains exit %s", async exitCode => {
+    const large = parseChecks(checksSource).find(entry => entry.name === "large-files")!;
+    const f = fixture();
+    f.repo.readBlob.mockResolvedValue(new Blob([JSON.stringify([large])]));
+    Object.assign(f.container.images, {default:IMAGE});
+    const original = f.container.exec.getMockImplementation()!;
+    f.container.exec.mockImplementation(async (argv, options) => argv[0] === "timeout"
+      ? processResult(exitCode === 0 ? "All files are below 10 MB." : "", exitCode === 1 ? "fixture file is too large" : "", exitCode)
+      : original(argv, options));
+    const record = await runReviewChecks(request, f.ports);
+    expect(record.receipt.evidence).toBe("mocked-container-port");
+    expect(record.receipt.checks[0]).toMatchObject({runtime:"container",exitStatus:exitCode,outcome:exitCode === 0 ? "passed" : "failed"});
+    expect(f.container.exec.mock.calls.find(([argv]) => argv[0] === "timeout")?.[0])
+      .toEqual(["timeout", "--kill-after=5", "110", "sh", "-c", large.tier === "full" ? large.run : ""]);
+  });
+});
 
 describe("real Dynamic Worker loader in local workerd; Artifacts and containers are fixtures", () => {
   afterEach(() => vi.useRealTimers());
@@ -261,7 +290,7 @@ describe("stat metadata in local workerd with fixture Artifacts", () => {
     await expect(pending).rejects.toThrow();
     await expect(snapshot.stat("brand.json")).rejects.toThrow();
   });
-  it.each([9_999_999, 10_000_000, 10_000_001])("runs the actual large-files check at %s bytes without materializing the file", async size => {
+  it.each([9_999_999, 10_000_000, 10_000_001])("runs the unregistered stat example at %s bytes without materializing the file", async size => {
     const f = quickFixture(largeFilesSource);
     const original = f.repo.readBlob.getMockImplementation()!;
     const blob = new Blob([new Uint8Array(size)]);
