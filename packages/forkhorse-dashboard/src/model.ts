@@ -203,6 +203,11 @@ export function receiptGateCaption(review: Review, required: boolean): string {
   }
 }
 
+function receiptTimestamp(review: Review & { receipt: NonNullable<Review["receipt"]> }): number {
+  const value = Date.parse(review.receipt.finishedAt ?? review.receipt.startedAt);
+  return Number.isFinite(value) ? value : 0;
+}
+
 /** Latest public summaries remain reachable even after their reviews leave the queue. */
 export function recentReceipts(
   state: ProjectState,
@@ -211,13 +216,7 @@ export function recentReceipts(
     .filter(
       (review): review is Review & { receipt: NonNullable<Review["receipt"]> } => !!review.receipt,
     )
-    .sort((a, b) => {
-      const timestamp = (review: Review) => {
-        const value = Date.parse(review.receipt!.finishedAt ?? review.receipt!.startedAt);
-        return Number.isFinite(value) ? value : 0;
-      };
-      return timestamp(b) - timestamp(a) || a.id.localeCompare(b.id);
-    })
+    .toSorted((a, b) => receiptTimestamp(b) - receiptTimestamp(a) || a.id.localeCompare(b.id))
     .slice(0, 5);
 }
 

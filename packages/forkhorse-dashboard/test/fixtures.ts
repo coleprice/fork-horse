@@ -370,7 +370,7 @@ export function fixtureState(id = "demo"): StateResponse {
       });
       return review;
     });
-    result.reviews.push(...promoted.reverse());
+    result.reviews.push(...promoted.toReversed());
   }
   return result;
 }
