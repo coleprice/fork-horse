@@ -10,14 +10,10 @@ import { branchHead } from "./artifacts";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import { WorkerGit } from "./git";
 import type { GitOperations } from "./git";
+import type { Agent } from "./workflow";
 import { Workflow, recordWorkflowPush } from "./workflow";
 import { capActivity } from "./activity";
 import type { StoredActivity } from "./activity";
-
-interface Agent {
-  name: string;
-  tokenHash: string;
-}
 
 function publicImportUrl(value: unknown): string | undefined {
   if (value === undefined) return undefined;
@@ -251,11 +247,12 @@ export class Supervisor extends DurableObject<Env> {
       project,
       [`repo:${created.name}`]: null,
     };
+    const createdAt = new Date().toISOString();
     for (const name of data.agents) {
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       const apiToken =
         "api_" + Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-      records[`agent:${name}`] = { name, tokenHash: await digest(apiToken) };
+      records[`agent:${name}`] = { name, tokenHash: await digest(apiToken), createdAt };
       credentials.push({ agent: name, apiToken });
     }
     const canonicalHead = await branchHead(canonical, project.defaultBranch);
