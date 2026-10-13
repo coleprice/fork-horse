@@ -1,4 +1,7 @@
 import { collisionScenarios, collisionFixtureState } from "./collision-fixtures.ts";
+import { readFileSync } from "node:fs";
+import { raceScenarios, raceFixtureState } from "./race-fixtures.ts";
+import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
   reviewScenarios,
@@ -19,9 +22,79 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
   const states = new Map<string, ReturnType<typeof fixtureState>>();
   return (request: IncomingMessage, response: ServerResponse, next: () => void) => {
     const url = new URL(request.url ?? "/", "http://fixture.idiot.tax");
+    if (url.pathname === "/__fixtures/owner-bundle" && request.method === "GET") {
+      const project = forkScenarios.includes(url.searchParams.get("scenario") ?? "")
+        ? url.searchParams.get("scenario")!
+        : "fork-hero";
+      try {
+        const html = readFileSync(new URL("../dist/index.html", import.meta.url), "utf8");
+        const config = JSON.stringify({ projects: [{ id: project, label: project }] });
+        response.setHeader("Content-Type", "text/html");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(
+          html.replace(
+            "</body>",
+            `<script id="dashboard-config" type="application/json">${config}</script><script type="module" src="/test/owner-theme-fixture.ts"></script></body>`,
+          ),
+        );
+      } catch {
+        response.statusCode = 503;
+        response.end("Build the owner dashboard first.");
+      }
+      return;
+    }
+    if (/^\/app\/assets\/[A-Za-z0-9_.-]+$/.test(url.pathname) && request.method === "GET") {
+      try {
+        response.setHeader(
+          "Content-Type",
+          url.pathname.endsWith(".css") ? "text/css" : "text/javascript",
+        );
+        response.end(
+          readFileSync(
+            new URL(`../dist/assets/${url.pathname.split("/").at(-1)}`, import.meta.url),
+          ),
+        );
+      } catch {
+        response.statusCode = 404;
+        response.end("Fixture build asset missing.");
+      }
+      return;
+    }
+    if (url.pathname === "/__fixtures/gatekeeper-bundle" && request.method === "GET") {
+      try {
+        response.setHeader("Content-Type", "text/html");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(
+          readFileSync(
+            new URL("../../forkhorse-gatekeeper/dist/sidebar.html", import.meta.url),
+            "utf8",
+          ),
+        );
+      } catch {
+        response.statusCode = 503;
+        response.end("Build the gatekeeper sidebar assets first.");
+      }
+      return;
+    }
     // Test harness reset; this middleware is excluded from production builds.
     if (url.pathname === "/__fixtures/reset" && request.method === "POST") {
       states.clear();
+      response.statusCode = 204;
+      response.end();
+      return;
+    }
+    if (url.pathname === "/__fixtures/fork-live-push" && request.method === "POST") {
+      const state = states.get("fork-live");
+      if (state) {
+        const previous = state.activity.find((a) => a.repoName === "fixture-fork-3")!;
+        const at = new Date().toISOString();
+        state.activity.push({
+          ...previous,
+          sequence: state.activity.length + 100,
+          recordedAt: at,
+          eventTimestamp: at,
+        });
+      }
       response.statusCode = 204;
       response.end();
       return;
@@ -71,7 +144,37 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       } else send({ error: "Fixture method unavailable" }, 405);
       return;
     }
-    const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    const raceRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    if (raceRoute && raceScenarios.includes(raceRoute[1])) {
+      const id = raceRoute[1];
+      const state = raceFixtureState(id);
+      if (raceRoute[2] === "state") {
+        if (id === "race-error") send({ error: "Offline race error fixture" }, 503);
+        else if (id === "race-loading") setTimeout(() => send(state), 8000);
+        else send(state);
+      } else if (raceRoute[2] === "activity")
+        send({ activity: [], nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+      else {
+        const review = state.reviews.find((candidate) => candidate.id === raceRoute[3]);
+        if (!review) send({ error: "Fixture review not found" }, 404);
+        else
+          send({
+            ...reviewFixtureDetail({ ...state, reviews: [review] }),
+            packet: state.packets[0],
+          });
+      }
+      return;
+    }
+    const forkRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (forkRoute && forkScenarios.includes(forkRoute[1])) {
+      if (!states.has(forkRoute[1])) states.set(forkRoute[1], forkFixtureState(forkRoute[1]));
+      const state = states.get(forkRoute[1])!;
+      send(forkRoute[2] === "state" ? state : { activity: [], nextAfter: 0 });
+      return;
+    }
+    const needsRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(
+      url.pathname,
+    );
     if (needsRoute && needsScenarios.includes(needsRoute[1])) {
       const id = needsRoute[1];
       const state = needsFixtureState(id);
@@ -80,7 +183,11 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       else {
         const review = state.reviews.find((r) => r.id === needsRoute[3]);
         if (!review) send({ error: "Fixture review not found." }, 404);
-        else send({ ...reviewFixtureDetail({ ...state, reviews: [review] }), packet: state.packets.find((p) => p.id === review.packet)! });
+        else
+          send({
+            ...reviewFixtureDetail({ ...state, reviews: [review] }),
+            packet: state.packets.find((p) => p.id === review.packet)!,
+          });
       }
       return;
     }
