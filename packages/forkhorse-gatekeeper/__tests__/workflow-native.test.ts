@@ -12,7 +12,7 @@ class Queue extends RpcTarget {
   async authorizeObservation() { this.observations++; }
   async submitAction(id: number, description: { awaitDecision?: boolean; autoApprovable?: boolean }) {
     expect(description.awaitDecision).toBe(true);
-    expect(description.autoApprovable).toBeUndefined();
+    expect(description.autoApprovable).toBe(true);
     this.ids.push(id);
   }
 }
@@ -21,7 +21,7 @@ it("runs each named workflow call over native RPC with real durable approval sta
   const workspace = env.WORKSPACES.getByName(crypto.randomUUID());
   const queue = new Queue();
   using session = await workspace.workflowSession(queue as unknown as ApprovalQueue);
-  expect(await session.context()).toEqual({ project: { id: "fixture" }, myWork: [] });
+  expect(await session.context()).toMatchObject({ project: { id: "fixture" }, myWork: [] });
   expect(queue.observations).toBe(1);
   const calls = [
     () => session.join(),

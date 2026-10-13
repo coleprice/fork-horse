@@ -28,7 +28,7 @@ export class FixtureWorkspace extends DurableObject {
     return new WorkflowActions(this.ctx.storage.kv, workflowSource({
       identity: async () => ({ agent: "fixture-agent", work: [] }),
       request: async (path, init) => {
-        if (!init) return { project: { id: "fixture" } };
+        if (!init) return { project: { id: "fixture" }, packets: [{ id: "fixture-packet", mode: "standard" }] };
         const calls = this.ctx.storage.kv.get<unknown[]>("fixtureCalls") ?? [];
         calls.push({ path, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null });
         this.ctx.storage.kv.put("fixtureCalls", calls);
@@ -50,6 +50,9 @@ export class FixtureWorkspace extends DurableObject {
   async startSession(queue: RpcStub<ApprovalQueue>): Promise<AgentForkSession> {
     return await this.#fork().startSession(queue as unknown as ApprovalQueue) as unknown as AgentForkSession;
   }
+  async describeFork() { return this.#fork().describe(); }
+  async forkTypes() { return this.#fork().getTypeScriptTypes(); }
+  async autoApprovable() { return this.#fork().getAutoApprovableActions(); }
   async applyAction(id: number, cache: RpcStub<GitCache>): Promise<void> { await this.#fork().applyAction(id, cache); }
   async gitPull(oids: string[], cache: RpcStub<GitCache>, hints: GitPullHints): Promise<void> { await this.#fork().gitPull(oids, cache, hints); }
   async rejectAction(id: number): Promise<void> { await this.#fork().rejectAction(id); }

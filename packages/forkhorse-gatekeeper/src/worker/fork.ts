@@ -1,14 +1,18 @@
-import { DurableObject, RpcTarget, RpcStub } from "cloudflare:workers";
+import { forkAddress, type ReadReviewResponse, type ReadReceiptsResponse } from "../../../forkhorse-stable/src/index.ts";
+import { WorkflowActions } from "./workflow.ts";
+import { WorkflowSession } from "./workflow-session.ts";
+import { actionKinds } from "./action-kinds.ts";
+import { DurableObject, RpcStub } from "cloudflare:workers";
 import { validateRpc } from "capnweb-validate";
 import { SerialTaskQueue } from "@gadgets/gatekeeper-kit/serial-queue";
 import { validateBranchName } from "@gadgets/gatekeeper-kit/git-transport";
 import type {
-  ApprovalQueue, Gatekeeper, GatekeeperUserVerifier, GitCache, GitOid, GitPullHints, ResourceDescription,
+  ApprovalQueue, Gatekeeper, GatekeeperUserVerifier, GitCache, GitOid, GitPullHints, ResourceDescription, ActionKind,
 } from "@gadgets/workshop-shared/gatekeeper";
 import type { AgentForkSession } from "../fork-types.d.ts";
 import type { AgentVerifier, Env, UserAccount } from "./account.ts";
 import { oid } from "./core-client.ts";
-import TYPES from "../fork-types.txt";
+import { TYPES } from "./api-types.ts";
 
 interface Props { accountId: string; repoName: string }
 interface Push { branch: string; oldSha: string; newSha: string; status: "preparing" | "pending" | "applied" | "rejected" }
@@ -19,18 +23,33 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
   #account(): DurableObjectStub<UserAccount> {
     return this.ctx.exports.UserAccount.get(this.ctx.exports.UserAccount.idFromString(this.ctx.props.accountId));
   }
+  #workflow(): WorkflowActions {
+    const account = this.#account();
+    return new WorkflowActions(this.ctx.storage.kv, {
+      authorize: async () => { await account.fork(this.ctx.props.repoName); },
+      context: () => account.workflowContext(),
+      execute: operation => account.executeWorkflow(operation),
+      readReview: (review): Promise<ReadReviewResponse> => account.readReview(review),
+      readReceipts: (review): Promise<ReadReceiptsResponse> => account.readReceipts(review),
+    }, this.#serial, () => {
+      if ([...this.ctx.storage.kv.list<Push>({ prefix: "push:" })].some(([, action]) => action.status === "preparing" || action.status === "pending")) {
+        throw new Error("Resolve the pending push before submitting a workflow action.");
+      }
+    });
+  }
   async describe(): Promise<ResourceDescription> {
     const source = this.#account();
     await source.fork(this.ctx.props.repoName);
     const meta = await source.metadata();
-    return { url: `${meta.coreOrigin}/projects/${meta.project}/forks/${this.ctx.props.repoName}`,
-      title: this.ctx.props.repoName, snippet: "Agent-owned Git fork", tsType: "AgentForkSession", suggestedBindingName: "FORK" };
+    const url = forkAddress({ origin: meta.coreOrigin, project: meta.project, repoName: this.ctx.props.repoName });
+    return { url,
+      title: this.ctx.props.repoName, snippet: `Agent-owned Git fork. Attach this exact address: ${url}`, tsType: "AgentForkSession", suggestedBindingName: "FORK" };
   }
   async getTypeScriptTypes(): Promise<string> { return TYPES; }
-  async getAutoApprovableActions(): Promise<[]> { return []; }
+  async getAutoApprovableActions(): Promise<ActionKind[]> { return Object.values(actionKinds); }
   async startSession(queue: RpcStub<ApprovalQueue>): Promise<AgentForkSession> {
     await this.#account().fork(this.ctx.props.repoName);
-    return new ForkSession(this, queue.dup());
+    return new ForkSession(this, queue.dup(), this.#workflow());
   }
   async readHead(): Promise<{ repoName: string; branch: string; commitId: string }> {
     const source = this.#account();
@@ -40,6 +59,7 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
   }
   async submitPush(queue: RpcStub<ApprovalQueue>, branch: string, commitId: string): Promise<void> {
     await this.#serial.run(async () => {
+      if (this.#workflow().hasPending()) throw new Error("Resolve the pending workflow action before pushing.");
       validateBranchName(branch);
       if (!oid(commitId) || /^0+$/.test(commitId)) throw new Error("A full, nonzero commit ID is required.");
       const head = await this.readHead();
@@ -77,6 +97,7 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
         title: `Push ${action.newSha.slice(0, 12)} to ${action.branch}`,
         description: `Advance fork ${repoName} on branch ${action.branch} from ${action.oldSha} to ${action.newSha}. The update fails if the branch moved.`,
         pushedCommits: [action.newSha], implementsRevert: false, awaitDecision: true,
+        actionKind: actionKinds.push, autoApprovable: true,
       });
       this.ctx.storage.kv.put(`push:${id}`, { ...action, status: "pending" });
     } catch {
@@ -88,6 +109,8 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
     await this.#account().pull(this.ctx.props.repoName, oids, hints, cache);
   }
   async applyAction(id: number, cache: RpcStub<GitCache>): Promise<void> {
+    const workflow = this.#workflow();
+    if (workflow.has(id)) return workflow.apply(id);
     await this.#serial.run(async () => {
       const action = this.ctx.storage.kv.get<Push>(`push:${id}`);
       if (action?.status === "applied") return;
@@ -107,6 +130,8 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
     });
   }
   async rejectAction(id: number): Promise<void> {
+    const workflow = this.#workflow();
+    if (workflow.has(id)) return workflow.reject(id);
     await this.#serial.run(async () => {
       const action = this.ctx.storage.kv.get<Push>(`push:${id}`);
       if (!action || action.status === "rejected") return;
@@ -125,8 +150,8 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
 }
 
 @validateRpc()
-class ForkSession extends RpcTarget implements AgentForkSession {
-  constructor(private readonly gatekeeper: ForkGatekeeper, private readonly queue: RpcStub<ApprovalQueue>) { super(); }
+class ForkSession extends WorkflowSession implements AgentForkSession {
+  constructor(private readonly gatekeeper: ForkGatekeeper, queue: RpcStub<ApprovalQueue>, actions: WorkflowActions) { super(actions, queue); }
   async getHead(): Promise<{ repoName: string; branch: string; commitId: string }> {
     await this.queue.authorizeObservation({ title: "Read fork head", description: "Read the connected fork's default branch and commit." });
     const head = await this.gatekeeper.readHead();

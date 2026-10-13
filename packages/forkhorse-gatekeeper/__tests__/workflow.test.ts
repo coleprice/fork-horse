@@ -12,7 +12,7 @@ function fixture() {
       return new Map([...data].filter(([key]) => !prefix || key.startsWith(prefix))) as Map<string, T>;
     },
   };
-  const context = { project: { id: "fixture" }, myWork: [] } as unknown as WorkflowContext;
+  const context = { project: { id: "fixture" }, packets: [{ id: "fixture-packet", mode: "standard" }], myWork: [] } as unknown as WorkflowContext;
   const identity = vi.fn(async () => ({ agent: "fixture-agent", work: context.myWork }));
   const request = vi.fn(async (_path: string, _init?: RequestInit): Promise<unknown> => context);
   const source = workflowSource({ identity, request });
@@ -41,22 +41,22 @@ for (const [operation, path, method, body] of cases) {
   it(`queues ${operation.kind}${"repoName" in operation ? " with a fork" : ""} and sends the exact core route only on apply`, async () => {
     const f = fixture();
     const sentinel = "fixture-token-must-never-escape";
-    f.request.mockResolvedValue({ token: sentinel, repoName: "new-fixture-fork" });
+    f.request.mockImplementation(async (_path, init) => init ? { token: sentinel, repoName: "new-fixture-fork" } : f.context);
     const log = vi.spyOn(console, "log");
     const error = vi.spyOn(console, "error");
     try {
       expect(await f.actions.submit(f.queue, operation)).toBeUndefined();
-      expect(f.request).not.toHaveBeenCalled();
+      expect(f.request.mock.calls.filter(([, init]) => init)).toEqual([]);
       const [id, description] = f.queue.submitAction.mock.calls[0]!;
       expect(description).toMatchObject({ implementsRevert: false, awaitDecision: true });
-      expect(description).not.toHaveProperty("autoApprovable");
-      expect(description).not.toHaveProperty("actionKind");
+      expect(description).toHaveProperty("autoApprovable", true);
+      expect(description).toHaveProperty("actionKind");
       expect(await f.actions.apply(id)).toBeUndefined();
-      expect(f.request).toHaveBeenCalledExactlyOnceWith(path, {
+      expect(f.request.mock.calls.filter(([, init]) => init)).toEqual([[path, {
         method, ...(body ? { body: JSON.stringify(body) } : {}),
-      });
+      }]]);
       await f.actions.apply(id);
-      expect(f.request).toHaveBeenCalledOnce();
+      expect(f.request.mock.calls.filter(([, init]) => init)).toHaveLength(1);
       expect(JSON.stringify([...f.data])).not.toContain(sentinel);
       expect(JSON.stringify(f.queue.submitAction.mock.calls)).not.toContain(sentinel);
       expect(log).not.toHaveBeenCalled();

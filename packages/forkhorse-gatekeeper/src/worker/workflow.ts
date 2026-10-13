@@ -1,4 +1,6 @@
-import type { ApprovalQueue } from "@gadgets/workshop-shared/gatekeeper";
+import { actionKinds } from "./action-kinds.ts";
+import type { ReadReviewResponse, ReadReceiptsResponse } from "../../../forkhorse-stable/src/index.ts";
+import type { ApprovalQueue, ActionKind } from "@gadgets/workshop-shared/gatekeeper";
 import { SerialTaskQueue } from "@gadgets/gatekeeper-kit/serial-queue";
 
 import type { WorkflowContext } from "../workflow-types.d.ts";
@@ -14,10 +16,13 @@ export type WorkflowWrite =
 export interface WorkflowSource {
   authorize(): Promise<void>;
   context(): Promise<WorkflowContext>;
+  readReview(review: string): Promise<ReadReviewResponse>;
+  readReceipts(review: string): Promise<ReadReceiptsResponse>;
   execute(operation: WorkflowWrite): Promise<void>;
 }
 interface Action {
   operation: WorkflowWrite;
+  actionKind: ActionKind;
   status: "preparing" | "pending" | "applying" | "applied" | "rejected";
 }
 type Store = Pick<DurableObjectStorage["kv"], "get" | "put" | "list">;
@@ -42,8 +47,8 @@ function description(operation: WorkflowWrite) {
 }
 
 /**
- * Approval-only workflow controller. Not wired into the production account until
- * FH-065a's accepted credential provider is available. The fixture runs in workerd.
+ * Durable approval controller. Applied operations use the connected account
+ * and its Stable credential provider, never model-supplied authority.
  */
 export class WorkflowActions {
   constructor(
@@ -51,7 +56,34 @@ export class WorkflowActions {
     private readonly source: WorkflowSource,
     // Share with push when integrating, including its existing nextAction counter.
     private readonly serial = new SerialTaskQueue(),
+    private readonly beforeSubmit: () => void = () => {},
   ) {}
+
+  has(id: number): boolean { return !!this.store.get<Action>(`workflow:${id}`); }
+  hasPending(): boolean {
+    return [...this.store.list<Action>({ prefix: "workflow:" })]
+      .some(([, action]) => ["preparing", "pending", "applying"].includes(action.status));
+  }
+  async #kind(operation: WorkflowWrite): Promise<ActionKind> {
+    if (operation.kind !== "claim") return actionKinds[operation.kind];
+    const packet = (await this.source.context()).packets.find(candidate => candidate.id === operation.packet);
+    if (!packet) throw new Error("Packet is unavailable.");
+    return packet.mode === "race" ? actionKinds.raceEntry : actionKinds.claim;
+  }
+  async readReview(queue: Pick<ApprovalQueue, "authorizeObservation">, review: string): Promise<ReadReviewResponse> {
+    await queue.authorizeObservation({ title: "Read review", description: "Read the connected agent's review at its recorded commit." });
+    await this.source.authorize();
+    const result = await this.source.readReview(review);
+    await this.source.authorize();
+    return result;
+  }
+  async readReceipts(queue: Pick<ApprovalQueue, "authorizeObservation">, review: string): Promise<ReadReceiptsResponse> {
+    await queue.authorizeObservation({ title: "Read receipt summary", description: "Read the public check summary on the connected agent's review." });
+    await this.source.authorize();
+    const result = await this.source.readReceipts(review);
+    await this.source.authorize();
+    return result;
+  }
 
   async context(queue: Pick<ApprovalQueue, "authorizeObservation">): Promise<WorkflowContext> {
     await queue.authorizeObservation({ title: "Read project context", description: "Read project state and the connected agent's work to choose the next step." });
@@ -65,27 +97,31 @@ export class WorkflowActions {
     validate(operation);
     await this.serial.run(async () => {
       await this.source.authorize();
+      this.beforeSubmit();
       const entries = [...this.store.list<Action>({ prefix: "workflow:" })];
       const unresolved = entries.find(([, action]) => ["preparing", "pending", "applying"].includes(action.status));
       let id: number;
+      let actionKind: ActionKind;
       if (unresolved) {
         const [key, action] = unresolved;
         if (action.status === "applying") throw new Error("Workflow outcome uncertain. Inspect context before starting more work; do not repeat join.");
         if (JSON.stringify(action.operation) !== JSON.stringify(operation)) throw new Error("Resolve the pending workflow action before submitting another.");
         if (action.status === "pending") return;
         id = Number(key.slice("workflow:".length));
+        actionKind = action.actionKind;
       } else {
+        actionKind = await this.#kind(operation);
         id = (this.store.get<number>("nextAction") ?? 0) + 1;
         this.store.put("nextAction", id);
       }
-      this.store.put(`workflow:${id}`, { operation, status: "preparing" } satisfies Action);
+      this.store.put(`workflow:${id}`, { operation, actionKind, status: "preparing" } satisfies Action);
       try {
-        await queue.submitAction(id, { ...description(operation), implementsRevert: false, awaitDecision: true });
+        await queue.submitAction(id, { ...description(operation), ...(actionKind.tag === actionKinds.raceEntry.tag ? { title: `Enter race ${"packet" in operation ? operation.packet : ""}` } : {}), implementsRevert: false, awaitDecision: true, actionKind, autoApprovable: true });
       } catch {
         // The host may already have persisted this ID. Retry only its submission.
         throw new Error("Workflow submission interrupted. Retry the same call to recover its approval request.");
       }
-      this.store.put(`workflow:${id}`, { operation, status: "pending" } satisfies Action);
+      this.store.put(`workflow:${id}`, { operation, actionKind, status: "pending" } satisfies Action);
     });
   }
 
@@ -96,6 +132,7 @@ export class WorkflowActions {
       if (action?.status === "applying") throw new Error("Workflow outcome uncertain. Inspect context; this action will not be sent again.");
       if (action?.status !== "preparing" && action?.status !== "pending") throw new Error("Workflow action is not pending approval.");
       await this.source.authorize();
+      if ((await this.#kind(action.operation)).tag !== action.actionKind.tag) throw new Error("Packet action kind changed; discard this action.");
       // Core join/review are not idempotent. Persist the boundary before sending;
       // never repeat an ambiguous call after a crash or lost response.
       this.store.put(`workflow:${id}`, { ...action, status: "applying" });

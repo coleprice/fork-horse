@@ -1,87 +1,79 @@
-# FH-065b offline checkpoint
+# FH-065b integration checkpoint
 
-Status: incomplete; not ready for review, merge, or deployment.
+Status: production wiring implemented and focused checks pass. Acceptance remains
+open; this is not approval to merge or deploy.
 
-Base: `ef4d2d6e11e4c018cb828a6ed5b38e6ba21bfe18`.
-Branch: `fh/FH-065b-gatekeeper-calls`.
+Accepted Stable dependency: `5fb494946ddabe0a732daf5a1b668a677c7970a7`.
+Plain merge: `4a13b72a61a3d33897cfd8c8dc940b199c07fc5e`, parents
+`b6a5a09c0a216ede0ab173821051d430a61a5acb` and the accepted dependency.
+No newer main was merged. Task-owned changes remain in this package.
 
-## Implemented locally
+## Implemented
 
-- A credential-free `WorkflowSource` and transport seam, a typed native
-  `WorkflowSession` exposing the five named calls, and an approval-only
-  controller exercised by workerd fixtures with real Durable Object storage. It is deliberately not wired into
-  the production account: FH-065a's accepted provider is required first.
-- Existing core route mappings: `GET /state` plus authenticated `/me` work for
-  context; `POST /join` with the verified agent and `ttlSeconds: 60`;
-  `POST /packets/:packet/claim`; `POST /reviews`; and
-  `DELETE /packets/:packet/claim`. Writes return no response body, including
-  join's token-bearing result.
-- Queued writes persist intent before queue submission, keep the same action ID
-  after a lost queue reply, reauthorize at apply, and never resend an ambiguous
-  join/review after the external-call boundary. Ambiguous external outcomes
-  remain fenced for inspection; automatic reconciliation is not implemented.
-- Account display names include the verified agent name.
-- The sidebar prompt describes context, attachment, claim/join, approval waits,
-  edit/check/commit/push, and exact-commit review. This copy is staged for the
-  completed workflow and must not ship before the methods are wired.
+- The production fork session exposes context, join, claim, release, requestReview,
+  readReview and readReceipts. It consumes the accepted Stable records and
+  stored-key credential provider. Every HTTP request obtains its bearer through
+  that provider, with account generation checks around asynchronous work.
+- Context combines core state and authenticated work. Receipt reads project the
+  agent-visible review summary, never the owner-only receipt log route.
+- Join requests a 60-second grant and discards its entire token-bearing response.
+  No Git token is returned, persisted in an action, or included in an error.
+- Writes persist their intent before queue submission and reauthorize at apply.
+  Interrupted submissions reuse the same action ID. Once an external request is
+  sent, uncertain outcomes remain fenced to prevent duplicate forks or reviews.
+  Automatic reconciliation is not implemented.
+- Claim, race entry, join, push, request review and release each have an eligible
+  action kind. Core packet mode selects claim versus race entry and is checked
+  again at apply. Only the OS's user-controlled per-kind rules decide approval.
+- Push and workflow writes share one serial queue and action counter. Unresolved
+  writes block further writes; existing queued pushes retain their dispatcher.
+- Code Mode declarations compose the accepted Stable source with both session
+  interfaces. Resource descriptions and the picker use the accepted address
+  helper. Account cards show the verified agent, and Ask an agent prefills the
+  concrete contribution workflow.
 
-## Evidence and limits
+## Focused evidence
 
-All new workflow evidence is local fixture evidence, not live service acceptance.
-The fixture transport has no credentials or network access. Existing vendor tests
-continue to verify the existing bearer path, but do not prove the new provider
-integration. New tests check each route/body, no writes before apply, 60-second
-join TTL, no token returned/stored/logged, lost queue replies, ambiguous writes,
-denial, revocation, conflicting actions, and malformed inputs.
+The native workerd tests exercise production gatekeeper/account RPC and real
+Durable Object storage against mocked core HTTP. They verify provider bearer
+use, each verb's route/body, join TTL and token containment, observation calls,
+separate action kinds, claim/race classification, pending-action conflicts,
+revocation, lost queue replies and uncertain external outcomes. These are local
+fixture results, not live core, Cloudflare OS or Artifacts acceptance.
 
 Successful commands:
 
 - `pnpm install --frozen-lockfile` — exit 0.
 - `pnpm --dir cloudflare-os install --frozen-lockfile` — exit 0.
-- `pnpm --filter forkhorse-gatekeeper types:check` — exit 0.
-- `pnpm --filter forkhorse-gatekeeper test` — exit 0; 19 Node tests and 37 workerd
-  tests pass, including the native workflow fixture. A focused
-  `pnpm --filter forkhorse-gatekeeper exec vitest run __tests__/workflow-native.test.ts __tests__/workflow.test.ts`
-  run also passes all 14 tests. Existing native RPC rejection/hang diagnostics remain in output;
-  passing tests do not assert a clean runtime log.
+- `pnpm --filter forkhorse-gatekeeper test` — exit 0; 19 Node tests and 42
+  workerd tests across 6 files pass. Existing negative native RPC rejection/hang
+  diagnostics remain in output; passing tests do not assert clean runtime logs.
 - `pnpm exec vp lint packages/forkhorse-gatekeeper` — exit 0.
-- `pnpm --filter forkhorse-gatekeeper build` — exit 0; production bundle and three
-  self-contained frames verified. Existing mixed JSON import-attribute warning
-  remains; the checkpoint workflow seam is not included in the production graph.
+- `pnpm --filter forkhorse-gatekeeper build` — exit 0, including both typechecks,
+  the production Worker and three self-contained frame checks. Existing mixed
+  JSON import-attribute warning remains.
 
-Initial checks hit setup/sandbox failures: missing submodule dependencies and
-localhost listener `EPERM`. Frozen dependency installation and local listener
-access resolved those. Directly importing core's `StateSnapshot` also pulled
-unrelated Worker globals into this Worker; the temporary seam therefore preserves
-opaque state fields and caller work until FH-065a supplies standalone public types.
+The focused commands use `pnpm_config_verify_deps_before_run=false` after the
+frozen installation to avoid an environment-specific dependency-store recheck.
+The native runtime suite caught and verified the correction of an iterator
+assumption that the earlier Map fixture did not expose.
 
-## Required next steps
+## Open gates
 
-1. Live route is provisioned: `fh-065b` is claimed on `forkhorse--codex-9`.
-   Joined exactly once with a 60-second token, then claimed that explicit fork.
-   Keep this fork for continuation; refresh only this fork. No review is requested
-   while the dependency and acceptance gates remain open.
-2. Obtain the accepted FH-065a head and concrete public contract. Merge accepted
-   main normally, without rebasing or copying an unaccepted feature branch.
-3. Replace the temporary transport/context seam with the accepted provider and
-   public types. Wire the controller into `ForkGatekeeper` using its shared
-   serial queue and action counter; dispatch workflow apply/reject separately
-   from push. Compose the typed workflow session into the existing fork session
-   and publish the combined self-contained Code Mode types.
-4. Use the accepted fork-address helper for resource descriptions and picker
-   addresses. Test the configured exact address without hardcoding deployment
-   values. Add actual provider bearer assertions for every workflow call.
-5. Keep writes approval-queued unless the owner explicitly changes the policy.
-   Add native RPC coverage for the wired methods and prevent push/workflow
-   pending-action conflicts. Review ambiguous-operation recovery before shipping.
-6. Obtain the serialized heavy-check slot: root `pnpm test`, root `pnpm lint`,
-   fresh-clone suite, and D5 were not run because the slot was not granted.
-7. `readReceipts` needs contract resolution: accepted core full receipt reads
-   are owner-only, while agent review detail includes a summary. No owner
-   credential or new core route may be inferred. The five required packet calls
-   remain the scope of this checkpoint.
-8. Obtain Saddler's PASS for visible copy and live authorization for the full
-   Cloudflare OS builder loop. Neither visual acceptance nor live push is proven.
+1. Confirm the queued-result adapter contract. OS `submitAction()` acknowledges
+   submission before approval; workflow writes return `Promise<void>` and set
+   `awaitDecision: true`, matching push. After approval the agent reads context.
+   Stable's public response types describe applied core results; this adapter
+   never invents a result while approval is pending. The contract question is
+   routed to the coordinating reviewer.
+2. Review the intentional uncertainty fence: context remains readable, but an
+   ambiguous external write requires operator reconciliation before further
+   writes on the resource. No automatic retry or clearing capability is exposed.
+3. Root `pnpm test`, root `pnpm lint`, fresh-clone acceptance and D5 remain held
+   pending the serialized heavy-check lane.
+4. Visible copy requires the designated copy reviewer's PASS. The live Cloudflare
+   OS builder loop requires separate acceptance through the enrolled demo agent.
 
-No core edits, submodule edits/pin changes, owner operations,
-Cloudflare deployment, board edits, alternate publication, or hidden agents.
+The assigned live packet and original fork are retained for publication. No
+second join or review request is needed for this checkpoint. No core or upstream
+changes, live OS rule changes, canonical write, or deployment are included.
