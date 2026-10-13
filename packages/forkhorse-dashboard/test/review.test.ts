@@ -640,3 +640,79 @@ test("detail blockers hide owner decisions even when the earlier snapshot had no
     c.close();
   }
 });
+
+// Synthetic FH-045 state and DOM coverage, including the stale:false shot-7 loser.
+test("stale causes match in detail and queue before a click, with no owner actions", async () => {
+  const cases = [
+    ["review-stale", "Fork moved", "The fork moved after this review was requested."],
+    ["review-main-moved", "Main moved", "main moved to 7777777 after this review was requested."],
+    ["review-main-moved-stale", "Main moved", "main moved to 7777777 after this review was requested."],
+    ["review-out-of-date", "Out of date", "This review no longer applies."],
+    ["review-reconciler-stale", "Out of date", "This review no longer applies."],
+    ["review-pending-promotion-stale", "Out of date", "This review no longer applies."],
+  ];
+  for (const [scenario, label, banner] of cases) {
+    for (const route of ["#review", "#review/review-1"]) {
+      const c = setup(scenario, true, route);
+      try {
+        await until(() => c.root.querySelector(route === "#review" ? ".review-card" : ".review-milestones"));
+        const scope = c.root.querySelector(route === "#review" ? ".review-card" : ".review-detail")!;
+        assert.ok(scope.textContent!.includes(route === "#review" ? label : banner));
+        assert.equal(scope.querySelector('[data-action="approve"], [data-action="promote"], [data-action="return"]'), null);
+        if (label === "Main moved") assert.match(scope.textContent!, /The agent must rebase and request review again\./);
+        if (scenario === "review-main-moved") assert.equal(c.wire.reviews[0].stale, false);
+        if (label === "Out of date") assert.doesNotMatch(scope.textContent!, /Fork moved|The fork moved/);
+        assert.equal(c.calls.some((call) => call.init?.method === "POST"), false);
+      } finally { c.close(); }
+    }
+  }
+});
+
+test("non-stale guarded main movement keeps Approved and Promote; returned suppresses stale banner", async () => {
+  for (const scenario of ["review-reconciler", "review-pending-promotion", "review-returned", "review-promoted"]) {
+    const c = setup(scenario);
+    if (["review-returned", "review-promoted"].includes(scenario)) {
+      c.wire.reviews[0].stale = true;
+      c.wire.forks.find((fork) => fork.repoName === c.wire.reviews[0].repoName)!.head = "9".repeat(40);
+    }
+    try {
+      await until(() => c.root.querySelector(".review-milestones"));
+      const detail = c.root.querySelector(".review-detail")!;
+      assert.doesNotMatch(detail.textContent!, /The fork moved|main moved to|This review no longer applies/);
+      if (["review-reconciler", "review-pending-promotion"].includes(scenario)) assert.ok(button(c, "Promote"));
+    } finally { c.close(); }
+  }
+});
+
+test("main-moved needs ledger, known base, explicit null pending and no current-head alert", async () => {
+  const { reviewState } = await import("../src/model.ts");
+  const wire = reviewFixtureState("review-main-moved");
+  const state = stateView(wire);
+  const r = state.reviews[0];
+  assert.equal(reviewState(r, state).kind, "main-moved");
+  assert.equal(reviewGate(r, state).promote, false);
+  state.reconcilerAlerts = [{ id: "historical-alert", sha: r.sha, message: "Historical fixture" }];
+  assert.equal(reviewState(r, state).kind, "main-moved");
+  // Latest entry by recorded time, even if an adapter gives an unordered ledger.
+  state.ledger.unshift({ review: "later", sha: r.base!, promotedAt: "2026-10-14T08:00:00Z" });
+  assert.equal(reviewState(r, state).kind, "current");
+  state.ledger.shift();
+  for (const mutation of [
+    (s: typeof state) => { s.ledger = []; },
+    (s: typeof state) => { s.reviews[0].base = undefined; },
+    (s: typeof state) => { s.promotionPending = undefined; },
+    (s: typeof state) => { s.reconcilerAlerts.push({ id: "current-head", sha: r.sha, message: "Fixture" }); },
+  ]) {
+    const guarded = structuredClone(state);
+    mutation(guarded);
+    assert.equal(reviewState(guarded.reviews[0], guarded).kind, "current");
+    guarded.reviews[0].stale = true;
+    assert.equal(reviewState(guarded.reviews[0], guarded).kind, "out-of-date");
+  }
+  state.forks.find((f) => f.repoName === r.repoName)!.head = "9".repeat(40);
+  assert.equal(reviewState(r, state).kind, "fork-moved");
+  r.returned = { reason: "Fixture return", at: "2026-10-13T08:00:00Z" };
+  assert.equal(reviewState(r, state).kind, "returned");
+  r.status = "promoted";
+  assert.equal(reviewState(r, state).kind, "promoted");
+});

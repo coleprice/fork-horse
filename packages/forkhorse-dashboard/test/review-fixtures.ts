@@ -8,6 +8,13 @@ export const reviewScenarios = [
   "review-promoted",
   "review-returned",
   "review-stale",
+  "review-main-moved",
+  "review-main-moved-stale",
+  "review-out-of-date",
+  "review-reconciler",
+  "review-reconciler-stale",
+  "review-pending-promotion",
+  "review-pending-promotion-stale",
   "review-advisory",
   "review-changes",
   "review-error",
@@ -65,6 +72,26 @@ export function reviewFixtureState(id: string): StateResponse {
   if (id === "review-stale") {
     r.stale = true;
     state.forks.find((f) => f.repoName === r.repoName)!.head = "9".repeat(40);
+  }
+  if (id === "review-out-of-date") r.stale = true;
+  if (/^review-(main-moved|reconciler|pending-promotion)/.test(id)) {
+    r.approval = { sha: r.sha, receiptDigest: r.receiptDigest };
+    r.stale = id.endsWith("-stale");
+    state.ledger = [{
+      id: "another-promotion", review: "another-review", repoName: state.project.repoName,
+      ref: "refs/heads/main", before: r.base, after: "7".repeat(40),
+      receiptDigest: null, recordedAt: "2026-10-13T08:00:00Z",
+    }];
+    if (id.startsWith("review-reconciler")) state.reconcilerAlerts = [{
+      id: "current-head", repoName: state.project.repoName, ref: "refs/heads/main",
+      before: "7".repeat(40), after: "8".repeat(40), reason: "Fixture main changed outside a promotion.",
+    }];
+    if (id.startsWith("review-pending-promotion")) state.promotionPending = state.ledger[0];
+  }
+  // Quick-check duration fixture; every receipt surface uses the same formatter.
+  if (r.receipt) {
+    r.receipt.durationMs = 227;
+    r.receipt.checks[0].durationMs = 227;
   }
   if (id === "review-advisory")
     r.receipt = {

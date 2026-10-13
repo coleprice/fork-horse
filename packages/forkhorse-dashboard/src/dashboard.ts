@@ -1,6 +1,6 @@
 import type { Brand, DashboardTransport, ProjectOption } from "./contracts.ts";
 import { ApiError } from "./transport.ts";
-import { assertState, reviewGate, type ViewModel } from "./model.ts";
+import { assertState, reviewGate, reviewState, type ViewModel } from "./model.ts";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -280,7 +280,7 @@ export function mountDashboard(
     const fork = view.state.forks.find((f) => f.repoName === review?.repoName);
     if (
       !review ||
-      review.returned ||
+      reviewState(review, view.state).kind !== "current" ||
       review.status === "stale" ||
       review.status === "promoted" ||
       fork?.head !== review.sha ||

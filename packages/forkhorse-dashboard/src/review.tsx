@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Banner, Button, ClipboardText, Dialog, Tooltip, Textarea } from "@cloudflare/kumo";
 import { ArrowUUpLeft, Copy, Warning } from "@phosphor-icons/react";
 import type { Review, ReviewDetail, ReviewDiff } from "./contracts.ts";
-import { reviewView, type ViewModel } from "./model.ts";
+import { reviewState, reviewView, type ViewModel } from "./model.ts";
 import { type ViewActions, ReviewActions, Paths } from "./view.tsx";
 import { ApiError } from "./transport.ts";
 import { checkCount, duration, ReceiptBadge } from "./receipts.tsx";
@@ -323,6 +323,7 @@ function ReturnAction({
     actions.owner &&
     actions.returnReview &&
     !stale &&
+    review.status !== "stale" &&
     !review.returned &&
     review.returned !== undefined &&
     review.status !== "promoted";
@@ -475,10 +476,8 @@ export function ReviewView({
           approval: current.approval === undefined ? publicReview.approval : current.approval,
         }
       : publicReview;
-  const stale =
-    review &&
-    (review.status === "stale" ||
-      snapshot?.forks.find((f) => f.repoName === review.repoName)?.head !== review.sha);
+  const cause = review && snapshot && reviewState(review, snapshot);
+  const stale = !!cause?.banner;
   // Re-use queue gates against the detail's exact public review; never authorize from fixtures/history.
   const detailView =
     review && snapshot
@@ -568,7 +567,14 @@ export function ReviewView({
         <Banner
           variant="alert"
           icon={<Warning size={20} />}
-          description="The fork moved after this review was requested. The agent must request review again."
+          description={
+            cause?.kind === "main-moved" ? (
+              <>
+                <code>main</code> moved to <code>{cause.mainSha!.slice(0, 7)}</code> after this review
+                was requested. The agent must rebase and request review again.
+              </>
+            ) : cause?.banner
+          }
         />
       )}
       <div className="review-milestones">

@@ -34,7 +34,8 @@ export interface ProjectState {
   }[];
   reviews: Review[];
   ledger: { review: string; sha: string; promotedAt: string; receiptDigest?: string | null }[];
-  reconcilerAlerts: { sha: string; message: string }[];
+  reconcilerAlerts: { id?: string; sha: string; message: string }[];
+  promotionPending?: LedgerEntry | null;
 }
 
 export interface Review {
@@ -47,6 +48,7 @@ export interface Review {
   requestedAt?: string;
   base?: string;
   status: "pending" | "approved" | "stale" | "promoted";
+  stale?: boolean;
   returned?: null | { reason: string; at: string };
   approval?: { sha: string; receiptDigest: string | null } | null;
   receipt?: ReceiptSummary | null;
