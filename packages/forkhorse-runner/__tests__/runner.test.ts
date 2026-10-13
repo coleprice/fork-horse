@@ -141,12 +141,12 @@ describe("offline mocked container-port receipts", () => {
     await expect(runReviewChecks(request, f.ports)).rejects.toThrow("Review changed");
   });
 
-  it("requires a passing container receipt by default; mocked evidence never grants approval", async () => {
+  it("requires a passing check receipt by default; mocked evidence never grants approval", async () => {
     const f = fixture();
     const record = await runReviewChecks(request, f.ports);
     const expected = { ...review, checks: [check], digest: record.digest };
-    await expect(requirePassingReceipt(record, expected)).rejects.toThrow("passing container receipt");
-    await expect(requirePassingReceipt(null, expected)).rejects.toThrow("passing container receipt");
+    await expect(requirePassingReceipt(record, expected)).rejects.toThrow("passing check receipt");
+    await expect(requirePassingReceipt(null, expected)).rejects.toThrow("passing check receipt");
     await expect(requirePassingReceipt(null, { ...expected, requireReceipt: false })).resolves.toBeUndefined();
     // Fabricated receipt exercises the production validator; this is not live evidence.
     const synthetic = structuredClone(record);

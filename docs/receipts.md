@@ -1,7 +1,8 @@
-# Container receipts
+# Check receipts
 
 FH-032 wires the runner into core. All acceptance evidence for this packet is
-**offline workerd with mocked container ports**. It does not establish container
+**offline workerd with mocked container ports**. FH-010 adds real local
+Dynamic Worker execution, with fixture Artifacts reads. It does not establish container
 startup, registry access, deployed bindings, provider token revocation or live
 promotion. Those remain behind FH-032L.
 
@@ -29,7 +30,7 @@ before-promote requirement and 409 wording. The state wire shape below is unchan
 
 When `requireReceipt` is **true**, approval calls the runner validator against the
 exact commit's checks and attached immutable record. It rejects missing, stale,
-altered, incomplete, failed and `mocked-container-port` evidence. Promote validates
+altered, incomplete, failed, `mocked-container-port` and `mocked-worker-loader` evidence. Promote validates
 owner consent for the exact commit, then reruns checks with a new generation and
 the `before-promote` trigger, holding the Supervisor's workflow mutex until
 completion. It compares the new digest, trigger, commit and generation and
@@ -72,7 +73,9 @@ or this shape:
   durationMs: number | null;
   checks: {
     name: string;
-    tier: "full";
+    tier: "quick" | "full";
+    runtime?: "dynamic-worker" | "container";
+    message?: string;
     outcome: "running" | "passed" | "failed" | "infrastructure-error" | "timed-out";
     durationMs: number | null;
   }[];
@@ -115,6 +118,78 @@ concurrent/reused running containers and destroys them on every completed attemp
 A terminated runner's unrevoked read token is bounded by its 180-second expiry;
 live restart/recovery behavior still needs operator verification.
 
+## Quick checks (FH-010)
+
+The exact reviewed commit's `.forkhorse/checks` also accepts this strict shape:
+
+```json
+{"name":"brand-quick","tier":"quick","module":".forkhorse/quick/brand.js"}
+```
+
+No `image` or `run` is allowed on a quick check. A module must be one `.js` file
+immediately under `.forkhorse/quick/`, exporting a default async function:
+
+```js
+export default async (ctx) => {
+  const text = await ctx.read("brand.json");
+  return { ok: text !== null, message: "Checked brand.json." };
+};
+```
+
+`ctx.read(path)` returns a regular file's UTF-8 text or null if absent.
+`ctx.list(prefix)` returns sorted regular file paths starting with that literal
+prefix; `""` lists the snapshot and `"src/"` lists that directory's descendants.
+Executable regular files are included. Paths are repository-relative; absolute
+paths, traversal, empty components, backslashes, control bytes and `.git`
+components are rejected. Symlinks and submodules are never followed. Malformed
+UTF-8, missing provider objects and unsafe trees fail closed. Reads use only
+Artifacts `readCommit`/`readTree`/`readBlob` at the reviewed SHA, never branch refs.
+
+Each check gets a fresh `LOADER.load()` isolate with `globalOutbound: null`, only
+a `FILES` RPC loopback in its environment, no Node compatibility, no tails and
+no secrets. A trusted main-module harness imports the unchanged check module;
+this adapts its default function to a Worker handler, like upstream's overseer
+harness. Importable environment access is disabled. The loopback names the
+execution's Durable Object and a random per-check capability ID. The ID is not
+a Git/API token; it authorizes only read/list of one snapshot. The runner retains
+all state and budgets. No token is minted for quick execution.
+
+Aggregate limits per check are 2 MiB of UTF-8 reads (including module source),
+2,000 listed paths (including repeated listings), 10,000 visited tree entries
+and file calls, and 64 path levels. Budget reservation happens before async blob
+materialization or return, including concurrent calls. Modules return
+`{ok: boolean, message?: string}`. Messages are limited to 4 KiB of UTF-8, with
+control/bidi escapes and stack-shaped suffixes removed. Thrown exceptions are
+replaced by static text; provider exception text and stacks never enter receipts.
+Returned messages are project-authored check output, not trusted provider diagnostics.
+
+A 10-second wall deadline covers module loading, startup and execution. It aborts
+the dispatched fetch and revokes the file capability, including pending reads.
+The loader also receives a 10,000 ms CPU limit. A thrown check or `ok:false` is
+`failed`; startup/import errors are `infrastructure-error`; the deadline is
+`timed-out`. No late result can turn a timed-out receipt into a pass. A process
+restart drops these capabilities; there is no resumable quick execution.
+
+Quick checks run first, preserving order within each tier. Any non-passing quick
+result prevents every full container start and token mint. Full checks then have
+`outcome:"failed"`, `durationMs:null`, and the exact message
+`"Skipped: a quick check failed."`. Quick-only suites never start a container.
+Full image preflight and container cleanup are otherwise unchanged.
+
+Receipt schema remains 1. New check records include `runtime:"dynamic-worker"`
+or `"container"`. Quick `imageDigest` is `module:sha256:<digest of module source>`;
+when no source could be loaded, it is empty and the check cannot pass. A skipped
+full check also has an empty image digest. Top-level evidence is `dynamic-worker`
+for quick-only, `container` for full-only, or `mixed` for both actual runtimes.
+Any mocked port keeps a mocked evidence label and cannot satisfy the required
+gate. The gate independently hashes each quick module from the reviewed commit
+and checks its definition, runtime, source digest, generation and receipt digest.
+Old full-only records retain their original digest serialization; an absent
+runtime field is accepted only for legacy full/container records.
+
+Core's Wrangler template declares `worker_loaders: [{binding:"LOADER"}]`;
+the existing deployment generator preserves it without additional owner config.
+
 ## Image and demo checks
 
 Core's Wrangler configuration names `default`, built from
@@ -125,8 +200,9 @@ runner accepts only immutable `@sha256:` references from `ctx.container.images`.
 Runtime internet remains disabled; only the selected fork's Git read protocol is
 intercepted. Dependencies must be baked into an owner-approved image.
 
-The root `.forkhorse/checks` contains a genuinely failing-on-invalid-JSON `brand`
-check that needs no project dependencies. For a smoke repository, commit:
+The root `.forkhorse/checks` first runs `.forkhorse/quick/brand.js`, checking that
+`brand.json` parses and has non-empty `name`, `slug` and `mark` strings. The existing
+full `brand` container check remains and needs no project dependencies. For a smoke repository, commit:
 
 ```json
 [{"name":"test","tier":"full","image":"default","run":"npm test"}]
@@ -143,7 +219,22 @@ runs inside the container. The separately gated live demo uses the smoke project
 
 ## Offline validation and D5
 
-Both package suites run under workerd. Core includes a same-script loopback DO RPC
+Both package suites run under workerd. The installed Vitest/Miniflare supports a
+real Worker Loader: quick pass/fail, throws, startup failures, HTTP/TCP egress
+blocking, RPC reads/listing and the real 10-second deadline execute in local
+Dynamic Workers. A separately labeled fake-loader test inspects abort signaling
+and capability revocation. Artifacts, Git and all containers remain fixtures;
+local workerd does not establish production CPU enforcement or deployed latency.
+
+The post-deploy operator gate remains open: on `fh-smoke`, show one quick check
+passing well under one second with `runtime:"dynamic-worker"`, followed by a full
+check; then fail a quick check and verify no container started. No deployment or
+live smoke is performed by this implementation.
+
+Primary references: [Dynamic Worker API](https://developers.cloudflare.com/dynamic-workers/api-reference/),
+[egress control](https://developers.cloudflare.com/dynamic-workers/usage/egress-control/),
+and [resource limits](https://developers.cloudflare.com/dynamic-workers/usage/limits/).
+ Core includes a same-script loopback DO RPC
 test using the production adapter and an explicitly mocked container port. Tests
 of required approval use separately fabricated validator records; mocked runner
 results are never relabeled as real container evidence.

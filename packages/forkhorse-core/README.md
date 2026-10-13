@@ -267,7 +267,7 @@ A review must name the current fork default-branch head and a live matching clai
 It captures the canonical base at submission. `receiptDigest` starts null; FH-032
 reserves a generation and starts the runner in the background through a trusted
 capability, not an agent-editable HTTP field. New projects require passing real
-container receipts for approval by default; legacy records without settings default
+check receipts for approval by default; legacy records without settings default
 to false until the owner opts in. See [receipts](../../docs/receipts.md).
 Approval records `{sha,receiptDigest}`, including null, but advisory projects never
 use receipts to gate approval or promotion. Null means **no check receipt**, not
@@ -437,3 +437,14 @@ object calls return complete metadata/tree objects; these budgets are checked on
 receipt and cannot constrain allocations inside the provider. Malformed or unavailable
 objects use the existing sanitized 502 response. Fixtures exercise these boundaries in
 actual workerd; they do not establish live Artifacts or Cloudflare acceptance.
+
+## Quick checks (FH-010)
+
+Core also exports `QuickFiles` and declares a `LOADER` Worker Loader binding.
+Quick modules execute before full container checks, using exact-reviewed-commit
+Artifacts reads through a bounded, revocable RPC loopback. Receipt summaries
+preserve each check's actual tier/runtime and skipped-check message. Required
+approval verifies quick module source digests independently; generation, claim,
+CAS and advisory-mode semantics are unchanged. See [receipts](../../docs/receipts.md).
+The workerd suite exercises real local Dynamic Workers with fixture repositories
+and mocked containers. Deployed latency and no-container live smoke remain open.

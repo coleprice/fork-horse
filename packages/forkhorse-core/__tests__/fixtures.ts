@@ -56,6 +56,7 @@ export class FixtureArtifacts implements ArtifactsBinding {
   reviewCommits = new Map<string, ArtifactsCommitMetadata>();
   reviewTrees = new Map<string, ArtifactsTreeEntry[]>();
   reviewBlobs = new Map<string, Blob>();
+  quickSource?: string;
 
   async create(name: string): Promise<ArtifactsCreateRepoResult> {
     this.calls.push({ method: "create", repo: name });
@@ -173,7 +174,8 @@ export class FixtureArtifacts implements ArtifactsBinding {
       },
       readBlob: async (hash) => {
         this.calls.push({ method: "readBlob", repo: name });
-        return this.reviewBlobs.get(hash) ?? (this.checks === undefined ? null : new Blob([this.checks]));
+        return this.reviewBlobs.get(hash) ?? (hash === "f".repeat(40) && this.quickSource !== undefined
+          ? new Blob([this.quickSource]) : this.checks === undefined ? null : new Blob([this.checks]));
       },
       readTree: async (hash) => {
         this.calls.push({ method: "readTree", repo: name });
@@ -184,7 +186,10 @@ export class FixtureArtifacts implements ArtifactsBinding {
         if (this.checks !== undefined && (hash === OLD_TREE || hash === NEW_TREE))
           return [...trees.get(hash)!, { name: ".forkhorse", type: "tree", mode: "40000", hash: "c".repeat(40) }];
         if (this.checks !== undefined && hash === "c".repeat(40))
-          return [{ name: "checks", type: "blob", mode: "100644", hash: "d".repeat(40) }];
+          return [{ name: "checks", type: "blob", mode: "100644", hash: "d".repeat(40) },
+            ...(this.quickSource === undefined ? [] : [{ name: "quick", type: "tree" as const, mode: "40000", hash: "e".repeat(40) }])];
+        if (this.quickSource !== undefined && hash === "e".repeat(40))
+          return [{ name: "check.js", type: "blob", mode: "100644", hash: "f".repeat(40) }];
         return trees.get(hash) ?? null;
       },
     };

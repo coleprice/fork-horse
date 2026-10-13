@@ -1,4 +1,5 @@
 import { RpcTarget } from "cloudflare:workers";
+import { Snapshot } from "../../forkhorse-runner/src/snapshot";
 import { loadChecks, MissingChecksError } from "../../forkhorse-runner/src/checks";
 import { receiptJson, requirePassingReceipt, sha256 } from "../../forkhorse-runner/src/runner";
 import type { AuthorizedReview, ReviewAuthority, RunRequest, StoredReceipt } from "../../forkhorse-runner/src/types";
@@ -103,7 +104,7 @@ export class ReceiptAuthority extends RpcTarget implements ReviewAuthority {
       review.receipt = {
         ...review.receipt!, status, digest, finishedAt,
         durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(review.receipt!.startedAt)),
-        checks: checks.map(c => ({ name: c.check.name, tier: "full", outcome: c.outcome, durationMs: c.durationMs })),
+        checks: checks.map(c => ({ name: c.check.name, tier: c.check.tier, runtime: c.runtime, message: c.message, outcome: c.outcome, durationMs: c.durationMs })),
       };
       await txn.put(`review:${review.id}`, review);
       return true;
@@ -145,7 +146,7 @@ export class Receipts {
       await this.storage.transaction(async txn => {
         const review = await txn.get<Review>(`review:${run.reviewId}`);
         if (!same(review, run) || !review) throw new Error("Stale receipt execution");
-        review.receipt!.checks = checks.map(c => ({ name: c.name, tier: "full", outcome: "running", durationMs: null }));
+        review.receipt!.checks = checks.map(c => ({ name: c.name, tier: c.tier, outcome: "running", durationMs: null }));
         await txn.put(`review:${review.id}`, review);
       });
       return await this.execute({ reviewId: run.reviewId, trigger: run.trigger }, authority, run.generation);
@@ -175,12 +176,22 @@ export class Receipts {
     try {
       if (!settings(project).requireReceipt) return;
       using repo = await this.env.ARTIFACTS.get(review.repoName);
+      const checks = await loadChecks(repo, review.sha);
+      const moduleDigests: Record<string, string> = {};
+      for (const check of checks) if (check.tier === "quick") {
+        const snapshot = new Snapshot(repo, review.sha);
+        try {
+          const source = await snapshot.read(check.module);
+          if (source === null) throw new Error("Quick module missing");
+          moduleDigests[check.module] = `module:sha256:${await sha256(source)}`;
+        } finally { snapshot.close(); }
+      }
       await requirePassingReceipt(await readReceipt(this.storage, review.receiptDigest), {
         projectId: project.id, reviewId: review.id, forkRepoName: review.repoName, commit: review.sha,
         generation: review.receiptGeneration ?? "", digest: review.receiptDigest,
-        checks: await loadChecks(repo, review.sha), requireReceipt: true,
+        checks, moduleDigests, requireReceipt: true,
       });
-    } catch { throw new HttpError(409, "A current passing container receipt is required."); }
+    } catch { throw new HttpError(409, "A current passing check receipt is required."); }
   }
 }
 

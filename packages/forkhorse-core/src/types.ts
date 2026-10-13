@@ -10,6 +10,7 @@ export type ArtifactsBinding = Pick<Artifacts, "create" | "import"> & {
 };
 
 export interface Env {
+  LOADER: WorkerLoader;
   ARTIFACTS: ArtifactsBinding;
   ARTIFACTS_NAMESPACE: string;
   OWNER_API_TOKEN_HASH: string;

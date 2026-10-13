@@ -36,7 +36,7 @@ export interface ReceiptSummary {
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
-  checks: { name: string; tier: "full"; outcome: ReceiptSummary["status"]; durationMs: number | null }[];
+  checks: { name: string; tier: "full" | "quick"; runtime?: "container" | "dynamic-worker"; message?: string; outcome: ReceiptSummary["status"]; durationMs: number | null }[];
 }
 export interface Review {
   id: string;

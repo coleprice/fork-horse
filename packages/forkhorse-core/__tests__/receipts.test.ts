@@ -137,7 +137,7 @@ describe("receipt integration in workerd; all container execution is explicitly 
     expect((await api(f.id, `/reviews/${review.id}/receipt`, undefined, f.token)).status).toBe(403);
     const summary = (await state(f.id)).reviews[0]!;
     expect(Object.keys(summary.receipt!).toSorted()).toEqual(["checks", "digest", "durationMs", "finishedAt", "startedAt", "status", "trigger"]);
-    expect(Object.keys(summary.receipt!.checks[0]!).toSorted()).toEqual(["durationMs", "name", "outcome", "tier"]);
+    expect(Object.keys(summary.receipt!.checks[0]!).toSorted()).toEqual(["durationMs", "name", "outcome", "runtime", "tier"]);
     const serialized = JSON.stringify(summary);
     for (const forbidden of ["logs", "image", "token", "receiptGeneration", "fixture output"]) expect(serialized).not.toContain(forbidden);
     // The production validator never treats mocked evidence as a passing container receipt.
@@ -419,5 +419,41 @@ describe("receipt integration in workerd; all container execution is explicitly 
       const response = await worker.fetch(new Request(`https://api.idiot.tax${path}`), env);
       expect(response.status).toBe(404);
     }
+  });
+});
+
+
+describe("quick receipts through real Dynamic Workers and production core RPC; fixture Artifacts", () => {
+  const QUICK: Check = { name: "quick", tier: "quick", module: ".forkhorse/quick/check.js" };
+  it.each([true, false])("preserves required=%s approval and promote semantics for quick-only suites", async required => {
+    const f = await fixture(required);
+    await inspect(f.id, instance => {
+      instance.useRpcRunner = true;
+      instance.fixture.checks = JSON.stringify([QUICK]);
+      instance.fixture.quickSource = 'export default async ctx => ({ok:(await ctx.list(".forkhorse/quick")).includes(".forkhorse/quick/check.js")});';
+    });
+    const review = await f.submit();
+    const completed = await finished(f.id, review.id);
+    expect(completed.receipt).toMatchObject({status:"passed",checks:[{tier:"quick",runtime:"dynamic-worker"}]});
+    const record = await (await api(f.id, `/reviews/${review.id}/receipt`)).json<StoredReceipt>();
+    expect(record.receipt.evidence).toBe("dynamic-worker");
+    expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(200);
+    expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
+    expect(await inspect(f.id, instance => instance.receiptRuns)).toEqual(required ? ["review-created","before-promote"] : ["review-created"]);
+  });
+  it.each([true, false])("preserves required=%s handling of failed quick checks", async required => {
+    const f = await fixture(required);
+    await inspect(f.id, instance => {
+      instance.useRpcRunner = true;
+      instance.fixture.checks = JSON.stringify([CHECK, QUICK]);
+      instance.fixture.quickSource = 'export default async () => ({ok:false,message:"fixture failed"});';
+    });
+    const review = await f.submit();
+    const completed = await finished(f.id, review.id);
+    expect(completed.receipt).toMatchObject({status:"failed",checks:[{tier:"quick",outcome:"failed"},
+      {tier:"full",durationMs:null,message:"Skipped: a quick check failed."}]});
+    expect((await api(f.id, `/reviews/${review.id}/approve`, {})).status).toBe(required ? 409 : 200);
+    if (!required) expect((await api(f.id, `/reviews/${review.id}/promote`, {})).status).toBe(200);
+    expect(await inspect(f.id, instance => instance.receiptRuns)).toEqual(["review-created"]);
   });
 });
