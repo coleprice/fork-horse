@@ -57,10 +57,10 @@ async function releases(id: string): Promise<ClaimReleaseAudit[]> {
     [...(await objectState.storage.list<ClaimReleaseAudit>({ prefix: "claimRelease:" })).values()],
   );
 }
-async function seedBlockers(id: string, repoName: string) {
+async function seedBlockers(id: string, repoName: string, pushingPacket: string | null = null) {
   const blockers: Blocker[] = [
-    { id: "open", packet: "one", claimingAgent: "alpha", pushingAgent: "beta",
-      repoName, sha: AFTER, paths: ["src/index.ts"], at: null, pushingPacket: null, resolved: null },
+    { id: "open", packet: pushingPacket ? "foreign" : "one", claimingAgent: "alpha", pushingAgent: "beta",
+      repoName, sha: AFTER, paths: ["src/index.ts"], at: null, pushingPacket, resolved: null },
     { id: "legacy", packet: "one", claimingAgent: "alpha", pushingAgent: "beta",
       repoName, sha: BEFORE, paths: ["src/index.ts"], at: null, pushingPacket: null, resolved: null },
     { id: "other", packet: "two", claimingAgent: "beta", pushingAgent: "alpha",
@@ -275,7 +275,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     await claim(f.id, f.alpha);
     const original = (await state(f.id)).claims[0]!;
     const r = await review(f.id, f.alpha, f.a);
-    const blockers = await seedBlockers(f.id, f.b);
+    const blockers = await seedBlockers(f.id, f.b, "one");
     expect((await claim(f.id, OWNER)).status).toBe(403);
     expect((await api(f.id, "/packets/one/claim", "invalid", undefined, "DELETE")).status).toBe(403);
     expect((await api(f.id, "/packets/one/claim", f.beta, undefined, "DELETE")).status).toBe(403);
@@ -310,7 +310,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     await packet(f.id, "two", ["docs"]);
     await claim(f.id, f.alpha);
     await claim(f.id, f.beta, "two");
-    await seedBlockers(f.id, f.a);
+    await seedBlockers(f.id, f.a, "one");
     const response = await stub(f.id).ownerRequest({
       url: `https://api.idiot.tax/projects/${f.id}/packets/one/claim`, method: "DELETE",
     });
@@ -330,7 +330,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     const original = (await state(f.id)).claims.find(c => c.packet === "one")!;
     const sibling = await review(f.id, f.alpha, f.a);
     const r = await review(f.id, f.alpha, f.a);
-    const blockers = await seedBlockers(f.id, f.b);
+    const blockers = await seedBlockers(f.id, f.b, "one");
     expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(200);
     const snapshot = await state(f.id);
     expect(snapshot.claims).toMatchObject([{ packet: "two", agent: "beta" }]);
@@ -357,7 +357,7 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
     await packet(f.id);
     await claim(f.id, f.alpha);
     const r = await review(f.id, f.alpha, f.a);
-    const blockers = await seedBlockers(f.id, f.b);
+    const blockers = await seedBlockers(f.id, f.b, "one");
     await mutate(f.id, (_instance, objectState) => {
       const transaction = objectState.storage.transaction.bind(objectState.storage);
       vi.spyOn(objectState.storage, "transaction").mockImplementation(callback => transaction(async txn => {
@@ -571,6 +571,107 @@ describe("workflow in real Durable Objects, with explicitly offline Git/Artifact
       packet: "one", repoName: f.b, pushingPacket: count === 1 ? "two" : null,
       at: snapshot.activity[0]!.recordedAt, resolved: null,
     });
+  });
+
+  it.each(["two", null, undefined])("gates the pushing fork with pushingPacket %s and leaves claimant reviews ungated", async pushingPacket => {
+    const f = await fixture();
+    await packet(f.id);
+    await packet(f.id, "two", ["docs"]);
+    await claim(f.id, f.alpha);
+    await claim(f.id, f.beta, "two");
+    const claimant = await review(f.id, f.alpha, f.a, "one", AFTER, false);
+    const pusher = await review(f.id, f.beta, f.b, "two");
+    expect(await stub(f.id).recordPush(push(f.b))).toBe(true);
+    const blocker = (await state(f.id)).blockers[0]!;
+    await mutate(f.id, async (_instance, objectState) => {
+      const { pushingPacket: _pushingPacket, ...legacy } = blocker;
+      await objectState.storage.put(`blocker:${blocker.id}`, pushingPacket === undefined
+        ? legacy : { ...blocker, pushingPacket });
+    });
+    const error = { error: "This fork pushed into paths another agent has claimed. The owner must resolve the blocker first." };
+    for (const operation of ["approve", "promote"]) {
+      const denied = await api(f.id, `/reviews/${pusher.id}/${operation}`, OWNER, {});
+      expect(denied.status).toBe(409);
+      expect(await denied.json()).toEqual(error);
+    }
+    await mutate(f.id, instance => {
+      expect(instance.gitFixture.pushes).toEqual([]);
+      expect(instance.fixture.calls.filter(c => c.method === "createToken" && c.repo === f.id)).toEqual([]);
+    });
+    expect((await state(f.id)).promotionPending).toBeNull();
+    expect((await api(f.id, `/reviews/${claimant.id}/approve`, OWNER, {})).status).toBe(200);
+    if (pushingPacket === "two") {
+      // Claimant promotion is permitted and resolves the observation in its release transaction.
+      expect((await api(f.id, `/reviews/${claimant.id}/promote`, OWNER, {})).status).toBe(200);
+      expect((await state(f.id)).blockers[0]?.resolved?.by).toBe("promote");
+    } else {
+      expect((await api(f.id, `/blockers/${blocker.id}/resolve`, OWNER, { reason: "Conflict reconciled" })).status).toBe(200);
+      expect((await api(f.id, `/reviews/${pusher.id}/approve`, OWNER, {})).status).toBe(200);
+      expect((await api(f.id, `/reviews/${pusher.id}/promote`, OWNER, {})).status).toBe(200);
+      expect((await state(f.id)).blockers[0]?.resolved?.by).toBe("owner");
+    }
+  });
+
+  it("ignores resolved blockers and packet-specific collisions on another packet of the same pushing fork", async () => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a, "one", AFTER, false);
+    await mutate(f.id, async (_instance, objectState) => {
+      const blocker: Blocker = {
+        id: "another", packet: "foreign", claimingAgent: "beta", pushingAgent: "alpha",
+        repoName: f.a, sha: AFTER, paths: ["docs"], at: null, pushingPacket: "another", resolved: null,
+      };
+      await objectState.storage.put({
+        "blocker:another": blocker,
+        "blocker:resolved": { ...blocker, id: "resolved", pushingPacket: "one", resolved: { at: "2026-10-12T00:00:00.000Z", by: "owner", reason: "Done" } },
+      });
+    });
+    expect((await api(f.id, `/reviews/${r.id}/approve`, OWNER, {})).status).toBe(200);
+    expect((await api(f.id, `/reviews/${r.id}/promote`, OWNER, {})).status).toBe(200);
+    expect((await state(f.id)).blockers.find(b => b.id === "another")?.resolved).toBeNull();
+  });
+
+  it.each(["approve", "promote"])("rechecks blockers after asynchronous %s preparation before committing consent or minting canonical authority", async operation => {
+    const f = await fixture();
+    await packet(f.id);
+    await claim(f.id, f.alpha);
+    const r = await review(f.id, f.alpha, f.a);
+    const blocker: Blocker = {
+      id: "race", packet: "foreign", claimingAgent: "beta", pushingAgent: "alpha",
+      repoName: f.a, sha: AFTER, paths: ["docs"], at: null, pushingPacket: "one", resolved: null,
+    };
+    await mutate(f.id, async (instance, objectState) => {
+      if (operation === "approve") {
+        const transaction = objectState.storage.transaction.bind(objectState.storage);
+        vi.spyOn(objectState.storage, "transaction").mockImplementationOnce(async callback => {
+          await objectState.storage.put(`blocker:${blocker.id}`, blocker);
+          return transaction(callback);
+        });
+        const current = (await objectState.storage.get<Review>(`review:${r.id}`))!;
+        await objectState.storage.put(`review:${r.id}`, { ...current, approval: null });
+      } else {
+        const prepare = instance.gitFixture.preparePromote.bind(instance.gitFixture);
+        vi.spyOn(instance.gitFixture, "preparePromote").mockImplementationOnce(async (...args) => {
+          const prepared = await prepare(...args);
+          await objectState.storage.put(`blocker:${blocker.id}`, blocker);
+          return prepared;
+        });
+      }
+    });
+    try {
+      const response = await api(f.id, `/reviews/${r.id}/${operation}`, OWNER, {});
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "This fork pushed into paths another agent has claimed. The owner must resolve the blocker first." });
+      const snapshot = await state(f.id);
+      expect(snapshot.promotionPending).toBeNull();
+      expect(snapshot.ledger).toEqual([]);
+      if (operation === "approve") expect(snapshot.reviews[0]?.approval).toBeNull();
+      await mutate(f.id, instance => {
+        expect(instance.gitFixture.pushes).toEqual([]);
+        expect(instance.fixture.calls.filter(c => c.method === "createToken" && c.repo === f.id)).toEqual([]);
+      });
+    } finally { vi.restoreAllMocks(); }
   });
 
   it("allows sibling paths and rejects canonical/foreign fork selection", async () => {

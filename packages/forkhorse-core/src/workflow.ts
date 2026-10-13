@@ -107,7 +107,7 @@ export class Workflow {
         await txn.put(`review:${pending.id}`, { ...pending, stale: true });
     }
     for (const [key, blocker] of await txn.list<StoredBlocker>({ prefix: "blocker:" })) {
-      if (blocker.packet === claim.packet && !blocker.resolved)
+      if ((blocker.packet === claim.packet || blocker.pushingPacket === claim.packet) && !blocker.resolved)
         await txn.put(key, { ...publicBlocker(blocker), resolved: {
           at, by: releasedBy === "promote" ? "promote" : "release",
         } } satisfies Blocker);
@@ -121,6 +121,17 @@ export class Workflow {
       ...(review ? { review } : {}),
       recordedAt: at,
     } satisfies ClaimReleaseAudit);
+  }
+
+  private async requireNoBlockers(
+    storage: DurableObjectStorage | DurableObjectTransaction,
+    review: Review,
+  ): Promise<void> {
+    for (const blocker of (await storage.list<StoredBlocker>({ prefix: "blocker:" })).values()) {
+      if (!blocker.resolved && blocker.repoName === review.repoName &&
+          (blocker.pushingPacket == null || blocker.pushingPacket === review.packet))
+        throw new HttpError(409, "This fork pushed into paths another agent has claimed. The owner must resolve the blocker first.");
+    }
   }
 
   async route(request: Request, project: Project, actor: Actor): Promise<Response | null> {
@@ -404,6 +415,7 @@ export class Workflow {
         throw new HttpError(409, "Promotion needs owner inspection.");
       if (review.promoted) throw staleBase();
       const { claim, fork } = await this.binding(project, review.packet, review.repoName, review.agent);
+      await this.requireNoBlockers(this.storage, review);
       if (reviewing[2] === "promote") this.diagnostic.stage = "heads";
       if (
         review.stale ||
@@ -425,6 +437,7 @@ export class Workflow {
             throw new HttpError(409, "Approval is stale; request review again.");
           if (requireReceipt && (current.receiptGeneration !== review.receiptGeneration || current.receiptDigest !== review.receiptDigest))
             throw new HttpError(409, "Receipt changed; approve again.");
+          await this.requireNoBlockers(txn, current);
           current.approval = { sha: current.sha, receiptDigest: current.receiptDigest };
           await txn.put(`review:${review.id}`, current);
           return current;
@@ -482,6 +495,7 @@ export class Workflow {
         throw new HttpError(409, "Receipt changed before promote.");
       // A background advisory receipt may have completed during preparation.
       Object.assign(review, checked);
+      await this.requireNoBlockers(this.storage, review);
       const entry: LedgerEntry = {
         id: crypto.randomUUID(),
         review: review.id,

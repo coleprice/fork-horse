@@ -470,7 +470,7 @@ with no live pushing claim or multiple live pushing claims uses `pushingPacket:
 null`, because raw push events identify the fork rather than a packet.
 
 Releasing a claim as its agent or closing it as the owner resolves every open
-blocker for that packet with `by: "release"`. Successful promotion's automatic
+blocker whose claimant `packet` or `pushingPacket` is that packet with `by: "release"`. Successful promotion's automatic
 claim release uses `by: "promote"`. Resolution shares the claim-release transaction,
 preserves earlier resolutions and leaves blockers for other packets untouched.
 
@@ -482,6 +482,14 @@ appends one activity entry with `agent: null`, `blockerResolution: {id, reason}`
 an empty `ref`, identical `before`/`after` observed SHA and no changed paths; no Git
 write occurs. Repeats append no activity. These workerd tests use offline providers;
 live collision and resolution acceptance remains an operator check.
+
+Approve and promote return 409 with `"This fork pushed into paths another agent
+has claimed. The owner must resolve the blocker first."` when an open blocker
+matches the review's `repoName` and either matches its packet through
+`pushingPacket` or has `pushingPacket: null` (including legacy observations).
+Claimant reviews on a different fork remain ungated. Resolved history never
+blocks a review. The check occurs before receipt/Git work and is repeated before
+approval persistence and after promotion preparation.
 
 ## Quick checks (FH-010)
 
