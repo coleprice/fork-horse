@@ -183,6 +183,56 @@ test("near-start hour grid stays while its clipped centered label is omitted", a
   );
   await act(async () => root.unmount());
 });
+test("lane state labels and dots distinguish failed checks, warnings and review", async () => {
+  const state = fixture("fork-states");
+  const expected = [
+    ["Promoted to main", "success"],
+    ["Approved", "success"],
+    ["Checks running", "info"],
+    ["Checks failed", "danger"],
+    ["Timed out", "warning"],
+    ["Couldn't run", "warning"],
+    ["In review", "info"],
+    ["Racing", "brand"],
+  ];
+  const states = forkGraph(state, now).lanes.map((lane) => lane.state);
+  for (const [word] of expected) assert.ok(states.includes(word), word);
+  const { JSDOM } = createRequire(import.meta.url)("jsdom");
+  const dom = new JSDOM("<div id='root'></div>", { url: "https://fixture.idiot.tax" });
+  installDom(dom.window);
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+    value: true,
+    configurable: true,
+  });
+  const root = createRoot(document.getElementById("root")!);
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(ForkGraph, {
+          state,
+          owner: false,
+          openReview: () => {},
+          openPacket: () => {},
+          openReceipt: () => {},
+          now,
+        }),
+      ),
+    ),
+  );
+  for (const [word, tone] of expected) {
+    const labels = [...document.querySelectorAll(".fork-state")].filter(
+      (label) => label.textContent!.trim() === `● ${word}`,
+    );
+    assert.ok(labels.length, word);
+    assert.ok(
+      labels.every((label) => label.classList.contains(`fork-state-${tone}`)),
+      `${word}: ${tone}`,
+    );
+  }
+  await act(async () => root.unmount());
+});
 test("fixture DOM leaves closed table in accessibility tree, supports navigation and storage denial", async () => {
   const { JSDOM } = createRequire(import.meta.url)("jsdom");
   const dom = new JSDOM("<div id='root'></div>", { url: "https://fixture.idiot.tax" });

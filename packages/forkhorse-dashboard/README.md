@@ -389,6 +389,10 @@ event labels compose with the usage tooltip and Tokens column.
 Accepted FH-057c main `05efc0a346a7e91d4f4e56b52eb4266f12475f5b` is normally
 merged onto the saved local FH-062 head `594b51b5d4d914b51dac2e0cc01b30f92e8da57b`.
 The graph omits hour labels without room at plot edges and retains every hour grid line.
+Accepted FH-057d main `1749a394caa4f78b7fbf6a1645659e89e78e9b99` is normally
+merged onto saved FH-062 head `761b777bf2c170fe0b6e6674d330458d157d2111`.
+Failed checks retain danger dots, timed-out/infrastructure receipts warning dots,
+and review/running receipts info dots, alongside the usage tooltip and Tokens column.
 Final integration is held for accepted FH-060 and overlapping FH-049 if it lands. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
 serialized operator checks. Saddler PASS and owner review remain open. This local
 candidate has no live Cloudflare, deployment, or owner-acceptance evidence.

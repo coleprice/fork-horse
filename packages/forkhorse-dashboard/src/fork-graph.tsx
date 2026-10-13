@@ -245,11 +245,15 @@ export function ForkGraph({
                     className={`fork-state caption ${
                       lane.state === "Promoted to main" || lane.state === "Approved"
                         ? "fork-state-success"
-                        : lane.state === "Checks running"
+                        : lane.state === "Checks running" || lane.state === "In review"
                           ? "fork-state-info"
-                          : lane.state === "Racing"
-                            ? "fork-state-brand"
-                            : ""
+                          : lane.state === "Checks failed"
+                            ? "fork-state-danger"
+                            : lane.state === "Timed out" || lane.state === "Couldn't run"
+                              ? "fork-state-warning"
+                              : lane.state === "Racing"
+                                ? "fork-state-brand"
+                                : ""
                     }`}
                   >
                     <span aria-hidden="true">●</span> {lane.state}

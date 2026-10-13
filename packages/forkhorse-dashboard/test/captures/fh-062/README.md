@@ -163,9 +163,34 @@ FH-060 remains pending. FH-049 if it lands and the separate FH-057d state-dot
 change require accepted-main authority before integration. Saddler PASS and
 operator/owner acceptance remain open. No unaccepted feature branch was copied.
 
+## FH-057d follow-up
+
+The clean saved head was `761b777bf2c170fe0b6e6674d330458d157d2111`. Fresh
+`origin/main` verified exactly `1749a394caa4f78b7fbf6a1645659e89e78e9b99` after
+explicit accepted-main authority. The plain merge of `origin/main` has these two
+parents, applied without conflicts, and used no rebase or feature-branch copying.
+Accepted state captions and semantic dot tones remain distinct: failed checks use
+danger, timed-out/infrastructure receipts use warning, review/running use info,
+approved/promoted use success, and racing uses brand. Tokens/Compare, shared race
+Pushes, edge-hour-label omission, and accepted graph accessibility fixes remain.
+
+| Latest follow-up command | Result |
+| --- | --- |
+| `CI=true pnpm --filter forkhorse-dashboard exec node --import ./test/jsx-runtime.ts --test test/race.test.ts test/usage.test.ts test/fork-graph.test.ts` | Exit 0; 44 passed, 0 failed, including accepted state-dot/caption regression |
+| `CI=true pnpm --filter forkhorse-dashboard types:check` | Exit 0 |
+| `CI=true pnpm exec vp lint packages/forkhorse-dashboard` | Exit 0; no findings |
+| `git -c core.fsmonitor=false diff --cached --check` | Exit 0 |
+
+Only the authorized affected tests, types, and scoped lint ran. Existing captures
+retain their earlier labeled fixture evidence; this follow-up adds no browser or
+live acceptance claim. No root/fresh-clone/D5, workerd, publication, deployment,
+Board edit, extra agent, or core change occurred. FH-060 remains pending; FH-049
+only integrates after accepted-main authority if it lands. FH-062 Saddler PASS
+and operator/owner acceptance remain open.
+
 ## Candidate changed paths
 
-Complete candidate delta against accepted FH-057c main `05efc0a346a7e91d4f4e56b52eb4266f12475f5b`:
+Complete candidate delta against accepted FH-057d main `1749a394caa4f78b7fbf6a1645659e89e78e9b99`:
 
 ```text
 packages/forkhorse-dashboard/README.md
