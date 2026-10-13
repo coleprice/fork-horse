@@ -3,6 +3,7 @@ import { fixtureState, fixtureReceipt } from "./fixtures.ts";
 export const forkScenarios = [
   "fork-hero",
   "fork-history",
+  "fork-hour-edge",
   "fork-resolved",
   "fork-old",
   "fork-many",
@@ -111,6 +112,12 @@ export function forkFixtureState(id: string, now = Date.now()): StateResponse {
         receiptDigest: receipt.digest,
         recordedAt: at(30),
       });
+  }
+  if (id === "fork-hour-edge") {
+    // Put an hour five seconds inside the recent window, independent of capture time.
+    state.claims[0].createdAt = new Date(
+      Math.floor(now / 3600000) * 3600000 - 4 * 3600000 - 5000,
+    ).toISOString();
   }
   if (id === "fork-history") {
     const latest = state.reviews.find((r) => r.id === "fixture-review-1")!;
