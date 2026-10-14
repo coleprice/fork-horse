@@ -169,12 +169,10 @@ it("connects an enrolled agent, advertises only its owned resource and embeds th
   expect(scopes).toEqual([]);
 });
 
-it("omits public-origin metadata after authorization is lost, without breaking the frame", async () => {
+it("refuses to disclose the sidebar or public-origin metadata after authorization is lost", async () => {
   const { user } = await connect();
   unauthorized = true;
-  const frame = await user.startAppUi!({ isAdmin: true });
-  expect(frame.iframeHtml).not.toContain("data-core-origin");
-  expect(frame.iframeHtml).not.toContain(CREDENTIAL);
+  await expect(user.startAppUi!({ isAdmin: true })).rejects.toThrow();
 });
 
 it("refuses owner credentials, changed agent identity, unsafe origins and cross-origin form posts", async () => {
