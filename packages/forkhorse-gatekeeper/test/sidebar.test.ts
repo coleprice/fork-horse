@@ -205,7 +205,7 @@ for (const fixtureMode of [true, false])
     )!;
     reviewTab.click();
     await until(() => !root.querySelector<HTMLElement>("#view-review")!.hidden);
-    assert.equal(root.querySelectorAll('[role="tab"]').length, 4);
+    assert.equal(root.querySelectorAll('[role="tab"]').length, 5); // Overview, Work, Review, Agents, Races (FH-081)
   });
 
 test("silent push channel falls back after 30 seconds without overlapping polls", async (t) => {
