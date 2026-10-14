@@ -52,12 +52,13 @@ function yaml(text: string): Record<string, unknown> {
     list = undefined;
     if (!field[2]) result[field[1]!] = list = [];
     else {
-      const text = field[2].trim();
+      const scalarText = field[2].trim();
       // Only an unquoted JSON number in this numeric field changes scalar type.
       result[field[1]!] =
-        field[1] === "tokenBudget" && /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(text)
-          ? Number(text)
-          : scalar(text);
+        field[1] === "tokenBudget" &&
+        /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(scalarText)
+          ? Number(scalarText)
+          : scalar(scalarText);
     }
   }
   return result;
