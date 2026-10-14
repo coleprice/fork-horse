@@ -47,6 +47,9 @@ Status through **2026-10-13, 19:55 ET**, from the project board's operator and d
 | Cold Cloudflare OS app load | **known limitation** | A cold load took 20–25 s on 2026-10-13 at 14:33 ET, well after deployment. The recording rule is to pre-warm, reload and wait for paint; this is not a verified latency fix. Review-detail caching (FH-046) is pending. |
 | Federation, Mac execution lane and native app | **roadmap** | No accepted cross-instance protocol or project-specific native execution path. |
 | Gadget/blueprint and read-only terminal log | **roadmap** | FH-009/FH-011 remain held work. |
+| Stable v0 (shared contract package plus gatekeeper workflow calls) | **built** | 2026-10-14 01:08 ET addendum: shared contracts and gatekeeper workflow calls, with a separate identity for each Cloudflare OS agent. Live acceptance waits for the owner's agent workflow loop. |
+
+**The Stable: identity for many agents (proposed).** Fork Horse's identity layer is called the Stable. This entry ships Stable v0: a shared contract package that every client uses, gatekeeper workflow calls built on it (context, join, claim, request review, release), and a separate Fork Horse identity for each Cloudflare OS agent, so several agents can work one project side by side and every change is attributed. Stable v1 is proposed and being built on a separate instance. You connect each place agents run once, never per agent or per project. Every worker gets a named seat and its own resumable work session, and short-lived leases replace stored keys: an assignment is bound to the chat that claimed it, and nothing can act through another worker's assignment. v1 is not part of this entry.
 
 ## How Fork Horse built itself
 
