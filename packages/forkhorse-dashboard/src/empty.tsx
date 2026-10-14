@@ -1,43 +1,66 @@
-import { Empty } from "@cloudflare/kumo";
+import { Button, ClipboardText, Empty } from "@cloudflare/kumo";
+import brand from "../../../brand.json" with { type: "json" };
+import type { ProjectState } from "./contracts.ts";
 
-const firstRun = {
+type FirstRunKind = "projects" | "agents" | "packets" | "forks" | "reviews";
+const firstRun: Record<FirstRunKind, { title: string; description: string; command?: string }> = {
   projects: {
-    title: "No projects configured.",
-    description: "Set up a project, then open it here to follow its work.",
-    next: "Set up a project",
+    title: "No projects yet",
+    description: "Create a project with the owner CLI. It sets up the canonical repo and enrolls your first agents.",
+    command: `${brand.slug} project create <project> --config "$CLI_CONFIG" --agents <agent> --output "$PRIVATE_TOKEN_FILE"`,
   },
   agents: {
-    title: "No enrolled agents.",
-    description: "Enroll an agent so it can work in its own fork.",
-    next: "Enroll an agent",
+    title: "No agents yet",
+    description: "Enroll an agent. Each agent works in its own fork.",
+    command: `${brand.slug} agent enroll <agent> --config "$CLI_CONFIG" --output "$NEW_PRIVATE_TOKEN_FILE"`,
   },
   packets: {
     title: "No packets yet",
-    description: "Create a packet with a goal, allowed paths and acceptance checks.",
-    next: "Create a packet",
+    description: "A packet gives agents a goal, allowed paths and checks. Set mode: race to let several agents work on it at once.",
+    command: `${brand.slug} packet create packet.yaml --config "$CLI_CONFIG"`,
+  },
+  forks: {
+    title: "No forks yet",
+    description: "Forks appear here when an agent claims a packet.",
   },
   reviews: {
-    title: "No reviews yet.",
-    description: "After an agent pushes its work, it can request your review of that commit.",
-    next: "Request a review",
-  },
-  races: {
-    title: "No races yet.",
-    description: "A race lets up to three agents work on the same packet in their own forks.",
-    next: "Create a race packet",
+    title: "No reviews yet",
+    description: "When an agent requests review of a commit, it appears here for you to approve and promote.",
   },
 };
 
-/** Read-only help. The caller supplies an existing docs location; this adds no API route. */
-export function FirstRunEmpty({ kind, href }: { kind: keyof typeof firstRun; href: string }) {
+/** Retained forks, promotions and race entries are history, even without a current claim. */
+export function overviewFirstRun(state: ProjectState): FirstRunKind | undefined {
+  if (!state.agents.length) return "agents";
+  if (!state.packets.length) return "packets";
+  if (!state.claims.some((claim) => claim.active) && !state.forks.length &&
+    !state.ledger.length && !state.races?.some((race) => race.entrants.length)) return "forks";
+  return undefined;
+}
+
+/** Read-only owner guidance. Copying a placeholder command never performs an owner write. */
+export function FirstRunEmpty({ kind, owner, goToWork }: {
+  kind: FirstRunKind;
+  owner: boolean;
+  goToWork?(): void;
+}) {
   const hint = firstRun[kind];
+  const agentNote = kind === "projects" || kind === "agents"
+    ? "The owner enrolls agents." : "The owner creates packets.";
   return (
     <div data-first-run={kind}>
       <Empty
         size="sm"
         title={hint.title}
-        description={hint.description}
-        contents={<a className="claim-link" href={href} target="_blank" rel="noreferrer">{hint.next}</a>}
+        description={owner ? hint.description : `${hint.description} ${agentNote}`}
+        contents={owner && (hint.command ? (
+          <div className="first-run-command">
+            <code>{hint.command}</code>
+            <ClipboardText text="" textToCopy={hint.command} size="sm" className="first-run-copy" />
+          </div>
+        ) : kind === "reviews" && goToWork ? (
+          <Button variant="ghost" size="sm" onClick={goToWork}>Go to Work</Button>
+        ) : undefined)}
       />
     </div>
   );
