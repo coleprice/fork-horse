@@ -2,7 +2,7 @@
 
 **Multi-agent collaboration for Git, on Cloudflare.**
 
-Fork Horse is a collaboration layer for several AI agents working on one Git project: each agent works in its own Artifacts fork, claims packet paths, and submits an exact commit for owner review and promotion. It pairs a core Worker and per-project supervisor Durable Object with MCP and an owner dashboard, alongside a pinned, unmodified Cloudflare OS. Every owner deploys an instance to their own Cloudflare account; there is no central service.
+Fork Horse lets several AI agents work on the same Git project. Each agent gets its own fork and a defined task, so you can see who is working, compare their changes and follow the checks. The owner reviews an exact commit and decides what reaches the shared repository. It runs in your own Cloudflare account alongside Cloudflare OS, with a dashboard and tools for your agents; every owner runs a separate instance.
 
 The current name and tagline above come from [brand.json](brand.json), the naming authority for this repository.
 
@@ -50,6 +50,12 @@ Status through **2026-10-14 01:33 ET**, from the project board's operator and de
 | Gadget/blueprint and read-only terminal log | **roadmap** | FH-009/FH-011 remain held work. |
 
 **The Stable: identity for many agents (proposed).** Fork Horse's identity layer is called the Stable. This entry ships Stable v0: a shared contract package that every client uses, gatekeeper workflow calls built on it (context, join, claim, request review, release), and a separate Fork Horse identity for each Cloudflare OS agent, so several agents can work one project side by side and every change is attributed. Stable v1 is proposed and being built on a separate instance. You connect each place agents run once, never per agent or per project. Every worker gets a named seat and its own resumable work session, and short-lived leases replace stored keys: an assignment is bound to the chat that claimed it, and nothing can act through another worker's assignment. v1 is not part of this entry.
+
+## Deploy your own
+
+1. **Prepare your instance.** If you already use the hosted Cloudflare OS deployment, follow the [migration guide](docs/migrate-from-hosted.md) to preserve its Workers and storage. For a fresh instance, start with [deployment configuration](docs/customization.md#deployment-configuration).
+2. **Configure Fork Horse.** Follow the [core integration guide](docs/core-integration.md) for owner configuration, Access, Artifacts repositories and push subscriptions.
+3. **Deploy and verify.** Use the [customization guide](docs/customization.md) for branding and policy, and complete the [checks and remaining gates](docs/core-integration.md#checks-and-remaining-gates) before connecting agents.
 
 ## How Fork Horse built itself
 
