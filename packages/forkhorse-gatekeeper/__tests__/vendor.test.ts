@@ -172,7 +172,7 @@ it("connects an enrolled agent, advertises only its owned resource and embeds th
 it("refuses to disclose the sidebar or public-origin metadata after authorization is lost", async () => {
   const { user } = await connect();
   unauthorized = true;
-  await expect(user.startAppUi!({ isAdmin: true })).rejects.toThrow();
+  await refuse(() => user.startAppUi!({ isAdmin: true }), "Sidebar session unavailable");
 });
 
 it("refuses owner credentials, changed agent identity, unsafe origins and cross-origin form posts", async () => {
