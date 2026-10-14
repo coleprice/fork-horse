@@ -1,6 +1,7 @@
 import { judgeScenarios } from "../test/judge-fixtures.ts";
 import { agentStatusScenarios } from "../test/agent-status-fixtures.ts";
 import { archiveScenarios } from "../test/archive-fixtures.ts";
+import { emptyScenarios } from "../test/empty-fixtures.ts";
 
 import { usageScenarios } from "../test/usage-fixtures.ts";
 import { collisionScenarios } from "../test/collision-fixtures.ts";
@@ -62,14 +63,16 @@ mountDashboard(document.getElementById("dashboard")!, {
     document.getElementById("fixture-prompt")!.textContent =
       `Fixture prompt received (not sent): ${prompt}`;
   },
-  initialProject: new URL(location.href).searchParams.get("scenario") ?? "demo",
-  projects: [
+  initialProject: new URL(location.href).searchParams.get("scenario") === "empty-projects"
+    ? undefined : new URL(location.href).searchParams.get("scenario") ?? "demo",
+  projects: new URL(location.href).searchParams.get("scenario") === "empty-projects" ? [] : [
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
     ...[
       ...judgeScenarios,
       ...agentStatusScenarios,
       ...archiveScenarios,
+      ...emptyScenarios.filter((id) => id !== "empty-projects"),
       ...raceScenarios,
       ...reviewScenarios,
       ...usageScenarios,

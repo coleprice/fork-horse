@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Empty, LayerCard, Table, Tooltip } from "@cloudflare/kumo";
+import { Badge, Button, LayerCard, Table, Tooltip } from "@cloudflare/kumo";
 import type { Activity, Brand, ProjectState } from "./contracts.ts";
 import { agentStatusRows, type AgentStatusRow } from "./agent-status-model.ts";
 import { clockTime, oldestLoadedActivity, packetPushes, timestamp } from "./fork-graph-model.ts";
@@ -7,6 +7,7 @@ import { Saddlecloth } from "./lane.tsx";
 import { relativeTime } from "./time.ts";
 import { agentUsageToday } from "./usage.ts";
 import { UsageFigures } from "./usage.tsx";
+import { FirstRunEmpty } from "./empty.tsx";
 
 function useNow() {
   const [now, setNow] = useState(Date.now);
@@ -85,13 +86,13 @@ export function AgentStatusTable({ state, activity, brand, owner, openPacket, re
   </div>;
   return <section id="lanes" ref={section}>
     <h2 id="agents-heading" tabIndex={-1}>Agents</h2>
-    <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>
+    {rows.length > 0 && <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>}
     {live.length > 0 && table(live)}
     {idle.length > 0 && <>
       <Button variant="ghost" size="sm" aria-expanded={expanded} aria-controls="idle-agents" onClick={() => setExpanded(!expanded)}>Idle agents ({idle.length})</Button>
       {expanded && <div id="idle-agents">{table(idle)}</div>}
     </>}
-    {!rows.length && <Empty size="sm" title="No enrolled agents." />}
+    {!rows.length && <FirstRunEmpty kind="agents" owner={owner} />}
   </section>;
 }
 
