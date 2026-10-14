@@ -760,7 +760,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               <div>
                 <h1 className="page-title">{view.project || view.brand.name}</h1>
                 <p className="page-description">
-                  Agents work in their own forks. You review and promote.
+                  Agents work in their own forks. {actions.owner ? "You review and promote." : "The owner reviews and promotes."}
                 </p>
               </div>
               <div className="actions">

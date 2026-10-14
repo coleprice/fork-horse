@@ -180,6 +180,8 @@ test("FH-078 Resume is first in the agent Overview and absent for owner or unkno
       assert.equal(!!root.querySelector(".resume-card"), expected);
       if (expected) assert.ok(root.querySelector("#view-overview")!.firstElementChild?.classList.contains("resume-card"));
       assert.equal(root.querySelector(".resume-card button"), null);
+      assert.equal(root.querySelector(".page-description")!.textContent!.trim(),
+        `Agents work in their own forks. ${owner ? "You review and promote." : "The owner reviews and promotes."}`);
     } finally {
       app.dispose();
       dom.window.close();
