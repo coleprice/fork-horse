@@ -54,7 +54,7 @@ export function AgentStatusTable({ state, activity, brand, owner, openPacket, re
     row?.focus();
     row?.scrollIntoView({ block: "nearest" });
   }, [revealRepo, expanded]);
-  const table = (items: AgentStatusRow[], labelledBy = "agents-heading") => <div className="table-scroll table-agent-status">
+  const table = (items: AgentStatusRow[], labelledBy = "agents-heading") => <div className="table-scroll table-agents table-agent-status">
     <Table aria-labelledby={labelledBy}>
       <Table.Header><Table.Row>{["Agent", "Status", "Packet", "Last push", "Waiting on", "Tokens"].map((heading) =>
         <Table.Head key={heading} className={`column-${heading.toLowerCase().replaceAll(" ", "-")}`}>{heading}</Table.Head>)}</Table.Row></Table.Header>
@@ -64,7 +64,11 @@ export function AgentStatusTable({ state, activity, brand, owner, openPacket, re
           <span className="agent-status-name"><Saddlecloth identity={row.identity} />
             <Tooltip content={row.agent.name} render={<span className="truncated-name" />}>{row.agent.name}</Tooltip>
           </span>
-          <div className="caption muted"><Fork value={revealedFork?.agent === row.agent.name ? revealedFork.repoName : row.fork?.repoName} /></div>
+          <div className="caption muted agent-fork-caption"><Fork value={revealedFork?.agent === row.agent.name ? revealedFork.repoName : row.fork?.repoName} /></div>
+          <div className="caption muted folded">
+            <Fork value={revealedFork?.agent === row.agent.name ? revealedFork.repoName : row.fork?.repoName} />
+            <UsageFigures usage={agentUsageToday(state, row.agent.name)} agent={row.agent.name} brand={brand} />
+          </div>
           {!row.agent.createdAt && <Badge variant="secondary">Legacy</Badge>}
         </Table.Cell>
         <Table.Cell><AgentStatusBadge row={row} />{row.status?.quietSince !== undefined &&

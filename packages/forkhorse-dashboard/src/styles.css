@@ -159,16 +159,26 @@ select {
 .agent-status-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .agent-status-name .race-saddlecloth { flex: 0 0 auto; min-width: 24px; height: 24px; font-size: 12px; }
 .table-agent-status { overflow-x: auto; }
-.table-agent-status table { min-width: 960px; }
-.table-agent-status .column-agent { width: 19%; }
-.table-agent-status .column-status { width: 20%; }
-.table-agent-status .column-packet { width: 10%; }
-.table-agent-status .column-last-push { width: 14%; }
-.table-agent-status .column-waiting-on { width: 17%; }
-.table-agent-status .column-tokens { width: 20%; }
+.table-agent-status table { min-width: var(--agent-table-min-width, 960px); width: 100%; }
+/* Outrank legacy positional widths while retaining the Agents integration hook. */
+.table-agents.table-agent-status .column-agent { width: var(--agent-name-width, 19%); }
+.table-agents.table-agent-status .column-status { width: var(--agent-status-width, 20%); }
+.table-agents.table-agent-status .column-packet { width: var(--agent-packet-width, 10%); }
+.table-agents.table-agent-status .column-last-push { width: var(--agent-push-width, 14%); }
+.table-agents.table-agent-status .column-waiting-on { width: var(--agent-waiting-width, 17%); }
+.table-agents.table-agent-status .column-tokens { width: 20%; }
 .table-agent-status .column-packet .caption { display: block; }
 .table-agent-status .agent-packet-link { display: block; width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .agent-last-push-stacked > code, .agent-last-push-stacked > time { display: block; }
+/* Match the existing fold boundaries for both active and disclosed idle rows. */
+@container (max-width: 819px) {
+  .table-agent-status { --agent-table-min-width: 0; --agent-name-width: 35%; --agent-status-width: 23%; --agent-packet-width: 12%; --agent-push-width: 14%; --agent-waiting-width: 16%; }
+  .table-agents.table-agent-status .column-tokens, .table-agent-status .agent-fork-caption { display: none; }
+}
+@media (max-width: 899px) {
+  .table-agent-status { --agent-table-min-width: 0; --agent-name-width: 35%; --agent-status-width: 23%; --agent-packet-width: 12%; --agent-push-width: 14%; --agent-waiting-width: 16%; }
+  .table-agents.table-agent-status .column-tokens, .table-agent-status .agent-fork-caption { display: none; }
+}
 .resume-card { margin-bottom: 16px; }
 .resume-card dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; }
 .resume-card dt { color: var(--text-color-kumo-subtle); }
