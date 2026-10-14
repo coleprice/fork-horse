@@ -37,9 +37,9 @@ export function Saddlecloth({ identity }: { identity?: AgentIdentity }) {
     <span
       className="race-saddlecloth race-cloth"
       style={silkStyle(identity)}
-      aria-label={identity ? `Agent number ${identity.number}` : "Agent number unavailable"}
     >
-      {identity?.number ?? "—"}
+      <span aria-hidden="true">{identity?.number ?? "—"}</span>
+      <span className="sr-only">{identity ? `Agent number ${identity.number}` : "Agent number unavailable"}</span>
     </span>
   );
 }

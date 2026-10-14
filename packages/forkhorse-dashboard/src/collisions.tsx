@@ -73,7 +73,7 @@ export function CollisionBanner({
       }
       action={
         <div className="actions">
-          <Button size="sm" onClick={() => showPacket(blockerPacket(blocker))}>
+          <Button size="sm" aria-label={`View packet ${blockerPacket(blocker)}`} onClick={() => showPacket(blockerPacket(blocker))}>
             View packet
           </Button>
           <MarkResolved blocker={blocker} owner={owner} open={open} disabled={disabled} />

@@ -381,6 +381,12 @@ footer {
   max-width: 16rem;
 }
 .metric-value {
+  /* Preserve the former h3 typography and spacing after correcting its semantics. */
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  font-weight: 600;
+  color: var(--text-color-kumo-strong);
+  margin-block: 0;
   display: flex;
   align-items: center;
   gap: calc(var(--spacing) * 2);

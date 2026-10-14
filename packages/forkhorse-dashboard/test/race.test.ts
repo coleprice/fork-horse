@@ -168,7 +168,7 @@ test("semantic track keeps claim order at finish, checks after request, and real
   assert.match(track.textContent!, /Closed at the finish/);
   assert.equal(track.querySelector(".lane-marker-review")!.textContent, "○");
   assert.equal(track.querySelector(".lane-marker-approved")!.textContent, "◆");
-  assert.equal(track.querySelector(".race-saddlecloth")!.getAttribute("aria-label"), "Agent number 2");
+  assert.equal(track.querySelector(".race-saddlecloth .sr-only")!.textContent, "Agent number 2");
   assert.doesNotMatch(html(value), /Photo finish|progressbar|% done/);
   assert.equal(raceStart(race), Date.parse("2026-10-13T14:01:59Z"));
 });

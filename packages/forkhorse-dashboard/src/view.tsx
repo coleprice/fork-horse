@@ -172,14 +172,16 @@ function DataTable({
   headings,
   children,
   kind,
+  labelledBy,
 }: {
   headings: string[];
   children: ReactNode;
   kind: string;
+  labelledBy: string;
 }) {
   return (
     <div className={`table-scroll table-${kind}`}>
-      <Table>
+      <Table aria-labelledby={labelledBy}>
         <Table.Header>
           <Table.Row>
             {headings.map((text) => (
@@ -565,7 +567,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
       id={`view-${id}`}
       className="view-stack"
       role="tabpanel"
-      aria-label={id}
+      aria-label={{ overview: "Overview", work: "Work", review: "Review", agents: "Agents" }[id]}
     >
       {content}
     </div>
@@ -801,7 +803,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       <span className="tab-label">
                         Work
                         {blockers.length + claims.length > 0 && (
-                          <Badge variant="secondary">{blockers.length + claims.length}</Badge>
+                          <><span className="sr-only">, </span><Badge variant="secondary">{blockers.length + claims.length}</Badge></>
                         )}
                       </span>
                     ),
@@ -812,7 +814,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     label: (
                       <span className="tab-label">
                         Review
-                        {reviewCount > 0 && <Badge variant="secondary">{reviewCount}</Badge>}
+                        {reviewCount > 0 && <><span className="sr-only">, </span><Badge variant="secondary">{reviewCount}</Badge></>}
                       </span>
                     ),
                   },
@@ -985,12 +987,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         ].map(([label, count]) => (
                           <LayerCard key={label} className="p-4">
                             <span className="caption">{label}</span>
-                            <h3 className="metric-value">
+                            <p className="metric-value">
                               {count}
                               {label === "Blockers" && blockers.length > 0 && (
-                                <span className="warning-dot" aria-label="Open blockers" />
+                                <><span className="warning-dot" aria-hidden="true" /><span className="sr-only"> open blockers</span></>
                               )}
-                            </h3>
+                            </p>
                             {label === "In review" &&
                               reviews.some((r) => r.receipt?.status === "running") && (
                                 <p className="caption muted">
@@ -1023,10 +1025,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         </section>
                       )}
                       <section id="packets">
-                        <h2>Packets and claims</h2>
+                        <h2 id="packets-heading">Packets and claims</h2>
                         {packets.length ? (
                           <DataTable
                             kind="work"
+                            labelledBy="packets-heading"
                             headings={["Packet", "State", "Claimed by", "Fork", "Paths", "Claimed"]}
                           >
                             {packets.map((p) => {
@@ -1128,10 +1131,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     "review",
                     actions.reviewId && actions.getReview ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={{ ...actions, openCollision: actions.resolveBlocker ? openCollision : undefined, showPacket }} openReceipt={showReceipt} /> : <>
                       <section id="reviews">
-                        <h2>Review queue</h2>
+                        <h2 id="reviews-heading">Review queue</h2>
                         {reviews.length ? (
                           <DataTable
                             kind="review"
+                            labelledBy="reviews-heading"
                             headings={[
                               "Packet",
                               "Agent",
@@ -1192,6 +1196,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     <div className="caption muted folded">
                                       <ReceiptCell
                                         receipt={r.receipt}
+                                        packet={r.packet}
+                                        sha={r.sha}
                                         required={state.project.settings?.requireReceipt === true}
                                         open={() => showReceipt(r.id)}
                                       />
@@ -1226,6 +1232,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell className="column-receipts">
                                     <ReceiptCell
                                       receipt={r.receipt}
+                                      packet={r.packet}
+                                      sha={r.sha}
                                       required={state.project.settings?.requireReceipt === true}
                                       open={() => showReceipt(r.id)}
                                     />
@@ -1261,6 +1269,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         {history.length ? (
                           <DataTable
                             kind="receipt-history"
+                            labelledBy="recent-receipts-heading"
                             headings={[
                               "Packet",
                               "Head",
@@ -1333,6 +1342,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       {state.agents.length ? (
                         <DataTable
                           kind="agents"
+                          labelledBy="agents-heading"
                           headings={["Agent", "Fork", "Last push", "Claim", "Events", "Tokens"]}
                         >
                           {state.agents.flatMap((agent) => {
