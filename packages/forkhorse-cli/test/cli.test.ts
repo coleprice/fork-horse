@@ -431,6 +431,179 @@ test("packet YAML/JSON and config are mapped without executing YAML extensions",
   );
 });
 
+test("packet race fields pass through unchanged for every optional combination in JSON and YAML", async () => {
+  const value = {
+    id: "fixture-race",
+    title: "Synthetic race packet",
+    goal: "Exercise race input",
+    paths: ["src/shared/**"],
+    acceptance: ["Run fixture checks"],
+  };
+  const yaml =
+    'id: fixture-race\ntitle: Synthetic race packet\ngoal: Exercise race input\npaths:\n  - src/shared/**\nacceptance:\n  - "Run fixture checks"\n';
+  const options: Record<string, unknown>[] = [
+    {},
+    { mode: "standard" },
+    { mode: "race" },
+    { mode: "race", tokenBudget: 1 },
+    { mode: "race", judge: "judge-one" },
+    { mode: "race", tokenBudget: 1000, judge: "judge-one" },
+    { mode: "race", tokenBudget: Number.MAX_SAFE_INTEGER, judge: "a".repeat(32) },
+    { mode: "race", judge: "123" },
+  ];
+  await temporary(async (dir) =>
+    fixture(
+      (call, response) => json(response, { packet: call.body }, 201),
+      async (base, calls) => {
+        for (const extra of options) {
+          const expected = { ...value, ...extra };
+          for (const format of ["json", "yaml"]) {
+            const text =
+              format === "json"
+                ? JSON.stringify(expected)
+                : yaml +
+                  Object.entries(extra)
+                    .map(([key, item]) => `${key}: ${item}\n`)
+                    .join("");
+            const file = join(dir, `packet.${format}`);
+            await writeFile(file, text);
+            const result = await invoke(base, ["packet", "create", file, "--project", "demo"]);
+            assert.equal(result.code, 0, `${format}: ${JSON.stringify(extra)} ${result.stderr}`);
+            assert.deepEqual(calls.at(-1), {
+              method: "POST",
+              url: "/projects/demo/packets",
+              body: expected,
+              auth: `Bearer ${owner}`,
+            });
+          }
+        }
+        assert.equal(calls.length, options.length * 2);
+      },
+    ),
+  );
+});
+
+test("invalid packet race combinations fail with field-specific CLI errors before any HTTP request", async () => {
+  const value = {
+    id: "fixture-race",
+    title: "Synthetic race packet",
+    goal: "Exercise rejected race input",
+    paths: ["src/shared/**"],
+    acceptance: ["Run fixture checks"],
+  };
+  const cases: [Record<string, unknown>, RegExp][] = [
+    ...["", "Race", "other", 1, true, null, [], {}].map(
+      (mode): [Record<string, unknown>, RegExp] => [{ mode }, /mode must be standard or race/],
+    ),
+    ...[{}, { mode: "standard" }].flatMap((mode): [Record<string, unknown>, RegExp][] => [
+      [{ ...mode, tokenBudget: 1000 }, /tokenBudget requires mode: race/],
+      [{ ...mode, judge: "judge-one" }, /judge requires mode: race/],
+      [{ ...mode, tokenBudget: 1000, judge: "judge-one" }, /tokenBudget requires mode: race/],
+    ]),
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "1000", true, null, [], {}].map(
+      (tokenBudget): [Record<string, unknown>, RegExp] => [
+        { mode: "race", tokenBudget, judge: "judge-one" },
+        /tokenBudget must be a positive safe integer/,
+      ],
+    ),
+    ...[
+      "",
+      "Judge",
+      "two words",
+      "judge_one",
+      "-judge",
+      "judge-",
+      "judge--one",
+      "a".repeat(33),
+      1,
+      true,
+      null,
+      [],
+      {},
+    ].map((judge): [Record<string, unknown>, RegExp] => [
+      { mode: "race", tokenBudget: 1000, judge },
+      /judge must be a lowercase agent ID of at most 32 characters/,
+    ]),
+    [{ mode: "race", entrants: ["builder"] }, /Packet must contain only/],
+  ];
+  await temporary(async (dir) =>
+    fixture(
+      (_call, response) => json(response, {}),
+      async (base, calls) => {
+        const file = join(dir, "invalid.json");
+        for (const [extra, error] of cases) {
+          await writeFile(file, JSON.stringify({ ...value, ...extra }));
+          const result = await invoke(base, ["packet", "create", file, "--project", "demo"]);
+          assert.equal(result.code, 1, JSON.stringify(extra));
+          assert.match(result.stderr, error);
+        }
+        // JSON numeric overflow reaches validation as Infinity, rather than null.
+        await writeFile(
+          file,
+          JSON.stringify({ ...value, mode: "race" }).replace(/}$/, ',"tokenBudget":1e309}'),
+        );
+        const result = await invoke(base, ["packet", "create", file, "--project", "demo"]);
+        assert.equal(result.code, 1);
+        assert.match(result.stderr, /tokenBudget must be a positive safe integer/);
+        assert.equal(calls.length, 0);
+      },
+    ),
+  );
+});
+
+test("YAML race budgets preserve numeric and quoted scalar types and reject unsafe extensions", async () => {
+  const yaml =
+    'id: fixture-race\ntitle: Synthetic race packet\ngoal: Exercise YAML input\npaths:\n  - src/shared/**\nacceptance:\n  - "Run fixture checks"\n';
+  await temporary(async (dir) =>
+    fixture(
+      (call, response) => json(response, { packet: call.body }, 201),
+      async (base, calls) => {
+        const file = join(dir, "packet.yaml");
+        for (const budget of ["1000", "1e3", "1000.0"]) {
+          await writeFile(file, yaml + `mode: race\ntokenBudget: ${budget}\njudge: 'judge-one'\n`);
+          const result = await invoke(base, ["packet", "create", file, "--project", "demo"]);
+          assert.equal(result.code, 0, result.stderr);
+          assert.equal((calls.at(-1)!.body as { tokenBudget: number }).tokenBudget, 1000);
+          assert.equal((calls.at(-1)!.body as { judge: string }).judge, "judge-one");
+        }
+        const invalid: [string, RegExp][] = [
+          ["tokenBudget: 1000\n", /tokenBudget requires mode: race/],
+          ["mode: standard\njudge: judge-one\n", /judge requires mode: race/],
+          ["mode: Race\n", /mode must be standard or race/],
+          ["mode: race\njudge: Judge\n", /judge must be a lowercase agent ID/],
+          ["mode: race\njudge: 'two words'\n", /judge must be a lowercase agent ID/],
+          ["mode: race\ntokenBudget: 1\ntokenBudget: 2\n", /Invalid or duplicate YAML field/],
+          ["mode: race\ntokenBudget: &anchor\n", /Unsupported YAML value/],
+          ["mode: race\njudge: !!js/function code\n", /Unsupported YAML value/],
+          ...[
+            "0",
+            "-1",
+            "1.5",
+            "9007199254740992",
+            "1e309",
+            '"1000"',
+            "'1000'",
+            "true",
+            "null",
+            "NaN",
+            "Infinity",
+          ].map((budget): [string, RegExp] => [
+            `mode: race\ntokenBudget: ${budget}\n`,
+            /tokenBudget must be a positive safe integer/,
+          ]),
+        ];
+        for (const [extra, error] of invalid) {
+          await writeFile(file, yaml + extra);
+          const result = await invoke(base, ["packet", "create", file, "--project", "demo"]);
+          assert.equal(result.code, 1, extra);
+          assert.match(result.stderr, error);
+        }
+        assert.equal(calls.length, 3);
+      },
+    ),
+  );
+});
+
 test("connect prints exact env-placeholder snippets with custom MCP path and no API call", async () => {
   await fixture(
     (_call, response) => json(response, {}),
