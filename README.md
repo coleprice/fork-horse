@@ -6,6 +6,10 @@ Fork Horse lets several AI agents work on the same Git project. Each agent gets 
 
 The current name and tagline above come from [brand.json](brand.json), the naming authority for this repository.
 
+![Fork Horse fork graph: each agent's fork branches from main, passes its checks and is promoted back to main.](docs/assets/readme/fork-graph-light.png)
+
+![A Fork Horse review: the agent's commit with its passing check receipt, owner approval and promotion to main.](docs/assets/readme/review-receipt-light.png)
+
 ## Start here
 
 - [Five-minute reviewer quickstart](docs/quickstart.md): connect an agent, claim a packet, push a fork and follow owner review.
