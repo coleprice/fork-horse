@@ -297,21 +297,35 @@ test("advisory approval skips hollow check marker with a connector and remains t
     /--race-gap:2/,
   );
 });
-test("receipt interruption labels remain distinct recorded events", () => {
-  for (const [status, label] of [
-    ["timed-out", "Timed out"],
-    ["infrastructure-error", "Couldn't run"],
-  ] as const) {
-    const value = view("race-finished");
-    value.state!.reviews.find((candidate) => candidate.agent === "amber")!.receipt!.status = status;
-    const dom = new JSDOM(html(value));
-    assert.match(
-      dom.window.document.querySelector(
+test("receipt interruption fixtures use warning discs while failed checks keep the cross", () => {
+  for (const [scenario, label, kind, glyph] of [
+    ["race-timed-out", "Timed out", "interrupted", "!"],
+    ["race-couldnt-run", "Couldn't run", "interrupted", "!"],
+    ["race-finished", "Failed", "failed", "✗"],
+  ]) {
+    const dom = new JSDOM(html(view(scenario)));
+    try {
+      const cell = dom.window.document.querySelector(
         '[data-race-agent="amber"] [data-milestone="receiptPassedAt"]',
-      )!.textContent!,
-      new RegExp(label),
-    );
+      )!;
+      assert.match(cell.textContent!, new RegExp(label));
+      assert.equal(cell.querySelector(`.lane-marker-${kind}`)!.textContent, glyph);
+      assert.equal(cell.querySelector(".lane-marker")!.getAttribute("aria-hidden"), "true");
+      assert.ok(cell.querySelector(".sr-only")!.textContent!.includes(label.toLowerCase()));
+    } finally { dom.window.close(); }
   }
+});
+test("two-digit fixture keeps enrollment numbers throughout the race", () => {
+  const value = view("race-two-digit");
+  const dom = new JSDOM(html(value));
+  try {
+    for (const [agent, number] of [["amber", 10], ["birch", 11], ["cedar", 12]] as const) {
+      assert.equal(saddlecloth(value.state!, agent), number);
+      const cloth = dom.window.document.querySelector(`[data-race-agent="${agent}"] .race-saddlecloth`)!;
+      assert.equal(cloth.textContent, String(number));
+      assert.equal(cloth.getAttribute("aria-label"), `Agent number ${number}`);
+    }
+  } finally { dom.window.close(); }
 });
 test("closed provenance never labels release or owner close as closed at finish", () => {
   const entrant = view().state!.races![0].entrants[0];

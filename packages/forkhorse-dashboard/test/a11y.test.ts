@@ -50,7 +50,9 @@ test("fork controls stay accessible within a named group; decorative legend and 
     assert.ok(buttons.every((button) => button.title.startsWith("Tokens: ")));
     assert.ok(buttons.some((button) => button.title === "Tokens: not reported"));
     const legend = root.querySelector(".fork-legend")!;
-    assert.equal(legend.querySelectorAll('[aria-hidden="true"]').length, 5);
+    assert.equal(legend.querySelectorAll('[aria-hidden="true"]').length, 6);
+    assert.ok([...legend.querySelectorAll('[aria-hidden="true"]')].some((glyph) => (glyph as Element).textContent === "!"));
+    assert.match(legend.textContent!, /! checks didn't finish/);
     assert.match(legend.textContent!, /push · .* review requested · .* checks passed\/failed/);
     const hint = root.querySelector(".fork-window")!;
     assert.match(hint.textContent!, /now\. hover a mark for its time/);

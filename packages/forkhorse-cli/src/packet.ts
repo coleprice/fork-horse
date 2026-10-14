@@ -19,7 +19,7 @@ export async function smallFile(path: string): Promise<string> {
   }
 }
 
-// Intentionally small YAML subset: top-level scalars and indented lists of strings.
+// Intentionally small YAML subset: string scalars/lists and a numeric tokenBudget.
 // No YAML tags, aliases, flow mappings, multiline values or executable extensions.
 function scalar(text: string): string {
   if (!text || /^[&*!>|[{]/.test(text) || /\s+#/.test(text))
@@ -46,22 +46,53 @@ function yaml(text: string): Record<string, unknown> {
       list.push(scalar(item[1]!.trim()));
       continue;
     }
-    const field = /^([a-z]+):(?: (.*))?$/.exec(line);
+    const field = /^([a-zA-Z]+):(?: (.*))?$/.exec(line);
     if (!field || Object.hasOwn(result, field[1]!))
       throw new CliError("Invalid or duplicate YAML field.");
     list = undefined;
     if (!field[2]) result[field[1]!] = list = [];
-    else result[field[1]!] = scalar(field[2].trim());
+    else {
+      const scalarText = field[2].trim();
+      // Only an unquoted JSON number in this numeric field changes scalar type.
+      result[field[1]!] =
+        field[1] === "tokenBudget" &&
+        /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(scalarText)
+          ? Number(scalarText)
+          : scalar(scalarText);
+    }
   }
   return result;
 }
 
 export function packet(text: string): Record<string, unknown> {
   const value: unknown = text.trimStart().startsWith("{") ? JSON.parse(text) : yaml(text);
-  const fields = ["id", "title", "goal", "paths", "acceptance"];
+  const fields = ["id", "title", "goal", "paths", "acceptance", "mode", "tokenBudget", "judge"];
   if (!record(value) || Object.keys(value).some((key) => !fields.includes(key)))
-    throw new CliError("Packet must contain only id, title, goal, paths and acceptance.");
+    throw new CliError(
+      "Packet must contain only id, title, goal, paths, acceptance, mode, tokenBudget and judge.",
+    );
   slug(typeof value.id === "string" ? value.id : undefined);
+  if (value.mode !== undefined && value.mode !== "standard" && value.mode !== "race")
+    throw new CliError("Packet mode must be standard or race.");
+  if (value.tokenBudget !== undefined) {
+    if (value.mode !== "race") throw new CliError("Packet tokenBudget requires mode: race.");
+    if (
+      typeof value.tokenBudget !== "number" ||
+      !Number.isSafeInteger(value.tokenBudget) ||
+      value.tokenBudget <= 0
+    )
+      throw new CliError("Packet tokenBudget must be a positive safe integer.");
+  }
+  if (value.judge !== undefined) {
+    if (value.mode !== "race") throw new CliError("Packet judge requires mode: race.");
+    try {
+      slug(typeof value.judge === "string" ? value.judge : undefined, 32);
+    } catch {
+      throw new CliError(
+        "Packet judge must be a lowercase agent ID of at most 32 characters with single internal hyphens.",
+      );
+    }
+  }
   for (const [field, max] of [
     ["title", 200],
     ["goal", 4000],
@@ -82,6 +113,6 @@ export function packet(text: string): Record<string, unknown> {
     )
       throw new CliError("Invalid packet paths or acceptance list.");
   }
-  // Core is authoritative for path overlap and path grammar; never create claims here.
+  // Core is authoritative for paths and judge enrollment; never create claims here.
   return value;
 }

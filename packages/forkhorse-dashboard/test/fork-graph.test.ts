@@ -231,6 +231,13 @@ test("lane state labels and dots distinguish failed checks, warnings and review"
       `${word}: ${tone}`,
     );
   }
+  const interruptions = [...document.querySelectorAll(".lane-marker-interrupted")];
+  assert.equal(interruptions.length, 2);
+  assert.ok(interruptions.every((marker) => marker.textContent === "!"));
+  assert.equal(document.querySelector(".lane-marker-failed")!.textContent, "✗");
+  assert.match(document.querySelector(".fork-legend")!.textContent!, /! checks didn't finish/);
+  assert.match(document.querySelector(".fork-table")!.textContent!, /timed out/);
+  assert.match(document.querySelector(".fork-table")!.textContent!, /couldn't run/);
   await act(async () => root.unmount());
 });
 test("a claimed lane without a review shows an In progress brand dot", async () => {

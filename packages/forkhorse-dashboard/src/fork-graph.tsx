@@ -37,7 +37,7 @@ function EventCell({
         {shown
           .map(
             (e) =>
-              `${clockTime(e.at)}${e.kind === "passed" || e.kind === "failed" ? ` ${e.label.split(" · ")[0].replace(/^checks /, "")}` : ""}`,
+              `${clockTime(e.at)}${e.kind === "passed" || e.kind === "failed" || e.kind === "interrupted" ? ` ${e.label.split(" · ")[0].replace(/^checks /, "")}` : ""}`,
           )
           .join(" · ") || empty}
       </span>
@@ -540,7 +540,7 @@ export function ForkGraph({
         </Button>
       )}
       <p className="fork-legend caption muted">
-        <span aria-hidden="true">●</span> push · <span aria-hidden="true">○</span> review requested · <span aria-hidden="true">✓/✗</span> checks passed/failed · <span aria-hidden="true">◆</span> approved · <span aria-hidden="true">●</span> promoted to{" "}
+        <span aria-hidden="true">●</span> push · <span aria-hidden="true">○</span> review requested · <span aria-hidden="true">✓/✗</span> checks passed/failed · <span aria-hidden="true">!</span> checks didn't finish · <span aria-hidden="true">◆</span> approved · <span aria-hidden="true">●</span> promoted to{" "}
         <code>main</code>
         <br />
         Numbers and colors stay with the agent everywhere in this graph and in races.
@@ -616,12 +616,12 @@ export function ForkGraph({
                 <td>
                   <EventCell
                     lane={lane}
-                    kinds={["failed", "passed"]}
+                    kinds={["failed", "interrupted", "passed"]}
                     open={effectiveOpen}
                     empty={lane.review?.receipt?.status === "running" ? "Running" : "—"}
                   />
                   {lane.review?.receipt?.status === "running" &&
-                    lane.events.some((e) => e.kind === "failed" || e.kind === "passed") &&
+                    lane.events.some((e) => e.kind === "failed" || e.kind === "interrupted" || e.kind === "passed") &&
                     " · Running"}
                 </td>
                 <td>
