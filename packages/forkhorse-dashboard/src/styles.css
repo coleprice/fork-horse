@@ -159,7 +159,7 @@ select {
 .agent-status-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .agent-status-name .race-saddlecloth { flex: 0 0 auto; min-width: 24px; height: 24px; font-size: 12px; }
 .table-agent-status { overflow-x: auto; }
-.table-agent-status table { min-width: var(--agent-table-min-width, 960px); width: 100%; }
+.table-agent-status table { min-width: var(--agent-table-min-width, 0); width: 100%; }
 /* Outrank legacy positional widths while retaining the Agents integration hook. */
 .table-agents.table-agent-status .column-agent { width: var(--agent-name-width, 19%); }
 .table-agents.table-agent-status .column-status { width: var(--agent-status-width, 20%); }
