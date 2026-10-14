@@ -1,4 +1,5 @@
 import { judgePromotion } from "./judge.ts";
+import { FirstRunEmpty, overviewFirstRun } from "./empty.tsx";
 import { UsageFigures } from "./usage.tsx";
 import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
 import { useState, useEffect, useRef, type ReactNode } from "react";
@@ -452,6 +453,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const [askError, setAskError] = useState<string>();
   const toggleRef = useRef<HTMLButtonElement>(null);
   const state = view.state;
+  const overviewEmpty = state ? overviewFirstRun(state) : undefined;
   const blockers = state?.blockers.filter(
     (b) => !b.resolved && !isArchived(state, b.packet) &&
       !(b.pushingPacket && isArchived(state, b.pushingPacket)),
@@ -885,7 +887,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={{ ...actions, showPacket: (id) => showPacket(id, true), openReceipt: (id) => { actions.openRace?.(); showReceipt(id); } }} /> : !state ? (
                 !view.busy &&
                 !view.error &&
-                empty(view.project ? "No snapshot loaded." : "Select a configured project.")
+                (!view.project && !view.projects.length
+                  ? <FirstRunEmpty kind="projects" owner={actions.owner} />
+                  : empty(view.project ? "No snapshot loaded." : "Select a configured project."))
               ) : (
                 <>
                   {state.promotionPending && (
@@ -910,8 +914,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
-                      <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
-                        openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />
+                      {overviewEmpty ? (
+                        <section aria-label="Forks">
+                          <FirstRunEmpty kind={overviewEmpty} owner={actions.owner} />
+                        </section>
+                      ) : <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
+                        openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />}
                       {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
                       <LayerCard className="p-4 project-card">
                         <div className="section-heading">
@@ -1001,13 +1009,6 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           </LayerCard>
                         ))}
                       </section>
-                      {!state.packets.length && (
-                        <Empty
-                          title="No packets yet"
-                          description="Ask an agent to claim work, or create a packet with the owner CLI."
-                          contents={ask}
-                        />
-                      )}
                     </>,
                   )}
                   {section(
@@ -1101,7 +1102,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             })}
                           </DataTable>
                         ) : (
-                          empty(archivedCount ? "No active packets." : "No packets created.")
+                          archivedCount ? empty("No active packets.")
+                            : <FirstRunEmpty kind="packets" owner={actions.owner} />
                         )}
                         {archivedCount > 0 && (
                           <Button
@@ -1253,7 +1255,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             })}
                           </DataTable>
                         ) : (
-                          empty("No reviews waiting for owner action.")
+                          state.reviews.length ? empty("No reviews waiting for owner action.")
+                            : <FirstRunEmpty kind="reviews" owner={actions.owner}
+                              goToWork={() => actions.setSection("work")} />
                         )}
                       </section>
                       <section id="recent-receipts" aria-labelledby="recent-receipts-heading">
@@ -1329,7 +1333,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     "agents",
                     <section id="lanes">
                       <h2 id="agents-heading" tabIndex={-1}>Agents</h2>
-                      <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>
+                      {state.agents.length > 0 && <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>}
                       {state.agents.length ? (
                         <DataTable
                           kind="agents"
@@ -1400,7 +1404,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           })}
                         </DataTable>
                       ) : (
-                        empty("No enrolled agents.")
+                        <FirstRunEmpty kind="agents" owner={actions.owner} />
                       )}
                     </section>,
                   )}
