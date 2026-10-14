@@ -123,6 +123,7 @@ test("loading, failures and populated project views do not offer first-run actio
   const empty = snapshot("empty-projects");
   for (const view of [
     { ...empty, busy: true },
+    { ...empty, refreshing: true },
     { ...empty, error: "Snapshot unavailable" },
     { ...snapshot("demo"), state: stateView(fixtureState()) },
   ]) {

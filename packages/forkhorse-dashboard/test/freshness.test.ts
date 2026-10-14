@@ -7,8 +7,13 @@ import { createHttpTransport } from "../src/transport.ts";
 import { reviewFixtureState, reviewFixtureDetail } from "./review-fixtures.ts";
 import { collisionFixtureState } from "./collision-fixtures.ts";
 import { judgeFixtureState, judgeFixtureDetail } from "./judge-fixtures.ts";
+import { emptyFixtureState } from "./empty-fixtures.ts";
 import type { StateResponse } from "../src/contracts.ts";
-const { JSDOM } = createRequire(import.meta.url)("jsdom");
+const { JSDOM } = createRequire(import.meta.url)("jsdom") as {
+  JSDOM: new (html: string, options?: { url: string }) => {
+    window: Window & typeof globalThis & { close(): void };
+  };
+};
 const origin = "https://fixture.idiot.tax";
 const diagnosticId = "11111111-2222-4333-8444-555555555555";
 
@@ -24,20 +29,21 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
-function setup(wire: StateResponse, route = "review", owner = true) {
+function setup(wire: StateResponse, route = "review", owner = true, initialRead?: () => Promise<Response>) {
   const dom = new JSDOM('<div id="app"></div>', { url: `${origin}/#${route}` });
   installDom(dom.window);
   const root = dom.window.document.getElementById("app")! as HTMLElement;
   const calls: { path: string; method: string }[] = [];
-  let stateRead: (() => Promise<Response>) | undefined;
+  let stateRead = initialRead;
   let activityRead: (() => Promise<Response>) | undefined;
   let detailRead: (() => Promise<Response>) | undefined;
+  let writeResponse: (() => Promise<Response>) | undefined;
   const transport = createHttpTransport({ origin, fetch: async (input, init) => {
     const path = new URL(String(input)).pathname;
     calls.push({ path, method: init?.method ?? "GET" });
     if (path.endsWith("/state")) return stateRead ? stateRead() : Response.json(wire);
     if (path.endsWith("/activity")) return activityRead ? activityRead() : Response.json({ activity: wire.activity, nextAfter: 0 });
-    if (init?.method === "POST" || init?.method === "PATCH") return Response.json({});
+    if (init?.method === "POST" || init?.method === "PATCH") return writeResponse ? writeResponse() : Response.json({});
     const id = path.split("/").at(-1)!;
     return detailRead ? detailRead() : Response.json(judgeFixtureDetail(wire, id));
   }});
@@ -47,6 +53,7 @@ function setup(wire: StateResponse, route = "review", owner = true) {
     state(fn?: () => Promise<Response>) { stateRead = fn; },
     activity(fn?: () => Promise<Response>) { activityRead = fn; },
     detail(fn?: () => Promise<Response>) { detailRead = fn; },
+    write(fn?: () => Promise<Response>) { writeResponse = fn; },
     close() { app.dispose(); dom.window.close(); },
   };
 }
@@ -63,6 +70,23 @@ async function failRefresh(c: ReturnType<typeof setup>) {
 function tryAgain(c: ReturnType<typeof setup>) {
   return [...stamp(c).querySelectorAll("button")].find((button) => button.textContent === "Try again")!;
 }
+
+test("first read loading/failure has no stamp or first-run guidance; a successful empty retry does", async () => {
+  const pending = deferred<Response>();
+  const c = setup(emptyFixtureState("empty-agents"), "overview", true, () => pending.promise);
+  try {
+    assert.match(c.root.textContent!, /Loading the latest project snapshot…/);
+    assert.equal(c.root.querySelector("[data-first-run], [data-freshness]"), null);
+    pending.resolve(Response.json({ error: "Fixture first read failed." }, { status: 503 }));
+    await until(() => c.root.textContent!.includes("Fixture first read failed."));
+    assert.doesNotMatch(c.root.textContent!, /Loading the latest project snapshot|Last updated/);
+    assert.equal(c.root.querySelector("[data-first-run], [data-freshness]"), null);
+    c.state(undefined);
+    [...c.root.querySelectorAll("button")].find((button) => button.textContent === "Try again")!.click();
+    await until(() => c.root.querySelector('#view-overview [data-first-run="agents"]'));
+    assert.match(stamp(c).textContent!, /Updated just now/);
+  } finally { c.close(); }
+});
 
 test("in-flight refresh retains DOM, focus and enabled owner actions; failed activity fences cached data until retry", async () => {
   const c = setup(reviewFixtureState("review-current"));
@@ -111,15 +135,22 @@ test("owner can act during a read; a late failed read cannot stale or unlock the
   try {
     await until(() => control(c, '[data-action="approve"]'));
     const pending = deferred<Response>();
+    const pendingWrite = deferred<Response>();
     c.state(() => pending.promise);
+    c.write(() => pendingWrite.promise);
     const refreshing = c.app.refresh();
     c.state(undefined);
     control(c, '[data-action="approve"]').click();
-    await until(() => writes(c).length === 1 && stamp(c).textContent!.includes("Updated"));
+    assert.equal(writes(c).length, 1);
+    assert.equal(control(c, '[data-action="approve"]').disabled, true);
     pending.resolve(Response.json({ error: "late failure" }, { status: 502 }));
     await refreshing;
     assert.doesNotMatch(stamp(c).textContent!, /Couldn't refresh/);
+    assert.equal(control(c, '[data-action="approve"]').disabled, true, "the older read cannot unlock the pending write");
+    pendingWrite.resolve(Response.json({}));
+    await until(() => !control(c, '[data-action="approve"]').disabled);
     assert.equal(control(c, '[data-action="approve"]').disabled, false);
+    assert.equal(writes(c).length, 1, "no write retry");
   } finally { c.close(); }
 });
 

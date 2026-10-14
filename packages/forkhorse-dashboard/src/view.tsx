@@ -865,9 +865,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   description="Local synthetic snapshots only. No account connection."
                 />
               )}
-              {((view.refreshing && !state) || askError) && (
+              {(((view.refreshing || view.busy) && !state) || askError) && (
                 <div role="status" aria-live="polite">
-                  {view.refreshing && !state && !actions.raceId && <p>Loading the latest project snapshot…</p>}
+                  {(view.refreshing || view.busy) && !state && !actions.raceId && <p>Loading the latest project snapshot…</p>}
                   {askError && <p>{askError}</p>}
                 </div>
               )}
@@ -881,7 +881,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   description={view.error}
                   action={
                     actions.retry && (
-                      <Button size="sm" onClick={() => void actions.retry!()}>
+                      <Button variant="secondary" size="sm" onClick={() => void actions.retry!()}>
                         Try again
                       </Button>
                     )
@@ -890,6 +890,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               )}
               {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={{ ...actions, showPacket: (id) => showPacket(id, true), openReceipt: (id) => { actions.openRace?.(); showReceipt(id); } }} /> : !state ? (
                 !view.refreshing &&
+                !view.busy &&
                 !view.error &&
                 (!view.project && !view.projects.length
                   ? <FirstRunEmpty kind="projects" owner={actions.owner} />
