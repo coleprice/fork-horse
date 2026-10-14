@@ -32,10 +32,12 @@ export function RaceCompare({
   state,
   brand,
   getReview,
+  advice,
 }: {
   race: Race;
   state: ProjectState;
   brand: Brand;
+  advice?: ReactNode;
   getReview?: (id: string) => Promise<ReviewDetail>;
 }) {
   const race = { ...rawRace, entrants: raceEntrants(rawRace) };
@@ -115,6 +117,7 @@ export function RaceCompare({
   return (
     <section className="race-usage" aria-labelledby="race-compare-title">
       <h3 id="race-compare-title">Compare</h3>
+      {advice}
       <p className="caption muted">
         Times since the first entrant claimed. Files come from the latest review detail.
         {pushesAvailable && " Push counts cover each entrant's race interval in loaded activity."}

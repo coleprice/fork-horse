@@ -63,6 +63,26 @@ review, showing only the latter in the card. Use `role=agent` to check
 absence and `host=queue-only` to check the capability fallback. These snapshots
 are synthetic, and fixture routes are excluded from production assets.
 
+## Race judge advice
+
+FH-063c reads the fixed optional race `judge` and `verdict: {ranking, rationale,
+at}` seam. The UI calls this **Judge's advice**, shows the ranked entrant
+saddlecloths, and keeps advice visible after a race finishes. Missing judge fields
+leave the existing race view unchanged. Rationale is escaped plain text; more
+than five rendered lines can expand in place, with the full text retained in the DOM.
+
+The owner can promote the pick through the existing review confirmation and
+promote endpoint, with the same visibility gate as the review queue. A pending
+promotion or required before-promote re-check hides Promote. Later review or push
+evidence also hides the advice action until new advice arrives. Agents see advice
+without owner controls. No dashboard advice submission or new write endpoint is
+introduced. Review detail and Needs you carry the pick's advisory context.
+
+`judge-*` loopback scenarios cover waiting, owner/agent, later pushes/reviews,
+promotion gates, finished results, long rationale and no-judge views. These are
+fixed-contract fixtures only; accepted-core integration and live acceptance are
+separate gates.
+
 ## Host composition
 
 Serve `dist/index.html` for `/app` and `/app/` (or redirect `/app` to `/app/`), and

@@ -11,7 +11,7 @@ FH-012 reads the host/path from `deployment.local.jsonc` and supplies a canonica
 The typed `CoreClient` requires three operations:
 
 - `authenticate(token, signal)` returns trusted `{project, agent}` for an enrolled agent, or null. It must reject owner tokens and never derive identity from tool arguments. **The real trusted core identity adapter does not exist in this packet.** FH-012 must wire a verified internal capability or approved core identity response; syntactic token checks are insufficient.
-- `execute(token, operation, signal)` executes one of the nine agent-only route variants below. `createCoreClient` implements this part over a supplied trusted binding `fetch`, preserving the bearer and enforcing bounded JSON responses. Its fixed `https://core.invalid` Request origin is an internal service-binding address, not a fetch destination on the public Internet. Do not wire it to global `fetch`.
+- `execute(token, operation, signal)` executes the agent route variants below. `createCoreClient` implements this part over a supplied trusted binding `fetch`, preserving the bearer and enforcing bounded JSON responses. Its fixed `https://core.invalid` Request origin is an internal service-binding address, not a fetch destination on the public Internet. Do not wire it to global `fetch`.
 - `enrollAgent(owner, project, agent, signal)` uses owner authority held inside the adapter to call `POST /projects/:id/agents`. It returns `{project, agent, apiToken}` once. This capability is used only after verified owner consent, never exposed as a tool. Core must independently authorize the owner.
 
 All adapters must honor `signal` and check it before starting writes. Core remains authoritative: every commit independently checks that the caller, live claim, bound repository and registered repository ownership agree. A timeout does not roll back a write already accepted by core, so clients must inspect state before retrying.
@@ -29,6 +29,10 @@ All adapters must honor `signal` and check it before starting writes. Core remai
 | `report_usage`   | `project`, `packet`, `inputTokens`, `outputTokens`, optional `model` | `POST /projects/:id/usage` | no |
 | `request_review` | `project`, `packet`, `repoName`, `sha`    | `POST /projects/:id/reviews`            | no        |
 | `submit_work`    | `project`, `packet`, `files`, `message`   | `POST /projects/:id/forks/:repo/commit` | no        |
+| `list_judge_races` | `project` | `GET /projects/:id/state` (caller assignment filter) | yes |
+| `get_review` | `project`, `review` | `GET /projects/:id/reviews/:rid` | yes |
+| `get_review_diff` | `project`, `review`, `path` | `GET /projects/:id/reviews/:rid/diff?path=...` | yes |
+| `submit_verdict` | `project`, `packet`, `ranking`, `rationale` | `POST /projects/:id/races/:packet/verdict` | no |
 
 `get_context` and `status` preserve the state snapshot and add `myWork` from the bearer-authenticated `/me` `work`. Each item also has a separate text content line: `<packet> on <repoName> → next: <next> — <hint>`. FH-041 owns the next-step rules; this library does not recompute them. Missing/malformed work is an explicit dependency failure, not an empty summary. Tests use labeled FH-041 contract fixtures.
 
@@ -48,7 +52,19 @@ For race packets, `claim` uses that same caller-authenticated route and fork arg
 
 `files` contains `{path, content}` objects, up to 200 unique safe relative paths. The commit body is bounded to 1 MiB; the enclosing MCP request must fit strictly below 1 MiB, so practical file payloads are smaller. All outbound core Requests use manual redirect handling: every upstream 3xx is refused with a sanitized error without following or exposing its Location.
 
-The three read tools advertise `readOnlyHint: true`; writes are marked non-idempotent. Enrollment, rotation, packet creation, approval and promotion are absent from the tool inventory. There are nine tools, below the 200-tool cap.
+The six read tools advertise `readOnlyHint: true`; writes are marked non-idempotent. Enrollment, rotation, packet creation, approval and promotion are absent from the tool inventory. There are thirteen tools, below the 200-tool cap.
+
+## Judge advice (FH-063b)
+
+This seam is source-integrated with accepted FH-063. Post-merge checks remain pending; the saved judge capture is labeled fixture evidence. `list_judge_races` returns `{races}` filtered by the bearer-authenticated agent's immutable judge assignment, including finished races as history. Judge/advice fields and public entrant evidence such as reported usage are preserved. Existing `myRaces` remains entrant-scoped; a judge uses the dedicated list tool and project context to locate review IDs.
+
+`get_review` and `get_review_diff` forward the caller's bearer unchanged. Core authorizes an agent's own review, or the assigned judge's access to entrants' reviews for that race; every other cross-agent read stays refused. MCP does not grant this exception itself, expose the owner-only full receipt endpoint or retry denied reads. Detail supplies receipt summaries, changed-file counts, commit information, timing and reported usage; diffs retain binary and truncation flags. Review IDs are bounded safe path components, and diff paths use the existing safe relative file-path schema and URL query encoding.
+
+`submit_verdict` forwards only `{ranking, rationale}`. Ranking names are unique valid agent names, at most three; core validates the exact permutation of current entrants, including whether an empty ranking is appropriate. Rationale is 1–2000 characters, preserved as plain text. Core enforces judge-only submission, replacement until finish, and a 409 after finish; the owner and other agents cannot submit. Owner credentials are rejected at the MCP authentication boundary. Success response shape is forwarded from core; the fixed packet specifies status 200 without prescribing its body. Tests label their `{verdict}` response as a fixture.
+
+The [judge skill](../../skills/forkhorse/SKILL.md#judge-an-assigned-race) weighs receipts, diff size/content, recorded time and **reported** tokens, explains the ranking and names evidence gaps. Advice never approves or promotes. A judge needs no entrant fork and cannot enter its assigned race. After an uncertain write, inspect the latest advice before retrying. No history or revision counter is invented.
+
+The confirmed FH-063 roster is the full retained `/state.races[].entrants` list, including withdrawn and closed entrants. Exact roster membership remains core-authoritative; the merged core source confirms that roster and authorization seam. Judging does not change placings.
 
 Each call has a 25-second deadline, including authentication, input and output body reads. Serialized HTTP responses stay strictly below 1 MiB, including JSON-RPC wrapping and escaping. Bodies are counted while streaming, regardless of Content-Length. No persistent GET/SSE stream is offered: POST uses the SDK's JSON response mode and GET/DELETE return 405. Each request gets a fresh server/transport, so no in-memory MCP session holds a credential. Responses are `no-store`; provider errors are replaced with fixed public messages.
 
@@ -68,6 +84,8 @@ The real `@cloudflare/workers-oauth-provider` library handles RFC 9728 resource 
 Enrollment and OAuth grant persistence span two systems. If grant completion fails after enrollment, the owner may need to remove/rotate the unused enrolled credential. This library never retries enrollment automatically. FH-012 must establish live KV, Access, core and deployment acceptance, plus appropriate public DCR rate limits. Before any deployment, the owner must verify that the deploy token includes the configured MCP zone.
 
 ## Local checks
+
+FH-063b adds actual-workerd tests over labeled fixed-contract fixtures for caller-scoped judge races, detail/diff routes and authorization refusals, advice replacement/finish refusal, rationale/ranking bounds, bearer preservation, no retries and honest tool annotations. Its fake core policy is not acceptance of FH-063's authorization implementation. A Node test can emit a credential-free, explicitly offline MCP capture when `FH063_CAPTURE_PATH` names a local output file; the capture is test evidence, not a UI screenshot or live acceptance.
 
 FH-054 adds offline workerd fixtures of the fixed FH-052/053 wire contracts, covering packet modes, three caller-bound entrant forks, standings and finish/photo-finish data, authoritative race resume hints, sanitized claim refusals and closed/ambiguous binding rejection. A source-derived fixture additionally preserves the integrated core mapper output, including `places` and explicit null `promoteRejected`. The fixture generator executes only the pure core race/resume mappers with in-memory storage in Node; MCP consumes that output in workerd. These fixtures do not validate core Worker execution, storage transactions, ranking or live race execution. Full-root checks, fresh-clone acceptance and D5 require coordinator reservation and are separate from focused package checks.
 

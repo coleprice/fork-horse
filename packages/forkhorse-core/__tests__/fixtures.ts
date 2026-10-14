@@ -36,6 +36,32 @@ const trees = new Map<string, ArtifactsTreeEntry[]>([
   [NEW_SRC, [file("index.ts", NEW_BLOB)]],
 ]);
 
+/** Build real nested Git trees, so a push diff and selective path lookup agree. */
+function pushTrees(paths: string[]): Map<string, ArtifactsTreeEntry[]> {
+  const result = new Map<string, ArtifactsTreeEntry[]>([[NEW_TREE, []]]);
+  const directories = new Map<string, string>([["", NEW_TREE]]);
+  for (const path of paths) {
+    const parts = path.split("/");
+    let prefix = "", tree = NEW_TREE;
+    for (const [index, name] of parts.entries()) {
+      const entries = result.get(tree)!;
+      if (index === parts.length - 1) entries.push(file(name));
+      else {
+        prefix += name + "/";
+        let hash = directories.get(prefix);
+        if (!hash) {
+          hash = directories.size.toString(16).padStart(40, "0");
+          directories.set(prefix, hash);
+          result.set(hash, []);
+          entries.push({ name, hash, type: "tree", mode: "40000" });
+        }
+        tree = hash;
+      }
+    }
+  }
+  return result;
+}
+
 /** Explicit offline fixture implementing only the production binding surface. */
 export class FixtureArtifacts implements ArtifactsBinding {
   calls: { method: string; repo: string; scope?: string; ttl?: number; sourceUrl?: string; ref?: string }[] = [];
@@ -182,7 +208,10 @@ export class FixtureArtifacts implements ArtifactsBinding {
         if (this.failTree) return null;
         if (this.reviewTrees.has(hash)) return this.reviewTrees.get(hash)!;
         if (this.changedPaths && hash === OLD_TREE) return [];
-        if (this.changedPaths && hash === NEW_TREE) return this.changedPaths.map((path) => file(path));
+        if (this.changedPaths) {
+          const tree = pushTrees(this.changedPaths).get(hash);
+          if (tree) return tree;
+        }
         if (this.checks !== undefined && (hash === OLD_TREE || hash === NEW_TREE))
           return [...trees.get(hash)!, { name: ".forkhorse", type: "tree", mode: "40000", hash: "c".repeat(40) }];
         if (this.checks !== undefined && hash === "c".repeat(40))

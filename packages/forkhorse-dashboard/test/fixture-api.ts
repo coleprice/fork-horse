@@ -1,3 +1,4 @@
+import { judgeScenarios, judgeFixtureState, judgeFixtureDetail } from "./judge-fixtures.ts";
 import { archiveFixtureState, archiveScenarios, archiveRace } from "./archive-fixtures.ts";
 
 import { usageScenarios, usageFixtureState, usageFixtureDetail } from "./usage-fixtures.ts";
@@ -112,6 +113,16 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const judgeRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    if (judgeRoute && judgeScenarios.includes(judgeRoute[1])) {
+      if (!states.has(judgeRoute[1])) states.set(judgeRoute[1], judgeFixtureState(judgeRoute[1]));
+      const state = states.get(judgeRoute[1])!;
+      if (judgeRoute[2] === "state") send(state);
+      else if (judgeRoute[2] === "activity") send({ activity: [], nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+      else if (!state.reviews.some((r) => r.id === judgeRoute[3])) send({ error: "Fixture review missing" }, 404);
+      else send(judgeFixtureDetail(state, judgeRoute[3]));
+      return;
     }
     const archiveRoute = /^\/projects\/([^/]+)\/(state|activity|packets\/([^/]+)\/(archive|unarchive)|reviews\/([^/]+)(?:\/(receipt|diff))?)$/.exec(url.pathname);
     if (archiveRoute && archiveScenarios.includes(archiveRoute[1])) {

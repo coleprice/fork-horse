@@ -5,13 +5,16 @@ import { CallerCredentials } from "./caller-credentials";
 import { DurableObject } from "cloudflare:workers";
 import { bearerHash, body, digest, equalHash, errorResponse, HttpError, json, operation, slug } from "./http";
 import type { ErrorContext } from "./http";
-import { changedPaths, ZERO_SHA } from "./trees";
+import { changedPaths, pathHashes, ZERO_SHA } from "./trees";
 import { branchHead } from "./artifacts";
 import type { Activity, Env, Project, PushEvent } from "./types";
 import { WorkerGit } from "./git";
 import type { GitOperations } from "./git";
 import type { Actor, Agent } from "./workflow";
 import { Workflow, recordWorkflowPush } from "./workflow";
+import type { Claim } from "./workflow-types";
+import { openEntrants } from "./race-entrants";
+import { overlaps } from "./paths";
 import { capActivity } from "./activity";
 import type { StoredActivity } from "./activity";
 
@@ -344,6 +347,34 @@ export class Supervisor extends DurableObject<Env> {
             // Keep event-based invalidation when Artifacts cannot resolve the head.
           }
         }
+        const candidates = new Set<string>();
+        let differing: Set<string> | null = null;
+        if (agent !== null) {
+          const claims = [
+            ...(await this.ctx.storage.list<Claim>({ prefix: "claim:" })).values(),
+            ...await openEntrants(this.ctx.storage),
+          ];
+          for (const path of paths) {
+            if (claims.some(claim => claim.agent !== agent &&
+              claim.paths.some(claimed => overlaps(claimed, path)))) candidates.add(path);
+          }
+          // Artifacts RPC must finish before the SQLite storage transaction opens.
+          // Claims are re-read inside it; paths missed here remain conservative.
+          if (!candidates.size) differing = new Set();
+          else {
+            try {
+              using canonical = await this.env.ARTIFACTS.get(project.repoName);
+              const canonicalHead = await branchHead(canonical, project.defaultBranch);
+              if (canonicalHead === ZERO_SHA) throw new Error("Canonical head unavailable");
+              const candidatePaths = [...candidates];
+              const pushed = await pathHashes(repo, event.payload.after, candidatePaths);
+              const promoted = await pathHashes(canonical, canonicalHead, candidatePaths);
+              differing = new Set(candidatePaths.filter(path => pushed.get(path) !== promoted.get(path)));
+            } catch {
+              // Null preserves all overlaps when either repository cannot be read.
+            }
+          }
+        }
         await this.ctx.storage.transaction(async (txn) => {
           const sequence = ((await txn.get<number>("sequence")) ?? 0) + 1;
           const entry: Activity = {
@@ -358,7 +389,7 @@ export class Supervisor extends DurableObject<Env> {
             eventTimestamp: event.metadata.eventTimestamp,
             recordedAt: new Date().toISOString(),
           };
-          await recordWorkflowPush(txn, project, event, entry, forkHead);
+          await recordWorkflowPush(txn, project, event, entry, differing, candidates, forkHead);
           // Conflict detection above must see every path, including those beyond the cap.
           await txn.put({
             [key]: true,

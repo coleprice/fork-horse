@@ -178,6 +178,10 @@ describe("public core integration with offline signed JWTs, KV, DO and built das
     expect(result.result.tools.map((tool) => tool.name)).toEqual([
       "get_context",
       "status",
+      "list_judge_races",
+      "get_review",
+      "get_review_diff",
+      "submit_verdict",
       "refresh_token",
       "activity",
       "join",

@@ -846,6 +846,8 @@ export async function recordWorkflowPush(
   project: Project,
   event: PushEvent,
   entry: Activity,
+  differing: Set<string> | null,
+  candidates: Set<string>,
   forkHead?: string,
 ): Promise<void> {
   if (entry.agent) {
@@ -854,13 +856,22 @@ export async function recordWorkflowPush(
     const pushingClaims = claims.filter(claim => claim.agent === entry.agent && claim.repoName === entry.repoName);
     // Raw push events name a fork, not a packet. Multiple bindings cannot be attributed safely.
     const pushingPacket = pushingClaims.length === 1 ? pushingClaims[0]!.packet : null;
-    for (const claim of claims) {
+    const collisions = claims.flatMap(claim => {
       const paths = entry.changedPaths.filter((path) =>
         claim.paths.some((claimed) => overlaps(claimed, path)),
       );
       const sameRace = raceEntrants.some(entrant => entrant.packet === claim.packet &&
         entrant.agent === entry.agent && entrant.repoName === entry.repoName);
-      if (claim.agent !== entry.agent && paths.length && !sameRace) {
+      return claim.agent !== entry.agent && paths.length && !sameRace ? [{ claim, paths }] : [];
+    });
+    for (const collision of collisions) {
+      const { claim } = collision;
+      // A foreign claim may appear after precomputation. Unread paths and failed
+      // comparisons must remain blockers; this transaction performs only storage I/O.
+      const paths = collision.paths.filter(path =>
+        differing === null || !candidates.has(path) || differing.has(path),
+      );
+      if (paths.length) {
         // A colon cannot occur in packet/agent slugs, so race IDs cannot collide with standard packet IDs.
         const id = `${entry.sequence}-${claim.packet}${"closedAt" in claim ? `:${claim.agent}` : ""}`;
         const blocker: Blocker = {
