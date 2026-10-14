@@ -265,7 +265,14 @@ syntax, traversal, empty components, backslashes, control bytes and `.git`
 components are rejected. `src` and `src-old` are siblings, not overlapping paths.
 A claim overlapping another agent's live claim returns 409. On recorded pushes,
 changes overlapping another agent's live claims create immutable blocker records
-in the activity transaction; duplicate delivery creates no duplicate blocker.
+in the activity transaction only when their pushed object IDs differ from canonical's
+current head. Catch-up merges and fast-forwards carrying canonical content create no
+blocker. A deletion counts when canonical still contains the path. Only overlapping
+paths' trees are read, without blob reads or tokens; if canonical or pushed objects
+cannot be read, all overlaps remain candidates for blockers. Duplicate delivery creates no duplicate blocker.
+Artifacts reads finish before the storage transaction opens. The transaction
+re-reads live claims and treats any overlapping path absent from the precomputed
+candidates as a blocker, so a claim created during the comparison stays conservative.
 Blockers are observations, not an additional approval gate or a claim release.
 
 Commit validates the live packet/agent/repo binding independently of its client:
@@ -487,6 +494,17 @@ linear algorithm avoids quadratic work on adversarial inputs. The patch is cappe
 at 64 KiB of UTF-8, at whole diff-line boundaries, with `truncated:true` if incomplete.
 Mode-only changes can have an empty patch. Symlink targets are content, never followed;
 gitlinks render their commit references without accessing the referenced repository.
+
+The Supervisor durably caches only complete Git-derived detail and requested
+patches by the exact `(base, head)` commit pair, shared across reviews of that
+pair in the same project. Authorization, review status, receipts, approval, usage,
+packet metadata, promotion ledger and blockers are read fresh on every request.
+Cache hits avoid opening the repository. Each pair's UTF-8 JSON (including cached
+patches and bookkeeping) is capped at 64 KiB; larger values are served without
+caching. At most 32 pairs are retained, evicting the oldest insertion rather than
+the least recent read. Oversized updates retain any smaller complete values already
+stored. Failed reads, truncated file lists/history and truncated patches are never
+cached. Patches populate on demand; creating a review does not wait for cache warming.
 
 Reads fail closed with 413 above these input budgets: 20,000 combined tree entries,
 64 directory levels, 4 KiB per path, 2,048 distinct commits (including base ancestry),

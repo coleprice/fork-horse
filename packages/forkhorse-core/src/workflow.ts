@@ -1,5 +1,6 @@
 import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, raceStates, recordPromoteRejected } from "./race-entrants";
 import { ReviewReader } from "./review-detail";
+import { ReviewCache } from "./review-cache";
 import { judgeMayRead, raceFinished, saveVerdict } from "./race-judge";
 import { requireTokenBudget, tokenCount, usageSources } from "./usage";
 import { publicReview, readReceipt, settings } from "./receipts";
@@ -543,10 +544,16 @@ export class Workflow {
       if (!review) throw new HttpError(404, "Review not found.");
       if (!actor.owner && actor.agent !== review.agent && !await judgeMayRead(this.storage, actor.agent, review))
         throw new HttpError(403, "Review belongs to another agent.");
-      using repo = await this.env.ARTIFACTS.get(review.repoName);
-      const reader = new ReviewReader(repo);
-      const changes = await reader.changes(review.base, review.sha);
-      if (detail[2]) return json(await reader.diff(new URL(request.url).searchParams.get("path") ?? "", changes));
+      const cache = new ReviewCache(this.storage);
+      if (detail[2]) {
+        const path = new URL(request.url).searchParams.get("path") ?? "";
+        return json(await cache.diff(review.base, review.sha, path, async () => {
+          using repo = await this.env.ARTIFACTS.get(review.repoName);
+          const reader = new ReviewReader(repo);
+          const changes = await reader.changes(review.base, review.sha);
+          return { patch: await reader.diff(path, changes), complete: !changes.public.truncated };
+        }));
+      }
       const packet = await this.storage.get<Packet>(`packet:${review.packet}`);
       if (!packet) throw new HttpError(404, "Packet not found.");
       // Historical stores can grow indefinitely; fail closed instead of scanning without a budget.
@@ -555,9 +562,15 @@ export class Workflow {
       if (ledgerEntries.size > 2048 || blockerEntries.size > 2048)
         throw new HttpError(413, "Review exceeds the bounded read limit.");
       const ledger = [...ledgerEntries.values()].find(entry => entry.review === review.id);
+      const gitDetail = await cache.detail(review.base, review.sha, async () => {
+        using repo = await this.env.ARTIFACTS.get(review.repoName);
+        const reader = new ReviewReader(repo);
+        const changes = await reader.changes(review.base, review.sha);
+        return { changes: changes.public, ...await reader.history(review.base, review.sha) };
+      });
       return json({ review: publicReview(review),
         packet: { id: packet.id, title: packet.title, goal: packet.goal, paths: packet.paths, acceptance: packet.acceptance },
-        changes: changes.public, ...await reader.history(review.base, review.sha),
+        ...gitDetail,
         promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest,
           ...(ledger.requireReceipt === undefined ? {} : { requireReceipt: ledger.requireReceipt }),
         } : null,
@@ -833,6 +846,8 @@ export async function recordWorkflowPush(
   project: Project,
   event: PushEvent,
   entry: Activity,
+  differing: Set<string> | null,
+  candidates: Set<string>,
   forkHead?: string,
 ): Promise<void> {
   if (entry.agent) {
@@ -841,13 +856,22 @@ export async function recordWorkflowPush(
     const pushingClaims = claims.filter(claim => claim.agent === entry.agent && claim.repoName === entry.repoName);
     // Raw push events name a fork, not a packet. Multiple bindings cannot be attributed safely.
     const pushingPacket = pushingClaims.length === 1 ? pushingClaims[0]!.packet : null;
-    for (const claim of claims) {
+    const collisions = claims.flatMap(claim => {
       const paths = entry.changedPaths.filter((path) =>
         claim.paths.some((claimed) => overlaps(claimed, path)),
       );
       const sameRace = raceEntrants.some(entrant => entrant.packet === claim.packet &&
         entrant.agent === entry.agent && entrant.repoName === entry.repoName);
-      if (claim.agent !== entry.agent && paths.length && !sameRace) {
+      return claim.agent !== entry.agent && paths.length && !sameRace ? [{ claim, paths }] : [];
+    });
+    for (const collision of collisions) {
+      const { claim } = collision;
+      // A foreign claim may appear after precomputation. Unread paths and failed
+      // comparisons must remain blockers; this transaction performs only storage I/O.
+      const paths = collision.paths.filter(path =>
+        differing === null || !candidates.has(path) || differing.has(path),
+      );
+      if (paths.length) {
         // A colon cannot occur in packet/agent slugs, so race IDs cannot collide with standard packet IDs.
         const id = `${entry.sequence}-${claim.packet}${"closedAt" in claim ? `:${claim.agent}` : ""}`;
         const blocker: Blocker = {

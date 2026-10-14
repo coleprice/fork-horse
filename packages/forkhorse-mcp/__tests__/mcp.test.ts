@@ -30,22 +30,33 @@ async function connect(core = new FixtureCore()) {
 }
 
 describe("fixture Streamable HTTP integration", () => {
-  it("initializes with the official SDK and lists nine tools with honest annotations", async () => {
+  it("initializes with the official SDK and lists thirteen tools with honest annotations", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).toSorted()).toEqual([
       "activity",
       "claim",
       "get_context",
+      "get_review",
+      "get_review_diff",
       "join",
+      "list_judge_races",
       "refresh_token",
       "report_usage",
       "request_review",
       "status",
+      "submit_verdict",
       "submit_work",
     ]);
     for (const tool of tools) {
-      const read = ["get_context", "status", "activity"].includes(tool.name);
+      const read = [
+        "get_context",
+        "status",
+        "activity",
+        "list_judge_races",
+        "get_review",
+        "get_review_diff",
+      ].includes(tool.name);
       expect(tool.annotations?.readOnlyHint).toBe(read);
       expect(tool.annotations?.idempotentHint).toBe(read);
     }

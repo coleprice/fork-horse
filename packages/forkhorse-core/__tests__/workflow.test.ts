@@ -18,6 +18,7 @@ import type { Activity, PushEvent } from "../src/types";
 import { branchHead } from "../src/artifacts";
 import { AFTER, BEFORE } from "./fixtures";
 import { TestSupervisor } from "./worker";
+import { REVIEW_CACHE_PREFIX } from "../src/review-cache";
 
 const OWNER = "offline-fixture-owner-token";
 function api(id: string, path: string, token = OWNER, data?: unknown, method?: string) {
@@ -1221,6 +1222,110 @@ async function ready() {
   await claim(f.id, f.alpha);
   return { ...f, review: await review(f.id, f.alpha, f.a) };
 }
+
+// Seed historical reviews without starting background receipt execution, so the
+// cache freshness assertions observe only the controlled offline storage changes.
+async function cachedReviewFixture() {
+  const f = await fixture();
+  await packet(f.id);
+  const review: Review = {
+    id: "cache-review", packet: "one", agent: "alpha", repoName: f.a,
+    base: BEFORE, sha: AFTER, receiptDigest: null, approval: null,
+    stale: false, promoted: false, returned: null, createdAt: "2026-10-13T00:00:00.000Z",
+  };
+  await mutate(f.id, async (instance, objectState) => {
+    await objectState.storage.put(`review:${review.id}`, review);
+    instance.fixture.reviewBlobs.set("7".repeat(40), new Blob(["before\n"]));
+    instance.fixture.reviewBlobs.set("8".repeat(40), new Blob(["after\n"]));
+  });
+  return { ...f, review, route: `/reviews/${review.id}` };
+}
+
+describe("FH-046 cached detail API in workerd with offline providers", () => {
+  it("populates once, returns identical output on a hit, and refreshes every mutable field", async () => {
+    const f = await cachedReviewFixture();
+    const read = async () => {
+      const response = await api(f.id, f.route, f.alpha);
+      expect(response.status).toBe(200);
+      return response.json<{ review: Review; packet: Packet; changes: unknown; commits: unknown; commitsTruncated: boolean; blockers: Blocker[]; promotion: unknown }>();
+    };
+    const first = await read();
+    await mutate(f.id, async (instance, objectState) => {
+      expect((await objectState.storage.list({ prefix: REVIEW_CACHE_PREFIX })).size).toBe(1);
+      // No new repository acquisition or object reads may occur on warm hits.
+      instance.fixture.calls.length = 0;
+      instance.fixture.failTree = true;
+    });
+    expect(await read()).toEqual(first);
+    const updated: Review = {
+      ...f.review, stale: true, promoted: true, approval: { sha: AFTER, receiptDigest: "fixture-digest" },
+      receiptDigest: "fixture-digest", returned: { reason: "Fixture revision", at: "2026-10-13T01:00:00.000Z" },
+      receipt: { status: "failed", trigger: "review-created", digest: "fixture-digest", startedAt: "2026-10-13T00:00:00.000Z",
+        finishedAt: "2026-10-13T01:00:00.000Z", durationMs: 1000, checks: [] },
+      usageAtReview: { reported: { inputTokens: 20, outputTokens: 10, source: "reported", at: "2026-10-13T01:00:00.000Z" }, metered: null },
+    };
+    const ledger: LedgerEntry = { id: "cache-ledger", review: f.review.id, repoName: f.a, ref: "refs/heads/main",
+      before: BEFORE, after: AFTER, recordedAt: "2026-10-13T01:00:00.000Z", receiptDigest: "fixture-digest", requireReceipt: false };
+    await mutate(f.id, async (_instance, objectState) => {
+      await objectState.storage.put(`review:${f.review.id}`, updated);
+      const packet = (await objectState.storage.get<Packet>("packet:one"))!;
+      await objectState.storage.put("packet:one", { ...packet, title: "Changed title", goal: "Changed goal", acceptance: ["Changed check"] });
+      await objectState.storage.put("blocker:fresh", { id: "fresh", packet: "one", paths: ["src/index.ts"],
+        resolved: { at: ledger.recordedAt, by: "owner", reason: "Fixture resolution" } });
+      await objectState.storage.put("ledger:cache-ledger", ledger);
+    });
+    const warm = await read();
+    expect(warm.review).toEqual({ ...updated, receipt: updated.receipt });
+    expect(warm.packet).toMatchObject({ title: "Changed title", goal: "Changed goal", acceptance: ["Changed check"] });
+    expect(warm.blockers).toMatchObject([{ id: "fresh", resolved: { reason: "Fixture resolution" } }]);
+    expect(warm.promotion).toEqual({ before: BEFORE, after: AFTER, recordedAt: ledger.recordedAt, receiptDigest: "fixture-digest", requireReceipt: false });
+    expect({ changes: warm.changes, commits: warm.commits, commitsTruncated: warm.commitsTruncated })
+      .toEqual({ changes: first.changes, commits: first.commits, commitsTruncated: first.commitsTruncated });
+    await mutate(f.id, async (instance, objectState) => {
+      expect(instance.fixture.calls).toEqual([]);
+      const serialized = JSON.stringify([...(await objectState.storage.list({ prefix: REVIEW_CACHE_PREFIX })).values()]);
+      for (const forbidden of ["cache-review", "Changed title", "fixture-digest", "Fixture resolution", "usageAtReview", f.a])
+        expect(serialized).not.toContain(forbidden);
+    });
+  });
+
+  it("shares a pair across reviews while enforcing each review's current authority on detail and patch hits", async () => {
+    const f = await cachedReviewFixture();
+    expect((await api(f.id, f.route, f.alpha)).status).toBe(200);
+    const patchResponse = await api(f.id, f.route + "/diff?path=src%2Findex.ts", f.alpha);
+    expect(patchResponse.status).toBe(200);
+    const patch = await patchResponse.json();
+    await mutate(f.id, async (instance, objectState) => {
+      instance.fixture.failTree = true;
+      instance.fixture.calls.length = 0;
+      await objectState.storage.put("review:second", { ...f.review, id: "second", agent: "beta", repoName: f.b });
+      await objectState.storage.put(`review:${f.review.id}`, { ...f.review, agent: "beta" });
+    });
+    expect((await api(f.id, f.route, f.alpha)).status).toBe(403);
+    expect((await api(f.id, f.route + "/diff?path=src%2Findex.ts", f.alpha)).status).toBe(403);
+    const second = await api(f.id, "/reviews/second", f.beta);
+    expect(second.status).toBe(200);
+    expect((await second.json<{ review: Review }>()).review).toMatchObject({ id: "second", agent: "beta", repoName: f.b });
+    expect(await (await api(f.id, "/reviews/second/diff?path=src%2Findex.ts", OWNER)).json()).toEqual(patch);
+    await mutate(f.id, async (instance, objectState) => {
+      expect(instance.fixture.calls).toEqual([]);
+      expect((await objectState.storage.list({ prefix: REVIEW_CACHE_PREFIX })).size).toBe(1);
+      await objectState.storage.delete("packet:one");
+    });
+    expect((await api(f.id, "/reviews/second", f.beta)).status).toBe(404);
+  });
+
+  it("keeps the mutable ledger/blocker read budget on warm hits", async () => {
+    const f = await cachedReviewFixture();
+    expect((await api(f.id, f.route, f.alpha)).status).toBe(200);
+    await mutate(f.id, async (instance, objectState) => {
+      instance.fixture.failTree = true;
+      for (let i = 0; i < 2049; i++)
+        await objectState.storage.put(`blocker:budget-${i}`, { id: `budget-${i}`, packet: "other" });
+    });
+    expect((await api(f.id, f.route, f.alpha)).status).toBe(413);
+  });
+});
 
 describe("FH-039 return and detail API in workerd with offline providers", () => {
 
