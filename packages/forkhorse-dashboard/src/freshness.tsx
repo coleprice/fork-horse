@@ -29,7 +29,7 @@ export function FreshnessStamp({ view, retry }: { view: ViewModel; retry?: () =>
   // A retry of a failed read stays stale, with its time visible, until it succeeds.
   return <div className="freshness-stamp caption muted" data-freshness="stamp">
     {view.stale ? <>
-      <span role="status">Couldn't refresh. Showing data from {time}.</span>
+      <span role="status">Couldn't refresh. Last updated {time}.</span>
       {retry && <Button variant="ghost" size="sm" disabled={view.refreshing || view.busy}
         onClick={() => void retry()}>Try again</Button>}
     </> : view.refreshing ? <Tooltip content={`Updated ${snapshotAge(view)} · ${new Date(view.updatedAt).toLocaleString()}`} render={<span />}>

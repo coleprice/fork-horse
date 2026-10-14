@@ -56,7 +56,7 @@ const writes = (c: ReturnType<typeof setup>) => c.calls.filter((call) => ["POST"
 async function failRefresh(c: ReturnType<typeof setup>) {
   c.state(async () => Response.json({ error: "PRIVATE RAW STATE FAILURE" }, { status: 502 }));
   await c.app.refresh();
-  assert.match(stamp(c).textContent!, /Couldn't refresh\. Showing data from/);
+  assert.match(stamp(c).textContent!, /Couldn't refresh\. Last updated/);
   assert.ok(stamp(c).querySelector("time")?.dateTime);
   assert.doesNotMatch(c.root.textContent!, /PRIVATE RAW/);
 }

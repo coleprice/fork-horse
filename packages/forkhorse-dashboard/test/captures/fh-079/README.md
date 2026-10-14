@@ -14,12 +14,15 @@ The tab-row stamp reuses `relativeTime`, updates every 30 seconds and has no
 seconds counter. Failed reads retain their timestamp while a retry is pending.
 Stale controls stay visible with a focusable tooltip. Agent owner controls stay
 hidden. Review detail adds the approved slow-read explanation after 3 seconds,
-uses plain failure copy with Try again and shows only a bounded response UUID to
-owners. Raw detail response bodies never reach the view.
+uses plain failure copy with a default-size secondary Try again only for retryable
+errors, and shows only a bounded response UUID to owners. A 404 has no retry
+button. Raw detail response bodies never reach the view.
 
-## Capture matrix (pending)
+## Lean capture plan (pending; supersedes the original matrix)
 
-All cases use the labeled offline fixture entry. No live account is contacted.
+The 12:26 design ruling supersedes the earlier larger capture request. Capture
+only the five cases below, with the stamp in light mode at width 1600. All cases
+use the labeled offline fixture entry. No live account is contacted.
 No fixture or production endpoint was added. The freshness fixture adapter wraps
 existing review fixture routes, with read delays/errors only in the fixture build.
 
@@ -27,16 +30,16 @@ existing review fixture routes, with read delays/errors only in the fixture buil
 | --- | --- | --- |
 | Successful populated snapshot | `fixtures.html?scenario=review-current#review` | Stamp, exact-time tooltip; populated content geometry unchanged |
 | Read in flight | `fixtures.html?scenario=freshness-refreshing#review` | Existing data and enabled actions, Refreshing… in tab row, no spinner or live region |
-| Failed read | `fixtures.html?scenario=freshness-failed#review` | Retained data/time, failure status, ghost Try again, disabled Approve and Receipts |
+| Failed read | `fixtures.html?scenario=freshness-failed#review` | Retained data/time, "Couldn't refresh. Last updated {age}.", ghost sm Try again, disabled Approve with its tooltip open |
 | Slow review | `fixtures.html?scenario=freshness-slow-review#review/review-1` | Initial Loading review…; approved caption after 3 seconds; completed detail after 15 seconds |
-| Failed review | `fixtures.html?scenario=freshness-review-error#review/review-1` | Plain error/caption, owner-only diagnostic ID, one read on Try again |
-| Agent failed read/detail | Same failed URLs with `&role=agent` before fragment | Timestamp remains; no owner write controls or diagnostic ID |
+| Failed review (owner) | `fixtures.html?scenario=freshness-review-error#review/review-1` | Plain error/caption, diagnostic ID, default-size secondary Try again |
 
 Retained-data fixture scenarios initiate their second read after one second. The
 in-flight scenario releases after 30 seconds. The failed-read and failed-review
-scenarios fail once; Try again succeeds. Cover light/dark and phone widths, all
-owner write controls (including ordinary/judge promotion, Return, collision
-resolution and archive/unarchive), and already-open confirmations.
+scenarios fail once; Try again succeeds. The fixture suite still covers owner
+write guards, open confirmations, fresh-read recovery and agent hiding; these
+cases do not expand the lean capture request. The live-paused banner now reads
+"Live updates paused. Last updated {age}."
 
 ## Validation gates (all pending)
 

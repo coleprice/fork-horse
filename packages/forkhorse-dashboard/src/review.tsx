@@ -536,9 +536,11 @@ export function ReviewView({
           Reading the fork's repository failed. Try again in a moment.
         </p>}
         {actions.owner && diagnosticId && <p className="caption muted">Diagnostic ID <code>{diagnosticId}</code></p>}
-        <Button variant="ghost" size="sm" onClick={() => setAttempt(attempt + 1)}>
-          Try again
-        </Button>
+        {error === "error" && (
+          <Button variant="secondary" onClick={() => setAttempt(attempt + 1)}>
+            Try again
+          </Button>
+        )}
       </section>
     );
   if (!detail || !review)

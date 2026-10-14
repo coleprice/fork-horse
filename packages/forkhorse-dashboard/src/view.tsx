@@ -832,7 +832,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   className="live-paused"
                   icon={<Warning size={16} />}
                   role="status"
-                  description={`Live updates paused. Showing data from ${snapshotAge(view)}.`}
+                  description={`Live updates paused. Last updated ${snapshotAge(view)}.`}
                   action={
                     actions.reconnect && (
                       <Button
