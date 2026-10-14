@@ -46,6 +46,7 @@ import {
 import { ArchiveControl, ArchivedBadge } from "./archive.tsx";
 import { CollisionBanner, CollisionRows, ResolveCollisionDialog } from "./collisions.tsx";
 import { RaceView } from "./race.tsx";
+import { Races, openRaceCount } from "./races.tsx";
 import { ReviewView } from "./review.tsx";
 import { ForkGraph } from "./fork-graph.tsx";
 import { NeedsYou } from "./needs-you.tsx";
@@ -54,12 +55,13 @@ import type { OwnerNeed } from "./needs-you-model.ts";
 import type { ReviewDetail, ReviewDiff, Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
 import { relativeTime as relative } from "./time.ts";
 
-export type Section = "overview" | "work" | "review" | "agents";
+export type Section = "overview" | "work" | "review" | "agents" | "races";
 export interface ViewActions {
   resolveBlocker?(id: string, reason: string): Promise<import("./contracts.ts").WireBlocker>;
   openCollision?(blocker: import("./contracts.ts").BlockerView): void;
   showPacket?(id: string): void;
   raceId?: string;
+  raceBackSection?: "work" | "races";
   openRace?(id?: string): void;
   reviewId?: string;
   openReview(id?: string): void;
@@ -575,7 +577,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
       id={`view-${id}`}
       className="view-stack"
       role="tabpanel"
-      aria-label={{ overview: "Overview", work: "Work", review: "Review", agents: "Agents" }[id]}
+      aria-label={{ overview: "Overview", work: "Work", review: "Review", agents: "Agents", races: "Races" }[id]}
     >
       {content}
     </div>
@@ -828,6 +830,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     ),
                   },
                   { className: "text-[13px]", value: "agents", label: "Agents" },
+                  { className: "text-[13px]", value: "races", label: <span className="tab-label">
+                    Races
+                    {openRaceCount(state?.races ?? []) > 0 && <><span className="sr-only">, </span>
+                      <Badge variant="secondary">{openRaceCount(state?.races ?? [])}</Badge></>}
+                  </span> },
                 ]}
               />
               <FreshnessStamp view={view} retry={actions.retry} />
@@ -1353,6 +1360,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     <AgentStatusTable key={view.project} state={state} activity={view.activity}
                       brand={view.brand} owner={actions.owner} openPacket={showPacket} revealRepo={agentRepo} />,
                   )}
+                  {section("races", <Races state={state} owner={actions.owner} openRace={(id) => actions.openRace?.(id)} />)}
                 </>
               )}
             </div>

@@ -183,6 +183,30 @@ select {
 .resume-card dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; }
 .resume-card dt { color: var(--text-color-kumo-subtle); }
 .resume-card dd { margin: 0; min-width: 0; }
+/* FH-081 folds metadata rather than imposing a wider race-list table. */
+.table-races table { width: 100%; min-width: 0; }
+.table-races th, .table-races td { white-space: normal; overflow-wrap: anywhere; }
+.table-races .race-list-column-0 { width: var(--race-list-title-width, 25%); }
+.table-races .race-list-column-1 { width: var(--race-list-status-width, 12%); }
+.table-races .race-list-column-2 { width: var(--race-list-entrants-width, 20%); }
+.table-races .race-list-column-3 { width: var(--race-list-winner-width, 17%); }
+.table-races .race-list-column-4 { width: 16%; }
+.table-races .race-list-column-5 { width: 10%; }
+.table-races td > .caption:not(.folded), .table-races .folded > span { display: block; }
+.race-list-runner { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.race-list-name { min-width: 0; overflow-wrap: anywhere; }
+.race-list-runner .race-saddlecloth { flex: 0 0 24px; min-width: 24px; width: 24px; height: 24px; font-size: 12px; }
+.race-list-entrant + .race-list-entrant { margin-top: 8px; }
+.race-list-entrant > .caption { display: block; padding-left: 32px; }
+.table-races .race-list-link { white-space: normal; overflow-wrap: anywhere; }
+@container (max-width: 819px) {
+  .table-races { --race-list-title-width: 30%; --race-list-status-width: 17%; --race-list-entrants-width: 28%; --race-list-winner-width: 25%; }
+  .table-races .race-list-column-4, .table-races .race-list-column-5 { display: none; }
+}
+@media (max-width: 899px) {
+  .table-races { --race-list-title-width: 30%; --race-list-status-width: 17%; --race-list-entrants-width: 28%; --race-list-winner-width: 25%; }
+  .table-races .race-list-column-4, .table-races .race-list-column-5 { display: none; }
+}
 .caption {
   font-size: var(--text-xs);
   line-height: var(--text-xs--line-height);

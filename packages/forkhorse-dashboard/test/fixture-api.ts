@@ -7,6 +7,7 @@ import { usageScenarios, usageFixtureState, usageFixtureDetail } from "./usage-f
 import { collisionScenarios, collisionFixtureState } from "./collision-fixtures.ts";
 import { readFileSync } from "node:fs";
 import { raceScenarios, raceFixtureState } from "./race-fixtures.ts";
+import { racesScenarios, racesFixtureState } from "./races-fixtures.ts";
 import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
@@ -117,6 +118,11 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
       response.end(JSON.stringify(data));
     }
     const agentStatusRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (agentStatusRoute && racesScenarios.includes(agentStatusRoute[1])) {
+      const state = racesFixtureState(agentStatusRoute[1]);
+      send(agentStatusRoute[2] === "state" ? state : { activity: [], nextAfter: 0 });
+      return;
+    }
     if (agentStatusRoute && agentStatusScenarios.includes(agentStatusRoute[1])) {
       if (!states.has(agentStatusRoute[1])) states.set(agentStatusRoute[1], agentStatusFixtureState(agentStatusRoute[1]));
       const state = states.get(agentStatusRoute[1])!;

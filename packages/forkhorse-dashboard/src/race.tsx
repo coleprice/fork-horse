@@ -227,7 +227,7 @@ export function RaceView({
   }, [packet, !!state]);
   const back = (
     <Button variant="ghost" size="sm" onClick={() => actions.openRace?.()}>
-      ← Work
+      ← {actions.raceBackSection === "races" ? "Races" : "Work"}
     </Button>
   );
   if (view.error && !view.stale)
