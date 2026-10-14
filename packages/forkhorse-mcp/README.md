@@ -26,6 +26,7 @@ All adapters must honor `signal` and check it before starting writes. Core remai
 | `refresh_token` | `repoName`, optional `ttlSeconds`         | `POST /projects/:id/forks/:repo/token` | no        |
 | `join`           | `project`, `agent`, optional `ttlSeconds` | `POST /projects/:id/join`               | no        |
 | `claim`          | `project`, `packet`, optional `repoName`  | `POST /projects/:id/packets/:pid/claim` | no        |
+| `report_usage`   | `project`, `packet`, `inputTokens`, `outputTokens`, optional `model` | `POST /projects/:id/usage` | no |
 | `request_review` | `project`, `packet`, `repoName`, `sha`    | `POST /projects/:id/reviews`            | no        |
 | `submit_work`    | `project`, `packet`, `files`, `message`   | `POST /projects/:id/forks/:repo/commit` | no        |
 | `list_judge_races` | `project` | `GET /projects/:id/state` (caller assignment filter) | yes |
@@ -37,6 +38,12 @@ All adapters must honor `signal` and check it before starting writes. Core remai
 
 Packet records expose `mode: "standard" | "race"`; legacy records default to `"standard"`. Both read tools add `myRaces`, selecting `/state.races` entries where the authenticated caller has entered, including closed entries. Each caller race gets a standings text line showing all its entrants, their furthest recorded milestone, authoritative places, closure, winner, string `ledgerEntryId` (the promote's `ledger[].id`) and optional `promoteRejected` evidence. The project snapshot's `races` stays intact. Milestone order is Claimed → First push → Review requested → Checks passed → Approved → Promoted. Core supplies all timestamps and places; MCP never ranks entrants or changes FH-042 resume hints. Missing legacy `races` means no races; supplied malformed race records fail the tool instead of silently hiding standings.
 
+Both tools add `myUsage`, a caller-owned projection of state claims and race entrants: `{packet, repoName, usage: {reported, metered}, tokenBudget, budget}`. Usage sources are null or `{inputTokens, outputTokens, model?, source, at}`. Missing legacy usage stays null, never zero. Standard claims have `tokenBudget: null` and `budget: "unchecked"`. Race budget states (`unchecked`, `within`, `near`, `over`) come from core; this library does not recalculate them or infer safety when a budgeted entrant lacks a state. The full snapshot keeps historical `reviews[].usageAtReview`.
+
+When present, `myRaces` also preserves core's `tokenBudget` and each entrant's `usage` and `budget` alongside milestones and places. Legacy standings without these fields remain valid. The combined workerd fixtures verify both caller projections against source-derived core race/usage mapper output; this is offline wire evidence, not live core acceptance.
+
+`report_usage` forwards only `{packet, inputTokens, outputTokens, model?}` with the caller's bearer to core's usage route. Each count is an integer from 0 to 1,000,000,000. Agents report cumulative totals before every `request_review` and whenever asked; these are self-reported, not provider-metered. Core owns monotonicity, live claim/entrant binding, review snapshots and promotion gates. There is no retry or automatic zero report. Inspect status after conflicts or uncertain writes. This contract uses labeled FH-060 fixtures; **integrate and merge only after accepted FH-060**.
+
 `refresh_token` derives the project from the authenticated identity, forwards that caller's bearer, and requests `{scope:"write", ttlSeconds}` (default 3600, range 60–3600). Core independently checks registered fork ownership and refuses canonical credentials. The tool returns only `{remote, token, expiresAt}`; it never logs credentials, retries issuance or stores tokens. Use the returned token only as an `http.extraHeader`, never print/log it or persist it in Git configuration. Resume uses the existing claim; never join again. Both successes and failures retain `Cache-Control: no-store`.
 
 The join/claim workflow explicitly passes the returned `repoName` to `claim`. If omitted, core defaults it to the most recently successfully registered fork. Claim creation atomically returns the immutable `{packet, agent, repoName}` binding. `state.claims` must contain live bindings in that same shape. `submit_work` filters them by the authenticated caller and packet, refuses missing/ambiguous bindings, and uses exactly the bound repository. Later joins never redirect that binding. Releasing and reclaiming belongs to core's claim lifecycle; no release tool or route is invented here.
@@ -45,11 +52,11 @@ For race packets, `claim` uses that same caller-authenticated route and fork arg
 
 `files` contains `{path, content}` objects, up to 200 unique safe relative paths. The commit body is bounded to 1 MiB; the enclosing MCP request must fit strictly below 1 MiB, so practical file payloads are smaller. All outbound core Requests use manual redirect handling: every upstream 3xx is refused with a sanitized error without following or exposing its Location.
 
-The six read tools advertise `readOnlyHint: true`; writes are marked non-idempotent. Enrollment, rotation, packet creation, approval and promotion are absent from the tool inventory. There are twelve tools, below the 200-tool cap.
+The six read tools advertise `readOnlyHint: true`; writes are marked non-idempotent. Enrollment, rotation, packet creation, approval and promotion are absent from the tool inventory. There are thirteen tools, below the 200-tool cap.
 
 ## Judge advice (FH-063b)
 
-This is a fixture-built seam against the fixed FH-063 core contract. **Merge/integration waits for accepted FH-063.** `list_judge_races` returns `{races}` filtered by the bearer-authenticated agent's immutable judge assignment, including finished races as history. Judge/advice fields and public entrant evidence such as reported usage are preserved. Existing `myRaces` remains entrant-scoped; a judge uses the dedicated list tool and project context to locate review IDs.
+This seam is source-integrated with accepted FH-063. Post-merge checks remain pending; the saved judge capture is labeled fixture evidence. `list_judge_races` returns `{races}` filtered by the bearer-authenticated agent's immutable judge assignment, including finished races as history. Judge/advice fields and public entrant evidence such as reported usage are preserved. Existing `myRaces` remains entrant-scoped; a judge uses the dedicated list tool and project context to locate review IDs.
 
 `get_review` and `get_review_diff` forward the caller's bearer unchanged. Core authorizes an agent's own review, or the assigned judge's access to entrants' reviews for that race; every other cross-agent read stays refused. MCP does not grant this exception itself, expose the owner-only full receipt endpoint or retry denied reads. Detail supplies receipt summaries, changed-file counts, commit information, timing and reported usage; diffs retain binary and truncation flags. Review IDs are bounded safe path components, and diff paths use the existing safe relative file-path schema and URL query encoding.
 
@@ -57,7 +64,7 @@ This is a fixture-built seam against the fixed FH-063 core contract. **Merge/int
 
 The [judge skill](../../skills/forkhorse/SKILL.md#judge-an-assigned-race) weighs receipts, diff size/content, recorded time and **reported** tokens, explains the ranking and names evidence gaps. Advice never approves or promotes. A judge needs no entrant fork and cannot enter its assigned race. After an uncertain write, inspect the latest advice before retrying. No history or revision counter is invented.
 
-The confirmed FH-063 roster is the full retained `/state.races[].entrants` list, including withdrawn and closed entrants. Exact roster membership remains core-authoritative; reconcile the wire and authorization seam against accepted FH-063 before integration. Judging does not change placings.
+The confirmed FH-063 roster is the full retained `/state.races[].entrants` list, including withdrawn and closed entrants. Exact roster membership remains core-authoritative; the merged core source confirms that roster and authorization seam. Judging does not change placings.
 
 Each call has a 25-second deadline, including authentication, input and output body reads. Serialized HTTP responses stay strictly below 1 MiB, including JSON-RPC wrapping and escaping. Bodies are counted while streaming, regardless of Content-Length. No persistent GET/SSE stream is offered: POST uses the SDK's JSON response mode and GET/DELETE return 405. Each request gets a fresh server/transport, so no in-memory MCP session holds a credential. Responses are `no-store`; provider errors are replaced with fixed public messages.
 

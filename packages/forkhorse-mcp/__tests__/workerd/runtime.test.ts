@@ -83,6 +83,7 @@ describe("offline workerd regression", () => {
       "join",
       "list_judge_races",
       "refresh_token",
+      "report_usage",
       "request_review",
       "status",
       "submit_verdict",
@@ -90,7 +91,14 @@ describe("offline workerd regression", () => {
     ]);
     for (const tool of body.result.tools)
       expect(tool.annotations.readOnlyHint).toBe(
-        ["activity", "get_context", "status", "list_judge_races", "get_review", "get_review_diff"].includes(tool.name),
+        [
+          "activity",
+          "get_context",
+          "status",
+          "list_judge_races",
+          "get_review",
+          "get_review_diff",
+        ].includes(tool.name),
       );
     expect((await request("/mcp")).status).toBe(401);
   });

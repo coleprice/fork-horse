@@ -1,10 +1,13 @@
+import { storedAgentKeyProvider, type CredentialProvider, type ContextResponse, type WorkItem, type ReadReviewResponse, type ReadReceiptsResponse } from "../../../forkhorse-stable/src/index.ts";
+import { workflowSource } from "./workflow-source.ts";
+import type { WorkflowWrite } from "./workflow.ts";
 import { readBytesCapped } from "@gadgets/gatekeeper-kit/response-body";
 import { checkConnectionDraft, type ConnectionDraft } from "../configuration.ts";
 import type { ProjectState } from "../../../forkhorse-dashboard/src/contracts.ts";
 import { stateView } from "../../../forkhorse-dashboard/src/model.ts";
 
 export interface AgentFork { repoName: string; remote: string; head: string; createdAt: string }
-export interface AgentIdentity { role: "agent"; agent: string; forks: AgentFork[] }
+export interface AgentIdentity { role: "agent"; agent: string; forks: AgentFork[]; work?: WorkItem[] }
 export const oid = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
 
 function publicUrl(value: unknown): string {
@@ -20,18 +23,21 @@ function publicUrl(value: unknown): string {
 /** Server-only client. Neither the enrolled credential nor minted tokens are returned by an RPC. */
 export class CoreClient {
   constructor(private readonly draft: ConnectionDraft, private readonly expectedAgent?: string,
-      private readonly guard: () => void = () => {}) {
+      private readonly guard: () => void = () => {},
+      private readonly provider: CredentialProvider = storedAgentKeyProvider(() => draft)) {
     const checked = checkConnectionDraft(draft);
     this.draft = { ...draft, coreOrigin: checked.coreOrigin };
   }
 
   async #json(path: string, init: RequestInit = {}): Promise<any> {
     this.guard();
+    const authorization = await this.provider.getBearer({ origin: this.draft.coreOrigin, project: this.draft.project });
+    this.guard();
     let response: Response;
     try {
       response = await fetch(`${this.draft.coreOrigin}/projects/${this.draft.project}${path}`, {
         ...init, redirect: "manual", signal: AbortSignal.timeout(15000),
-        headers: { authorization: `Bearer ${this.draft.agentCredential}`, "content-type": "application/json" },
+        headers: { authorization, "content-type": "application/json" },
       });
     } catch { throw new Error("Core request unavailable."); }
     this.guard();
@@ -62,7 +68,7 @@ export class CoreClient {
       names.add(fork.repoName);
       return { repoName: fork.repoName, remote: publicUrl(fork.remote), head: fork.head, createdAt: fork.createdAt };
     });
-    return { role: "agent", agent: me.agent, forks };
+    return { role: "agent", agent: me.agent, forks, ...(Array.isArray(me.work) ? { work: me.work } : {}) };
   }
 
   async fork(repoName: string): Promise<AgentFork> {
@@ -76,6 +82,31 @@ export class CoreClient {
     const state = stateView(await this.#json("/state"));
     if (state.project.id !== this.draft.project) throw new Error("Unexpected project response.");
     return state;
+  }
+
+  #workflow() {
+    return workflowSource({
+      identity: async () => {
+        const me = await this.identity();
+        if (!me.work) throw new Error("Core resume summary unavailable.");
+        return { agent: me.agent, work: me.work };
+      },
+      request: (path, init) => this.#json(path, init),
+    });
+  }
+  async context(): Promise<ContextResponse> {
+    const result = await this.#workflow().context();
+    if (result.project.id !== this.draft.project) throw new Error("Unexpected project response.");
+    return result;
+  }
+  async executeWorkflow(operation: WorkflowWrite): Promise<void> { await this.#workflow().execute(operation); }
+  async readReview(review: string): Promise<ReadReviewResponse> {
+    if (!/^[a-zA-Z0-9-]{1,128}$/.test(review)) throw new Error("Invalid review ID.");
+    await this.identity();
+    return this.#json(`/reviews/${encodeURIComponent(review)}`);
+  }
+  async readReceipts(review: string): Promise<ReadReceiptsResponse> {
+    return { receipt: (await this.readReview(review)).review.receipt ?? null };
   }
 
   async git(repoName: string, service: "upload-pack" | "receive-pack", body: BodyInit): Promise<Response> {

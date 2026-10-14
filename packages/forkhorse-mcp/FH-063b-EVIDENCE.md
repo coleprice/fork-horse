@@ -4,7 +4,7 @@ Branch: `fh/FH-063b-mcp-judge`.
 
 Base: `d1ded9e0c43ec1276ebb8fd03ab3fe7852272051`, verified after a fresh `git fetch origin main` (exit 0) and before any edits. Accepted `65161b36f47c08d8eb93000078654c9e4795c404` is already an ancestor; no redundant merge or rebase was made. The prior FH-054 checkpoint and its evidence are preserved in this base and its original branch.
 
-Scope: `packages/forkhorse-mcp/**`, `docs/agents/**`, `skills/forkhorse/**`. Core, dashboard, board, upstream and deployment files were not edited. This implements the fixed FH-063 packet against labeled fixtures; FH-063 feature core has not been integrated.
+Scope: `packages/forkhorse-mcp/**`, `docs/agents/**`, `skills/forkhorse/**`. The original implementation used labeled fixtures. The source integration below inherits accepted changes to core and other packages through a normal merge; builder conflict resolutions remain inside the allowed paths.
 
 ## Implemented behavior
 
@@ -22,7 +22,7 @@ The capture at `__tests__/judge-capture.fixture.json` records five calls through
 
 Capture SHA-256: `1e9c8b47fbecc8b6df93fa4daa171c891425bd6bf4f1ae4ee203a3af1f605c08`.
 
-## Checks
+## Pre-merge checks (historical checkpoint only)
 
 | Command | Exit | Evidence |
 | --- | --- | --- |
@@ -38,8 +38,16 @@ Local untracked logs: `FH-063b-package-tests.log`, `FH-063b-types.log`, `FH-063b
 
 ## Open gates
 
-- Merge/integration waits for accepted FH-063 and reconciliation of its real wire/authorization behavior.
+- Accepted FH-063 is source-integrated below; post-merge validation and live judge acceptance remain open.
 - The full-retained-roster question is resolved by the 19:28 shared answer; guidance and fixtures use that rule.
-- Exact publication route is unresolved. Prime has acknowledged and routed the question to Coordinator/Superprime. This local checkpoint is preparation; it does not authorize alternate operator publication. No live packet, join, fork reuse, credential refresh, push or review submission was inferred.
+- GitHub local-candidate/operator-publication route was confirmed at 19:38. No live packet, join, fork reuse, credential refresh, push or review submission was inferred.
 - Root test/lint, fresh-clone suite and D5 remain on heavy hold pending a serialized grant.
 - No live Cloudflare, deployment, spend or owner mutation was attempted. Local success is not packet acceptance.
+
+## Source integration after reboot
+
+The same assigned branch resumes from `0a81d1bbc8499c82bfcb55aea2ef2d849b012151` and plain-merges accepted main `4636d114cbac9140847a8f7cb5ce77e45305057b`. Seven allowed files required conflict resolution, combining accepted usage/reporting behavior with the judge tools. The inventory now contains thirteen tools: six reads and seven non-idempotent writes. Race parsing retains typed usage, budget and token-budget fields alongside judge/advice fields.
+
+The accepted core source confirms the full retained entrant roster, the judge-to-entrant/fork review exception, and the verdict endpoint. MCP continues forwarding core's response and authorization; the saved `{verdict}` response remains explicitly a fixture. No core source was edited during resolution.
+
+This integration is source-only under the post-reboot Coordinator directive. No installs, assets, tests, typechecks, lint, root suite, D5 or live checks ran on the merged tree. The historical check results above apply only to the pre-merge checkpoint. A fresh exclusive grant is required before post-merge checks.

@@ -222,16 +222,63 @@ describe("production isomorphic-git adapter over an offline smart-HTTP peer", ()
     });
   });
 
-  it("bounds cumulative streamed responses from native workerd fetch at 8 MiB", async () => {
+  it("bounds cumulative streamed responses from native workerd fetch at 16 MiB", async () => {
     const bounded = await gitHttp.request({ url: "https://git.idiot.tax/limit" });
     let size = 0;
     for await (const chunk of bounded.body!) size += chunk.byteLength;
-    expect(size).toBe(8 * 1024 * 1024);
+    expect(size).toBe(16 * 1024 * 1024);
     const large = await gitHttp.request({ url: "https://git.idiot.tax/oversized" });
     await expect((async () => {
       for await (const _chunk of large.body!) {
         /* drain until the cumulative transport limit refuses the response */
       }
-    })()).rejects.toMatchObject({ status: 413 });
+    })()).rejects.toMatchObject({
+      status: 413,
+      message:
+        "Git HTTP response exceeds the 16777216-byte transport limit; reached 16777217 bytes. Repository requires the sandbox Git runner.",
+    });
+  });
+
+  it("sends exactly 16 MiB and refuses a cumulative request one byte larger before fetch", async () => {
+    const body = async function* (extra: boolean) {
+      const chunk = new Uint8Array(1024 * 1024);
+      for (let i = 0; i < 16; i++) yield chunk;
+      if (extra) yield new Uint8Array(1);
+    };
+    const bounded = await gitHttp.request({
+      url: "https://git.idiot.tax/request-limit",
+      method: "POST",
+      body: body(false),
+    });
+    let received = "";
+    for await (const chunk of bounded.body!) received += new TextDecoder().decode(chunk);
+    expect(bounded.statusCode).toBe(200);
+    expect(received).toBe("16777216");
+    // This peer would return 502 if fetch happened before the request-size check.
+    await expect(
+      gitHttp.request({
+        url: "https://git.idiot.tax/redirect",
+        method: "POST",
+        body: body(true),
+      }),
+    ).rejects.toMatchObject({
+      status: 413,
+      message:
+        "Git HTTP request exceeds the 16777216-byte transport limit; reached 16777217 bytes. Repository requires the sandbox Git runner.",
+    });
+  });
+
+  it("keeps the memory filesystem at 32 MiB and distinguishes its cumulative byte limit", async () => {
+    const fs = new MemoryFs();
+    await fs.promises.writeFile("/pack", new Uint8Array(31 * 1024 * 1024));
+    await fs.promises.writeFile("/index", new Uint8Array(1024 * 1024));
+    expect((await fs.promises.stat("/pack")).size).toBe(31 * 1024 * 1024);
+    expect((await fs.promises.stat("/index")).size).toBe(1024 * 1024);
+    await expect(fs.promises.writeFile("/extra", new Uint8Array(1))).rejects.toMatchObject({
+      status: 413,
+      message:
+        "Git memory filesystem exceeds the 33554432-byte stored-byte limit; reached 33554433 bytes. Repository requires the sandbox Git runner.",
+    });
+    await expect(fs.promises.stat("/extra")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
