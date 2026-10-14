@@ -181,7 +181,7 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
     const finished = await snapshot(id);
     expect(finished.ledger).toHaveLength(1);
     const ledger = finished.ledger[0]!;
-    expect(ledger).toMatchObject({ review: winnerReview.id, race: RACE, repoName: forks[0],
+    expect(ledger).toMatchObject({ review: winnerReview.id, race: RACE, repoName: id,
       before: "f".repeat(40), after: winnerSha, requireReceipt: true, receiptDigest: expect.any(String) });
     expect(finished.races[0]).toMatchObject({ status: "finished", winner: "alpha", ledgerEntryId: ledger.id,
       finishedAt: expect.any(String), places: [{ agent: "alpha", place: 1 }, { agent: "beta", place: 2 }, { agent: "gamma", place: 3 }] });
