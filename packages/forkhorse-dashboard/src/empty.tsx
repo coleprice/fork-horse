@@ -32,7 +32,9 @@ const firstRun: Record<FirstRunKind, { title: string; description: string; comma
 /** Retained forks, promotions and race entries are history, even without a current claim. */
 export function overviewFirstRun(state: ProjectState): FirstRunKind | undefined {
   if (!state.agents.length) return "agents";
-  if (!state.packets.length) return "packets";
+  if (!state.packets.length && !state.ledger.length &&
+    !state.recentActivity?.some((push) => state.forks.some((fork) => fork.repoName === push.repoName)))
+    return "packets";
   if (!state.claims.some((claim) => claim.active) && !state.forks.length &&
     !state.ledger.length && !state.races?.some((race) => race.entrants.length)) return "forks";
   return undefined;
