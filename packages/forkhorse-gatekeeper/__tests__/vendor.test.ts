@@ -157,6 +157,9 @@ it("connects an enrolled agent, advertises only its owned resource and embeds th
   await refuse(() => user.getGatekeeperClassFor(`${ORIGIN}/projects/other/forks/fixture--alpha-1`), "outside");
   const frame = await user.startAppUi!({ isAdmin: true });
   expect(frame.iframeHtml).toContain("Ask an agent");
+  expect(frame.iframeHtml.match(/<div id="sidebar" data-core-origin="([^"]+)">/)?.[1]).toBe(ORIGIN);
+  expect(frame.iframeHtml).not.toContain(CREDENTIAL);
+  expect(frame.iframeHtml).not.toContain(`Bearer ${CREDENTIAL}`);
   const batch = await (frame.ui as any).snapshot();
   expect(batch.state.claims.filter((claim: { active: boolean }) => claim.active)).toHaveLength(3);
   expect(batch.state.recentActivity).toHaveLength(3);
@@ -164,6 +167,12 @@ it("connects an enrolled agent, advertises only its owned resource and embeds th
   expect(batch.state.reviews.map((review: { status: string }) => review.status)).toEqual(["pending", "stale", "pending"]);
   frame.ui[Symbol.dispose]();
   expect(scopes).toEqual([]);
+});
+
+it("refuses to disclose the sidebar or public-origin metadata after authorization is lost", async () => {
+  const { user } = await connect();
+  unauthorized = true;
+  await expect(user.startAppUi!({ isAdmin: true })).rejects.toThrow();
 });
 
 it("refuses owner credentials, changed agent identity, unsafe origins and cross-origin form posts", async () => {

@@ -21,7 +21,7 @@ import {
   TooltipProvider,
   useKumoToastManager,
 } from "@cloudflare/kumo";
-import { ArrowLeft, ArrowLineUp, ArrowsIn, ArrowsOut, Pulse, Warning, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowLineUp, ArrowsIn, ArrowsOut, Check, Copy, Pulse, Warning, X } from "@phosphor-icons/react";
 import {
   checkCount,
   duration,
@@ -65,6 +65,7 @@ export interface FramePresentation {
 }
 export interface ViewActions {
   framePresentation?: FramePresentation;
+  ownerLink?: string;
   resolveBlocker?(id: string, reason: string): Promise<import("./contracts.ts").WireBlocker>;
   openCollision?(blocker: import("./contracts.ts").BlockerView): void;
   showPacket?(id: string): void;
@@ -122,6 +123,48 @@ function ExpandControl({ presentation }: { presentation: FramePresentation }) {
   );
 }
 
+function CopyOwnerLink({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  const [fallback, setFallback] = useState(false);
+  const code = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  useEffect(() => {
+    if (!fallback || !code.current) return;
+    code.current.focus();
+    const range = document.createRange();
+    range.selectNodeContents(code.current);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }, [fallback]);
+  async function copy() {
+    try {
+      // ClipboardText swallows failures; use its Copy button pattern so sandbox denial
+      // can reveal a selectable URL instead of claiming the clipboard succeeded.
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setFallback(true);
+    }
+  }
+  return (
+    <div className="owner-link-action">
+      {fallback ? <div className="owner-link-fallback">
+        <span className="caption">Owner link:</span>{" "}
+        <code ref={code} tabIndex={-1}>{url}</code>
+      </div> : <Button variant="ghost" size="sm" aria-label="Copy owner link" onClick={() => void copy()}>
+        {copied ? <Check size={16} /> : <Copy size={16} />}
+        {copied ? "Copied" : "Copy owner link"}
+      </Button>}
+      <span className="sr-only" role="status">{copied ? "Owner link copied." : ""}</span>
+    </div>
+  );
+}
 type Tone = "info" | "brand" | "success" | "warning" | "danger";
 function Status({ label, tone = "info" }: { label: string; tone?: Tone }) {
   // Kumo's neutral dot text meets the host contrast requirement; the dot uses a status token.
@@ -905,6 +948,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   size="sm"
                   className="agent-notice"
                   description={`You're connected as ${actions.agent ? `agent ${actions.agent}` : "an agent"}. Promote and approve stay with the owner; your pushes need approval on your fork.`}
+                  action={actions.ownerLink && <CopyOwnerLink key={actions.ownerLink} url={actions.ownerLink} />}
                 />
               )}
               {view.fixture && (

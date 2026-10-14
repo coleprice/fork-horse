@@ -76,6 +76,7 @@ async function start() {
       project: client.project,
       transport: client.transport,
       fixture: root.dataset.fixture === "true",
+      coreOrigin: root.dataset.coreOrigin,
       setPresenting: async (active) => connection.host.setPresenting(active),
       openPrompt: async (prompt) => {
         await connection.host.openPrompt(prompt);

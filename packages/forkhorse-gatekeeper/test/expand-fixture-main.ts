@@ -9,12 +9,20 @@ const params = new URL(location.href).searchParams;
 const root = document.getElementById("sidebar")!;
 const evidence = document.getElementById("evidence")!;
 const calls: boolean[] = [];
+let clipboard = "";
 function report() {
-  evidence.textContent = JSON.stringify({ fixture: "offline synthetic host", calls });
+  evidence.textContent = JSON.stringify({ fixture: "offline synthetic host and clipboard", calls, clipboard });
 }
+Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+  async writeText(text: string) {
+    if (params.get("clipboard") === "denied") throw new Error("Fixture clipboard denial");
+    clipboard = text;
+    report();
+  },
+} });
 const options = {
   brand: { name: "Fixture product", tagline: "Fixture collaboration" },
-  project: "demo", fixture: true,
+  project: "demo", coreOrigin: "https://core.fixture.idiot.tax", fixture: true,
   openPrompt: async () => {},
   setPresenting: params.get("presentation") === "off" ? undefined : async (active: boolean) => {
     calls.push(active);

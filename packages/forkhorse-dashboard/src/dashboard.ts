@@ -17,6 +17,7 @@ export interface DashboardOptions {
   owner?: boolean;
   openPrompt?(prompt: string): Promise<void>;
   framePresentation?: FramePresentation;
+  ownerLink?: string;
 }
 
 /** The same view mounts in the web shell, sidebar app or gadget with a host transport. */
@@ -183,6 +184,7 @@ export function mountDashboard(
             owner: options.owner ?? true,
             agent: options.agent,
             framePresentation: options.owner === false ? options.framePresentation : undefined,
+            ownerLink: options.owner === false ? options.ownerLink : undefined,
             ask: options.openPrompt
               ? () =>
                   options.openPrompt!(

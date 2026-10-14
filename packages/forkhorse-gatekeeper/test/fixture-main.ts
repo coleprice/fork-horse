@@ -114,7 +114,7 @@ iframe.title = "Local fixture sidebar";
 iframe.setAttribute("sandbox", "allow-scripts");
 iframe.style.cssText = "width:100%;height:100vh;border:0";
 // Label only the fixture document; the production build has no fixture data or marker.
-iframe.srcdoc = html.replace('<div id="sidebar">', '<div id="sidebar" data-fixture="true">');
+iframe.srcdoc = html.replace('<div id="sidebar">', '<div id="sidebar" data-fixture="true" data-core-origin="https://core.fixture.idiot.tax">');
 let session: ReturnType<typeof newMessagePortRpcSession> | undefined;
 const handshake = (event: MessageEvent) => {
   if (

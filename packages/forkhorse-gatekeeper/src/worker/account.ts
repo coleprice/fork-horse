@@ -14,6 +14,7 @@ import { validateRpc } from "capnweb-validate";
 import { CoreClient } from "./core-client.ts";
 import { checkConnectionDraft, type ConnectionDraft } from "../configuration.ts";
 import { createSidebarFrame, sidebarAccountDescription } from "./sidebar.ts";
+import { sidebarWithCoreOrigin } from "../../app/owner-origin.ts";
 import type { ProjectState } from "../../../forkhorse-dashboard/src/contracts.ts";
 import SIDEBAR_HTML from "../../dist/sidebar.html";
 import PICKER_HTML from "../../dist/picker.html";
@@ -186,6 +187,8 @@ export class AgentAccount extends WorkerEntrypoint<Env, AccountProps> implements
   }
   async startAppUi(_context: AppUiContext): Promise<GatekeeperUiFrame> {
     const source = this.#account();
+    // Existing authenticated metadata; serialize only the public origin, never the credential.
+    const { coreOrigin } = await source.metadata();
     return createSidebarFrame({
       authorize: async () => { await source.identity(); },
       read: () => source.state(),
@@ -205,7 +208,7 @@ export class AgentAccount extends WorkerEntrypoint<Env, AccountProps> implements
         void poll();
         return () => { stopped = true; clearTimeout(timer); };
       },
-    }, SIDEBAR_HTML);
+    }, sidebarWithCoreOrigin(SIDEBAR_HTML, coreOrigin));
   }
   async revoke(): Promise<void> { await this.#account().revoke(); }
   async reconnect(): Promise<{ url: string }> {

@@ -780,6 +780,14 @@ footer {
   flex-basis: 100%;
 }
 
+/* Keep the agent handoff action readable when the frame is narrow. */
+.agent-notice > div { flex-wrap: wrap; }
+.agent-notice > div > :first-child { flex: 1 1 20rem; }
+.agent-notice > div > :last-child { min-width: 0; max-width: 100%; }
+.owner-link-action { min-width: 0; max-width: 100%; }
+.owner-link-fallback { min-width: 0; overflow-wrap: anywhere; }
+.owner-link-fallback code { user-select: text; }
+
 /* FH-049 history stays quiet; only unresolved collisions use warning banners. */
 .collision-heading { font-size: var(--text-sm); line-height: var(--text-sm--line-height); }
 .collision-history { display: grid; gap: calc(var(--spacing) * 3); }

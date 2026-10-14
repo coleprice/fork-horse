@@ -8,7 +8,7 @@ import { stateView } from "../src/model.ts";
 import { queryByRole } from "./roles.ts";
 
 const { JSDOM } = createRequire(import.meta.url)("jsdom");
-test("owner dashboard never renders agent banner, frame control", (t) => {
+test("owner dashboard never renders agent banner, owner-link action or frame control", (t) => {
   const dom = new JSDOM('<div id="root"></div>');
   installDom(dom.window);
   const root = dom.window.document.getElementById("root") as HTMLElement;
@@ -17,6 +17,7 @@ test("owner dashboard never renders agent banner, frame control", (t) => {
     brand: { name: "Fixture product", tagline: "Fixture collaboration" },
     initialProject: "demo", owner: true,
     // Even accidental host metadata must not add these controls to the owner surface.
+    ownerLink: "https://core.fixture.idiot.tax/app?project=demo",
     framePresentation: {
       getSnapshot: () => false,
       subscribe: () => () => {},
@@ -32,6 +33,7 @@ test("owner dashboard never renders agent banner, frame control", (t) => {
   });
   t.after(() => { view.dispose(); dom.window.close(); });
   assert.equal(queryByRole(root, "button", { name: "Expand" }), null);
+  assert.equal(queryByRole(root, "button", { name: "Copy owner link" }), null);
   assert.equal(root.querySelector(".agent-notice"), null);
   assert.equal(calls, 0);
 });

@@ -1,6 +1,7 @@
 import { mountDashboard } from "../../forkhorse-dashboard/src/dashboard.ts";
 import type { Brand, DashboardTransport } from "../../forkhorse-dashboard/src/contracts.ts";
 import type { FramePresentation } from "../../forkhorse-dashboard/src/view.tsx";
+import { publicCoreOrigin } from "../app/owner-origin.ts";
 
 type SetPresenting = (active: boolean) => Promise<{ rect: unknown; willResize: boolean }>;
 
@@ -46,6 +47,13 @@ export function framePresentation(setPresenting: SetPresenting): FramePresentati
   };
 }
 
+/** Missing or malformed host metadata must never produce a guessed owner address. */
+export function ownerLink(coreOrigin: string | undefined, project: string): string | undefined {
+  const origin = publicCoreOrigin(coreOrigin);
+  if (!origin || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(project) || project.length > 48) return;
+  return `${origin}/app?project=${encodeURIComponent(project)}`;
+}
+
 /** Presentation never grants owner authority; the agent transport independently refuses writes. */
 export function mountSidebar(
   root: HTMLElement,
@@ -55,6 +63,7 @@ export function mountSidebar(
     transport: DashboardTransport;
     openPrompt(prompt: string): Promise<void>;
     setPresenting?: SetPresenting;
+    coreOrigin?: string;
     fixture?: boolean;
     agent?: string;
   },
@@ -63,6 +72,7 @@ export function mountSidebar(
   const view = mountDashboard(root, {
     ...options,
     framePresentation: presentation,
+    ownerLink: ownerLink(options.coreOrigin, options.project),
     openPrompt: () => options.openPrompt(
       `Use the attached agent fork for project ${options.project} in ${options.brand.name}. ` +
       "Call context() first and follow existing work before starting a new packet. " +
