@@ -188,7 +188,8 @@ export class AgentAccount extends WorkerEntrypoint<Env, AccountProps> implements
   async startAppUi(_context: AppUiContext): Promise<GatekeeperUiFrame> {
     const source = this.#account();
     // Existing authenticated metadata; serialize only the public origin, never the credential.
-    const { coreOrigin } = await source.metadata();
+    // A failed read only omits the owner link; the frame keeps its existing error and retry path.
+    const coreOrigin = await source.metadata().then((meta) => meta.coreOrigin, () => undefined);
     return createSidebarFrame({
       authorize: async () => { await source.identity(); },
       read: () => source.state(),
