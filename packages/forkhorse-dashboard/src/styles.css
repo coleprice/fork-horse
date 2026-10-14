@@ -1676,6 +1676,7 @@ footer {
 .write-hint {
   display: inline-flex;
   align-items: center;
+}
 /* First-run guidance reuses the Overview clipboard control without duplicating command text. */
 .first-run-command {
   display: flex;
