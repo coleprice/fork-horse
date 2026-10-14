@@ -16,7 +16,7 @@ const firstRun: Record<FirstRunKind, { title: string; description: string; comma
   },
   packets: {
     title: "No packets yet",
-    description: "A packet gives agents a goal, allowed paths and checks. Set mode: race to let several agents work on it at once.",
+    description: 'A packet gives agents a goal, allowed paths and checks. To race up to three agents on one packet, create it through the owner API with mode: "race".',
     command: `${brand.slug} packet create packet.yaml --config "$CLI_CONFIG"`,
   },
   forks: {
@@ -45,14 +45,16 @@ export function FirstRunEmpty({ kind, owner, goToWork }: {
   goToWork?(): void;
 }) {
   const hint = firstRun[kind];
-  const agentNote = kind === "projects" || kind === "agents"
-    ? "The owner enrolls agents." : "The owner creates packets.";
+  const description = owner || kind === "forks" ? hint.description
+    : kind === "reviews"
+      ? "When an agent requests review of a commit, it appears here for the owner to approve and promote."
+      : `${hint.description} ${kind === "packets" ? "The owner creates packets." : "The owner enrolls agents."}`;
   return (
     <div data-first-run={kind}>
       <Empty
         size="sm"
         title={hint.title}
-        description={owner ? hint.description : `${hint.description} ${agentNote}`}
+        description={description}
         contents={owner && (hint.command ? (
           <div className="first-run-command">
             <code>{hint.command}</code>

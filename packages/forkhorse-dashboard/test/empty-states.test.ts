@@ -67,14 +67,23 @@ test("owner empty states show one placeholder command and the existing Copy cont
 });
 
 test("agent empty states hide commands and actions and identify owner responsibility", () => {
-  for (const scenario of ["empty-projects", "empty-agents", "empty-packets", "empty-reviews"]) {
+  for (const scenario of ["empty-projects", "empty-agents", "empty-packets", "empty-forks", "empty-reviews"]) {
     const dom = new JSDOM(html(snapshot(scenario), false));
     try {
       const hints = dom.window.document.querySelectorAll("[data-first-run]");
       assert.ok(hints.length);
       for (const hint of hints) {
         assert.equal(hint.querySelectorAll("code, button, a").length, 0);
-        assert.match(hint.textContent, /The owner (?:enrolls agents|creates packets)\.$/);
+        const kind = hint.getAttribute("data-first-run");
+        if (kind === "reviews") {
+          assert.match(hint.textContent, /When an agent requests review of a commit, it appears here for the owner to approve and promote\.$/);
+          assert.doesNotMatch(hint.textContent, /for you|The owner creates packets/);
+        } else if (kind === "forks") {
+          assert.match(hint.textContent, /Forks appear here when an agent claims a packet\.$/);
+          assert.doesNotMatch(hint.textContent, /The owner creates packets/);
+        } else {
+          assert.match(hint.textContent, /The owner (?:enrolls agents|creates packets)\.$/);
+        }
       }
     } finally {
       dom.window.close();
@@ -93,7 +102,7 @@ test("Overview shows one empty state with agents, packets, then forks precedence
       assert.ok(hint);
       assert.equal(overview.querySelector(".fork-card"), null);
       assert.equal(hint.querySelectorAll("button").length, kind === "forks" ? 0 : 1);
-      if (kind === "packets") assert.match(hint.textContent, /mode: race/);
+      if (kind === "packets") assert.match(hint.textContent, /To race up to three agents on one packet, create it through the owner API with mode: "race"\./);
     } finally {
       dom.window.close();
     }
