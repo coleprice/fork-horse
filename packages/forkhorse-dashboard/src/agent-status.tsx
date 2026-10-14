@@ -22,10 +22,10 @@ export function AgentStatusBadge({ row }: { row: AgentStatusRow }) {
     {row.status.label}
   </Badge> : <Badge variant="secondary">Idle</Badge>;
 }
-function LastPush({ row, now }: { row: AgentStatusRow; now: number }) {
+function LastPush({ row, now, stacked = false }: { row: AgentStatusRow; now: number; stacked?: boolean }) {
   return row.lastPush ? <Tooltip content={new Date(row.lastPush.recordedAt).toLocaleString()}
-    render={<span className="agent-last-push" />}>
-    <code>{row.lastPush.after.slice(0, 7)}</code> · <time dateTime={row.lastPush.recordedAt}>{relativeTime(row.lastPush.recordedAt, now)}</time>
+    render={<span className={`agent-last-push${stacked ? " agent-last-push-stacked" : ""}`} />}>
+    <code>{row.lastPush.after.slice(0, 7)}</code>{!stacked && " · "}<time className={stacked ? "caption muted" : undefined} dateTime={row.lastPush.recordedAt}>{relativeTime(row.lastPush.recordedAt, now)}</time>
   </Tooltip> : <span>{row.missingPush}</span>;
 }
 function Fork({ value }: { value?: string }) {
@@ -54,8 +54,8 @@ export function AgentStatusTable({ state, activity, brand, owner, openPacket, re
     row?.focus();
     row?.scrollIntoView({ block: "nearest" });
   }, [revealRepo, expanded]);
-  const table = (items: AgentStatusRow[]) => <div className="table-scroll table-agent-status">
-    <Table>
+  const table = (items: AgentStatusRow[], labelledBy = "agents-heading") => <div className="table-scroll table-agent-status">
+    <Table aria-labelledby={labelledBy}>
       <Table.Header><Table.Row>{["Agent", "Status", "Packet", "Last push", "Waiting on", "Tokens"].map((heading) =>
         <Table.Head key={heading} className={`column-${heading.toLowerCase().replaceAll(" ", "-")}`}>{heading}</Table.Head>)}</Table.Row></Table.Header>
       <Table.Body>{items.map((row) => <Table.Row key={row.agent.name} data-agent={row.agent.name}
@@ -71,11 +71,14 @@ export function AgentStatusTable({ state, activity, brand, owner, openPacket, re
           <p className="caption muted">No push since {clockTime(row.status.quietSince)} ({Math.max(0, Math.floor((now - row.status.quietSince) / 60_000))} min)</p>}
         </Table.Cell>
         <Table.Cell>{row.status ? <>
-          <button type="button" className="claim-link" onClick={() => openPacket(row.status!.claim.packet)}>{row.status.claim.packet}</button>
+          <Tooltip content={row.status.claim.packet} render={<button type="button" className="claim-link agent-packet-link"
+            aria-label={`View packet ${row.status.claim.packet}`} onClick={() => openPacket(row.status!.claim.packet)} />}>
+            {row.status.claim.packet}
+          </Tooltip>
           {row.claims.length > 1 && <Tooltip content={row.claims.slice(1).map((entry) => entry.claim.packet).join(", ")}
             render={<span className="caption muted" />}>+{row.claims.length - 1} more</Tooltip>}
         </> : "—"}</Table.Cell>
-        <Table.Cell><LastPush row={row} now={now} /></Table.Cell>
+        <Table.Cell><LastPush row={row} now={now} stacked /></Table.Cell>
         <Table.Cell>{row.status ? <>
           {row.status.waiting === "owner" ? owner ? "You" : "the owner" : row.status.waiting === "checks" ? "Checks" : row.agent.name}
           {row.status.caption && (owner || row.status.waiting === "agent") && <p className="caption muted">{row.status.caption}</p>}
@@ -89,8 +92,8 @@ export function AgentStatusTable({ state, activity, brand, owner, openPacket, re
     {rows.length > 0 && <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>}
     {live.length > 0 && table(live)}
     {idle.length > 0 && <>
-      <Button variant="ghost" size="sm" aria-expanded={expanded} aria-controls="idle-agents" onClick={() => setExpanded(!expanded)}>Idle agents ({idle.length})</Button>
-      {expanded && <div id="idle-agents">{table(idle)}</div>}
+      <Button id="idle-agents-toggle" variant="ghost" size="sm" aria-expanded={expanded} aria-controls="idle-agents" onClick={() => setExpanded(!expanded)}>Idle agents ({idle.length})</Button>
+      {expanded && <div id="idle-agents">{table(idle, "agents-heading idle-agents-toggle")}</div>}
     </>}
     {!rows.length && <FirstRunEmpty kind="agents" owner={owner} />}
   </section>;

@@ -22,7 +22,7 @@ const markup = (element: ReturnType<typeof createElement>) => renderToStaticMark
 
 test("FH-078 first-match statuses use existing words and urgency", () => {
   assert.deepEqual(rows().map((row) => row.status?.label ?? "Idle"), [
-    "Idle", "Blocked", "Returned", "Checks failed", "Timed out", "Couldn't run", "Checks running", "In review", "Approved", "In progress", "Racing", "Claimed, no recent push", "Claimed, no recent push", "Idle",
+    "Idle", "Blocked", "Returned", "Checks failed", "Timed out", "Couldn't run", "Checks running", "In review", "Approved", "In progress", "Racing", "Claimed, no recent push", "In progress", "Idle",
   ]);
   const state = fixture();
   const blocked = state.claims[0];
@@ -44,6 +44,18 @@ test("FH-078 held claims need 30 minutes of loaded activity before a quiet label
   assert.equal(short.lastPush, undefined);
   assert.equal(short.missingPush, "Not in loaded activity");
   assert.equal(rows().find((row) => row.agent.name === "new")?.missingPush, "No push yet");
+});
+
+test("FH-078 a fresh claim without a push stays In progress through the 30-minute boundary", () => {
+  const state = fixture();
+  const fresh = (at: number) => agentStatusRows(state, undefined, at).find((row) => row.agent.name === "new")!;
+  assert.equal(fresh(now).status?.label, "In progress");
+  assert.equal(fresh(now).lastPush, undefined);
+  assert.equal(fresh(now).missingPush, "No push yet");
+  assert.equal(fresh(now + 29 * 60_000).status?.label, "In progress");
+  assert.equal(fresh(now + 29 * 60_000 + 1).status?.label, "Claimed, no recent push");
+  assert.equal(rows().find((row) => row.agent.name === "held")?.status?.quietSince, now - 45 * 60_000);
+  assert.equal(rows().find((row) => row.agent.name === "returned")?.status?.tone, "danger");
 });
 
 test("FH-078 a collision blocks the pushing fork, not the claimant's packet", () => {
@@ -131,6 +143,13 @@ test("FH-078 idle disclosure expands by keyboard-capable button and closes", asy
   const app = mountDashboard(root, { brand, transport, initialProject: wire.project.id });
   try {
     await until(() => !!root.querySelector('[aria-controls="idle-agents"]'));
+    assert.equal(root.querySelector("#lanes table")?.getAttribute("aria-labelledby"), "agents-heading");
+    const packet = root.querySelector<HTMLButtonElement>('[data-agent="couldnt-run"] .agent-packet-link')!;
+    assert.equal(packet.textContent, "fixture-couldnt-run");
+    assert.equal(packet.getAttribute("aria-label"), "View packet fixture-couldnt-run");
+    const lastPush = root.querySelector('[data-agent="couldnt-run"] .agent-last-push-stacked')!;
+    assert.equal(lastPush.querySelector("code")?.textContent, "5555555");
+    assert.match(lastPush.querySelector("time.caption.muted")?.textContent ?? "", /min ago/);
     const disclosure = root.querySelector<HTMLButtonElement>('[aria-controls="idle-agents"]')!;
     assert.equal(disclosure.getAttribute("aria-expanded"), "false");
     assert.equal(root.querySelector('[data-agent="legacy"]'), null);

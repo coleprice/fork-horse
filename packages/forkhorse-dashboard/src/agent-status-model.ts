@@ -44,7 +44,7 @@ export function claimStatus(
     return result(1, "Blocked", "warning", "owner", "Resolve the collision");
   const sameHead = !review || state.forks.find((fork) => fork.repoName === claim.repoName)?.head === review.sha;
   if (review?.returned && sameHead && pushAt <= (timestamp(review.returned.at) ?? Infinity))
-    return result(2, "Returned", "warning", "agent", "Push a fix");
+    return result(2, "Returned", "danger", "agent", "Push a fix");
   const receipt = review?.receipt;
   if (receipt && sameHead && pushAt <= (timestamp(receipt.finishedAt) ?? timestamp(review?.requestedAt) ?? Infinity)) {
     const failed = {
@@ -67,7 +67,8 @@ export function claimStatus(
   if (current && review.status === "approved")
     return result(6, "Approved", "success", "owner", "Promote");
   // The oldest loaded event bounds what we can say about an absence of pushes.
-  if (pushAt < now - RECENT && oldestLoadedActivity(activity) <= now - RECENT)
+  if (Math.max(pushAt, timestamp(claim.createdAt) ?? -Infinity) < now - RECENT &&
+    oldestLoadedActivity(activity) <= now - RECENT)
     return { ...result(8, "Claimed, no recent push", "warning", "agent"),
       quietSince: timestamp(pushed?.recordedAt) ?? timestamp(claim.createdAt) };
   const racing = state.races?.some((race) => race.packet === claim.packet && race.status === "open" &&

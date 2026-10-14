@@ -167,6 +167,8 @@ select {
 .table-agent-status .column-waiting-on { width: 17%; }
 .table-agent-status .column-tokens { width: 20%; }
 .table-agent-status .column-packet .caption { display: block; }
+.table-agent-status .agent-packet-link { display: block; width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.agent-last-push-stacked > code, .agent-last-push-stacked > time { display: block; }
 .resume-card { margin-bottom: 16px; }
 .resume-card dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; }
 .resume-card dt { color: var(--text-color-kumo-subtle); }
