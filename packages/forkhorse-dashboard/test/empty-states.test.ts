@@ -82,7 +82,7 @@ test("agent empty states hide commands and actions and identify owner responsibi
           assert.match(hint.textContent, /Forks appear here when an agent claims a packet\.$/);
           assert.doesNotMatch(hint.textContent, /The owner creates packets/);
         } else {
-          assert.match(hint.textContent, /The owner (?:enrolls agents|creates packets)\.$/);
+          assert.match(hint.textContent, /The owner (?:enrolls agents|creates packets|starts races)\.$/);
         }
       }
     } finally {
@@ -156,7 +156,9 @@ test("loading, failures and populated project views do not offer first-run actio
   ]) {
     const dom = new JSDOM(html(view));
     try {
-      assert.equal(dom.window.document.querySelector("[data-first-run]"), null);
+      // FH-081: a loaded project with zero races keeps its own Races-tab empty state.
+      const populated = !!view.state?.packets.length;
+      assert.equal(dom.window.document.querySelector(populated ? '[data-first-run]:not([data-first-run="races"])' : "[data-first-run]"), null);
     } finally {
       dom.window.close();
     }
@@ -245,7 +247,7 @@ test("zero and unavailable races never invent a separate races empty state", () 
     if (!available) delete view.state!.races;
     const dom = new JSDOM(html(view, true, "work"));
     try {
-      assert.equal(dom.window.document.querySelector('[data-first-run="races"]'), null);
+      assert.equal(dom.window.document.querySelector('#view-work [data-first-run="races"]'), null);
       assert.doesNotMatch(dom.window.document.querySelector("#packets").textContent, /No races yet/);
       assert.ok(dom.window.document.querySelector("#packets table"));
     } finally {

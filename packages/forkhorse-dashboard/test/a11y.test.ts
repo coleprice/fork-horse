@@ -104,7 +104,7 @@ test("summary values leave the heading outline, panels use title case, tabs sepa
   state.reviews.push(...history.reviews.filter((review) => review.status === "promoted"));
   state.ledger = history.ledger;
   const view = model(state);
-  for (const section of ["overview", "work", "review", "agents"] as Section[]) {
+  for (const section of ["overview", "work", "review", "agents"] as const satisfies readonly Section[]) {
     const dom = markup(createElement(DashboardView, { view, actions: { ...actions, section } }));
     try {
       const root = dom.window.document.body;
