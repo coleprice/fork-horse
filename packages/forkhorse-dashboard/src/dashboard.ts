@@ -4,7 +4,7 @@ import { assertState, canArchive, blockerGatesReview, blockedLabel, reviewGate, 
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
-import { DashboardView, type Section } from "./view.tsx";
+import { DashboardView, type FramePresentation, type Section } from "./view.tsx";
 
 export interface DashboardOptions {
   transport: DashboardTransport;
@@ -16,6 +16,7 @@ export interface DashboardOptions {
   agent?: string;
   owner?: boolean;
   openPrompt?(prompt: string): Promise<void>;
+  framePresentation?: FramePresentation;
 }
 
 /** The same view mounts in the web shell, sidebar app or gadget with a host transport. */
@@ -181,6 +182,7 @@ export function mountDashboard(
             reconnect: options.transport.live?.reconnect,
             owner: options.owner ?? true,
             agent: options.agent,
+            framePresentation: options.owner === false ? options.framePresentation : undefined,
             ask: options.openPrompt
               ? () =>
                   options.openPrompt!(

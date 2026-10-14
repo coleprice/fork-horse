@@ -45,6 +45,8 @@ const freshLimited = createRateLimitedCapability(fresh, {
 });
 let acquired = 0,
   themes = 0;
+let presenting = false;
+const presentationCalls: boolean[] = [];
 let theme: GatekeeperAppTheme = {
   mode: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
   accentColor: null,
@@ -56,6 +58,8 @@ function evidence() {
     oldPolls,
     freshCalls: fresh.calls,
     themes,
+    presenting,
+    presentationCalls,
     hostMode: theme.mode,
     fixture: "offline replacement host capability",
   });
@@ -75,6 +79,16 @@ class FixtureHost extends RpcTarget {
   }
   openPrompt(prompt: string) {
     output.textContent = `Fixture openPrompt received: ${prompt}`;
+  }
+  setPresenting(active: boolean) {
+    const rect = iframe.getBoundingClientRect().toJSON();
+    presentationCalls.push(active);
+    presenting = active;
+    iframe.style.cssText = active
+      ? "position:fixed;inset:0;width:100vw;height:100vh;border:0;z-index:10"
+      : "width:100%;height:100vh;border:0";
+    evidence();
+    return { rect: active ? rect : null, willResize: true };
   }
 }
 if (recovery)

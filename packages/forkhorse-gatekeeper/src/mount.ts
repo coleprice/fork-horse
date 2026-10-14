@@ -1,5 +1,50 @@
 import { mountDashboard } from "../../forkhorse-dashboard/src/dashboard.ts";
 import type { Brand, DashboardTransport } from "../../forkhorse-dashboard/src/contracts.ts";
+import type { FramePresentation } from "../../forkhorse-dashboard/src/view.tsx";
+
+type SetPresenting = (active: boolean) => Promise<{ rect: unknown; willResize: boolean }>;
+
+/** Like the pinned Context Library, retire stale acknowledgements before restoring the host. */
+export function framePresentation(setPresenting: SetPresenting): FramePresentation & { dispose(): void } {
+  let expanded = false;
+  let disposed = false;
+  let epoch = 0;
+  const listeners = new Set<() => void>();
+  const publish = () => { for (const listener of listeners) listener(); };
+  async function restore() {
+    try { await setPresenting(false); } catch { /* A retired host may already be disconnected. */ }
+  }
+  async function request(active: boolean) {
+    if (disposed) return;
+    const current = ++epoch;
+    expanded = active;
+    publish();
+    try {
+      await setPresenting(active);
+      // An opening acknowledgement can arrive after reconnect or unmount. Never resurrect it.
+      if (current !== epoch && active && !expanded) await restore();
+    } catch {
+      if (current !== epoch) return;
+      expanded = false;
+      publish();
+      console.warn("Frame presentation unavailable.");
+      if (active) await restore();
+    }
+  }
+  return {
+    subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    getSnapshot: () => expanded,
+    toggle: () => { void request(!expanded); },
+    reset: () => { void request(false); },
+    dispose() {
+      if (disposed) return;
+      void request(false);
+      disposed = true;
+      epoch++;
+      listeners.clear();
+    },
+  };
+}
 
 /** Presentation never grants owner authority; the agent transport independently refuses writes. */
 export function mountSidebar(
@@ -9,12 +54,15 @@ export function mountSidebar(
     project: string;
     transport: DashboardTransport;
     openPrompt(prompt: string): Promise<void>;
+    setPresenting?: SetPresenting;
     fixture?: boolean;
     agent?: string;
   },
 ) {
-  return mountDashboard(root, {
+  const presentation = options.setPresenting ? framePresentation(options.setPresenting) : undefined;
+  const view = mountDashboard(root, {
     ...options,
+    framePresentation: presentation,
     openPrompt: () => options.openPrompt(
       `Use the attached agent fork for project ${options.project} in ${options.brand.name}. ` +
       "Call context() first and follow existing work before starting a new packet. " +
@@ -30,4 +78,15 @@ export function mountSidebar(
     projects: [{ id: options.project, label: options.project }],
     initialProject: options.project,
   });
+  let disposed = false;
+  return {
+    ...view,
+    resetPresentation() { presentation?.reset(); },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      presentation?.dispose();
+      view.dispose();
+    },
+  };
 }

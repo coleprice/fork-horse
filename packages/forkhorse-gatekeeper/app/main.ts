@@ -25,6 +25,7 @@ interface Host extends RpcTarget {
   subscribeTheme(receiver: GatekeeperAppThemeReceiver): Promise<GatekeeperAppTheme>;
   readonly ui: SidebarUi;
   openPrompt(prompt: string): Promise<void>;
+  setPresenting(active: boolean): Promise<{ rect: unknown; willResize: boolean }>;
 }
 
 const root = document.getElementById("sidebar")!;
@@ -35,19 +36,26 @@ const connection = hostConnection(() => {
   const host = newMessagePortRpcSession<Host>(port1, receiver);
   // Only renew after the previous host getter failed; never re-handshake a healthy host.
   window.parent.postMessage({ type: "handshake" }, "*", [port2]);
+  // Restore even if the first project snapshot cannot be acquired after a frame reconnect.
+  void host.setPresenting(false).catch(() => {});
   return {
     host,
     dispose() {
+      void host.setPresenting(false).catch(() => {});
       host[Symbol.dispose]();
       port1.close();
     },
   };
 });
 async function resubscribeTheme(isCurrent: () => boolean) {
+  // Every fresh UI capability starts in its normal pane, even when the host port survives.
+  resetPresentation();
+  if (!isCurrent()) return;
   const theme = await connection.host.subscribeTheme(receiver);
   if (isCurrent()) receiver.setTheme(theme);
 }
 let dispose = () => {};
+let resetPresentation = () => {};
 let closed = false;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let failures = 0;
@@ -68,10 +76,12 @@ async function start() {
       project: client.project,
       transport: client.transport,
       fixture: root.dataset.fixture === "true",
+      setPresenting: async (active) => connection.host.setPresenting(active),
       openPrompt: async (prompt) => {
         await connection.host.openPrompt(prompt);
       },
     });
+    resetPresentation = () => view.resetPresentation();
     dispose = () => {
       view.dispose();
       client.dispose();

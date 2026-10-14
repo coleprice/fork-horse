@@ -3,7 +3,7 @@ import { judgePromotion } from "./judge.ts";
 import { FirstRunEmpty, overviewFirstRun } from "./empty.tsx";
 import { UsageFigures } from "./usage.tsx";
 import { usagePromotionCaption, usageValues } from "./usage.ts";
-import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import {
   Badge,
   Banner,
@@ -21,7 +21,7 @@ import {
   TooltipProvider,
   useKumoToastManager,
 } from "@cloudflare/kumo";
-import { ArrowLeft, ArrowLineUp, Pulse, Warning, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowLineUp, ArrowsIn, ArrowsOut, Pulse, Warning, X } from "@phosphor-icons/react";
 import {
   checkCount,
   duration,
@@ -56,7 +56,15 @@ import type { ReviewDetail, ReviewDiff, Activity, OwnerReceipt, ProjectState, Re
 import { relativeTime as relative } from "./time.ts";
 
 export type Section = "overview" | "work" | "review" | "agents" | "races";
+/** Local frame presentation only; this carries no project or owner authority. */
+export interface FramePresentation {
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): boolean;
+  toggle(): void;
+  reset(): void;
+}
 export interface ViewActions {
+  framePresentation?: FramePresentation;
   resolveBlocker?(id: string, reason: string): Promise<import("./contracts.ts").WireBlocker>;
   openCollision?(blocker: import("./contracts.ts").BlockerView): void;
   showPacket?(id: string): void;
@@ -85,6 +93,35 @@ export interface ViewActions {
 }
 const short = (value: string) => <code title={value}>{value.slice(0, 7)}</code>;
 const empty = (title: string) => <Empty size="sm" title={title} />;
+
+function ExpandControl({ presentation }: { presentation: FramePresentation }) {
+  const expanded = useSyncExternalStore(presentation.subscribe, presentation.getSnapshot, () => false);
+  useEffect(() => {
+    // Capture the dialog state before its own Escape handler can unmount it.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || !presentation.getSnapshot()) return;
+      if (document.querySelector('[role="dialog"]:not([data-closed]):not([hidden]), [role="alertdialog"]:not([data-closed]):not([hidden])')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      presentation.reset();
+    };
+    window.addEventListener("keydown", escape, true);
+    return () => {
+      window.removeEventListener("keydown", escape, true);
+      presentation.reset();
+    };
+  }, [presentation]);
+  const label = expanded ? "Exit full view" : "Expand";
+  return (
+    <Tooltip content={label} render={
+      <Button variant="ghost" shape="square" aria-label={label} aria-pressed={expanded}
+        onClick={presentation.toggle} />
+    }>
+      {expanded ? <ArrowsIn size={16} /> : <ArrowsOut size={16} />}
+    </Tooltip>
+  );
+}
+
 type Tone = "info" | "brand" | "success" | "warning" | "danger";
 function Status({ label, tone = "info" }: { label: string; tone?: Tone }) {
   // Kumo's neutral dot text meets the host contrast requirement; the dot uses a status token.
@@ -779,6 +816,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   />
                 )}
                 {ask}
+                {!actions.owner && actions.framePresentation && <ExpandControl presentation={actions.framePresentation} />}
                 {!actions.raceId && (
                 <Tooltip
                   content={panel ? "Hide activity" : "Show activity"}
