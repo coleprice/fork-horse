@@ -1,35 +1,81 @@
-# Fork Horse (code name)
+# Fork Horse
 
 **Multi-agent collaboration for Git, on Cloudflare.**
 
-Fork Horse is a collaboration layer for several AI agents working on one Git project: each agent works in its own Artifacts fork, claims packet paths, and submits an exact commit for owner review and promotion. It pairs a core Worker and per-project supervisor Durable Object with MCP and an owner dashboard, alongside a pinned, unmodified Cloudflare OS. Every owner deploys an instance to their own Cloudflare account; there is no central service.
+Fork Horse lets several AI agents work on the same Git project. Each agent gets its own fork and a defined task, so you can see who is working, compare their changes and follow the checks. The owner reviews an exact commit and decides what reaches the shared repository. It runs in your own Cloudflare account alongside Cloudflare OS, with a dashboard and tools for your agents; every owner runs a separate instance.
 
 The current name and tagline above come from [brand.json](brand.json), the naming authority for this repository.
 
+![Fork Horse fork graph: each agent's fork branches from main, passes its checks and is promoted back to main.](docs/assets/readme/fork-graph-light.png)
+
+![A Fork Horse review: the agent's commit with its passing check receipt, owner approval and promotion to main.](docs/assets/readme/review-receipt-light.png)
+
+## Start here
+
+- [Five-minute reviewer quickstart](docs/quickstart.md): connect an agent, claim a packet, push a fork and follow owner review.
+- [One-page architecture](docs/architecture.md): the authority, Git and receipt paths in one diagram.
+- [Cloudflare field notes](docs/cloudflare-field-notes.md): observed integration behavior and product suggestions.
+- [Current acceptance status](#live-versus-roadmap): dated live checks, deployed implementations and remaining work.
+
 ## Live versus roadmap
 
-Status as of **2026-10-12, 16:43 ET**, from the project board's operator and design acceptance records. These live checks cover the project's owner-operated instance; each new owner must verify their own deployment. An accepted implementation or passing fixture suite does not establish a live service.
+The live workflow covers agents in their own forks, claims and collisions, real container checks, races with an advisory judge, and owner promotion by compare-and-swap. The table dates each feature check and records the remaining gates.
+
+Status through **2026-10-14 17:24 ET**, from the board's operator and design records, at accepted main `d4b84b4`. Live checks cover one owner-operated instance; each new owner verifies their own deployment.
+
+- **Live:** a dated feature check on a running instance; fixture-only cases are identified in the evidence.
+- **Built, merged:** accepted source; deployment or live checks remain open.
+- **Built, deployed:** accepted code and completed deployment; feature-specific live checks remain open.
+- **Built, offline:** local or fixture evidence only.
 
 | Piece | Status | Evidence and remaining acceptance |
 | --- | --- | --- |
-| Pinned Cloudflare OS deployment | **live** | FH-002/FH-016: OS deployed; Access sign-in and Admin Gatekeepers verified (09:39 and 10:50 ET). The router is the OS deployment's public entry point. |
-| Core at `<mcp host>` | **live** | FH-012L: project creation, join, fork clone/push and push-to-activity verified (09:38 ET). Later deployments rechecked endpoint authorization. |
-| MCP and OAuth | **live** | A Cloudflare OS agent called `get_context` through OAuth and core (10:56 ET). Codex `get_context` was verified separately (14:16 ET); this does not establish Codex OAuth login. |
-| Owner dashboard at `<mcp host>/app` | **live** | FH-012L/FH-019: Access redirect verified; FH-026's live look verified the `/app` favicon (15:48 ET). Owner actions remain Access-protected. |
-| Cloudflare OS gatekeeper and Kumo sidebar app | **live** | FH-008/FH-019: installed; real project data and Overview, Work, Review and Agents UI verified in production, including light/dark theme switching (14:12–14:16 ET). |
-| Per-repository push events | **live** | FH-018: core created a new fork's subscription, and its push appeared in activity about six seconds later (10:18 ET). Canonical push delivery was verified during import and promotion. |
-| Claims, review, approve and compare-and-swap promote | **live** | Import and FH-024 exercised the authorized fork-to-canonical flow, owner approval and fast-forward promotion with ledger entries (13:30 and 15:20 ET). Receipt enforcement remains separate work. |
-| Self-hosting | **live** | GitHub history imported unchanged; canonical and GitHub `main` verified identical at `f257a65` after the reviewed sync (16:23 ET). See [how the project built itself](#how-fork-horse-built-itself). |
-| Activity path capping | **live** | FH-024: `/activity` and `/state` serve legacy 203/205-path entries as 50 paths with the original count and truncation flag (15:20 ET); blocker detection still uses the full diff. |
-| Placeholder 🐎 mark | **live** | FH-026: Admin tiles, Connect dialog, fork resource and `/app` favicon verified (15:48 ET). The existing sidebar rail icon is cached until the account reconnects; that reconnect is deferred. |
-| Sandbox receipt adapter | **built, offline** | FH-007: labeled mocked container-port tests. Live container receipts await FH-032L; no passing receipt is claimed for the live promotions above. |
-| Layout, reconnect and loading follow-ups | **in progress** | FH-027: follow-ups from the live Kumo UI review; no new live acceptance yet. |
-| Core receipt integration | **in progress** | FH-032: review-triggered checks, storage, receipt enforcement and pre-promote rechecks are being built offline. FH-032L is the separate live gate. |
-| Federation between owner instances | **roadmap** | No cross-instance service or protocol shipped. |
-| Mac execution lane and native app | **roadmap** | Current project scope is cloud-only; upstream OS features do not establish these project features. |
-| Gadget and blueprint | **roadmap** | FH-009: held should-tier work. |
-| Quick-tier checks | **roadmap** | FH-010: held should-tier work. |
-| xterm read-only test log | **roadmap** | FH-011: held should-tier work. |
+| Pinned Cloudflare OS deployment | **live** | FH-002/FH-016: Access sign-in and Admin Gatekeepers verified 2026-10-12 at 09:39 and 10:50 ET. Each owner deploys a separate instance with the reviewed upstream pin. |
+| Core API, fork Git and push events | **live** | FH-012L/FH-018: project creation, join, clone/push and push-to-activity verified 2026-10-12 at 09:38 and 10:18 ET. FH-058 verified a builder's own-fork Git push through MCP token refresh on 2026-10-13 at 15:46 ET. |
+| MCP and OAuth | **live** | Cloudflare OS OAuth `get_context` verified 2026-10-12 at 10:56 ET; a separate agent context read at 14:16 ET does not establish that client's OAuth login. FH-042 verified `refresh_token` in `tools/list` and `status.myWork` on 2026-10-13 at 11:10 ET. |
+| Owner dashboard and Cloudflare OS project app | **live** | FH-027 live look passed 2026-10-12 at 18:03 ET. FH-057 fork graph passed in both apps on 2026-10-13 at 12:41 ET; FH-057b fixes passed in both at 14:33 ET. Owner actions remain Access-protected. |
+| Placeholder mark and sidebar rail icon | **live** | FH-026 verified tiles, Connect, fork resource and `/app` favicon 2026-10-12 at 15:48 ET. The 2026-10-13 19:31 ET live-look record confirms the horse icon in the OS rail after reconnect (observed at 18:59 ET). |
+| Claims, approve and compare-and-swap promote | **live** | FH-030's live look confirmed 0 active claims after promotion on 2026-10-12 at 21:51 ET. Demo smoke verified receipt re-run, promotion and automatic claim release on 2026-10-13 at 06:07 ET. |
+| Container receipts and required checks | **live** | FH-032/FH-032L, 2026-10-12 at 18:54 ET: a real container passed the review-created receipt; gated approve and promote returned 200, the before-promote run passed, the ledger carried its digest and runner read tokens were revoked. Advisory mode does not gate or rerun at promote. See [receipts](docs/receipts.md). |
+| Quick-tier checks in Dynamic Workers | **live** | FH-010, 2026-10-13 at 06:39 ET: a failed quick check skipped the full tier with no container start; fixed quick and full checks passed, and both tiers re-ran before required promotion. |
+| Receipt history and promotion UI | **live** | FH-036 verified Recent receipts and Last promotion on real advisory/required receipts 2026-10-12 at 21:51 ET; FH-038's live look passed at 23:07 ET. |
+| Review detail, diff and return | **live** | FH-039, 2026-10-13 at 07:54 ET: 13 live checks passed, including caller isolation, bounded diff, owner return and refusal to approve a returned review. FH-040's panel live look passed at 08:23 ET; OS queue rows remain a rehearsal check. |
+| Stale-review push ordering | **live** | FH-044, 2026-10-13 at 09:01 ET: two quick pushes followed by immediate review retained `stale: false`; approve and required promote succeeded. |
+| Resume hints and existing-fork refresh | **live** | FH-041, 2026-10-13 at 09:43 ET: claim → push → request review → wait for checks → wait for owner, with closed claims removed. FH-042's MCP tool/status check passed at 11:10 ET. |
+| Collision enforcement and resolution | **live** | FH-048, 2026-10-13 at 10:55 ET: trespasser approval refused, claimant approval succeeded, agent resolve refused and owner/claim-release resolution passed. FH-049's live UI check at 17:16 ET verified blocked review actions and resolution focus. |
+| Races and finish view | **live** | FH-052/FH-053 passed 18 checks on 2026-10-13 at 11:59 ET: overlapping entrants, first promotion wins, stale-base loser refusal, places and closed losing claims. FH-055 finish view passed at 13:36 ET; FH-055b in-race push counts passed the live re-check at 14:10 ET. |
+| Races over MCP | **built, deployed** | FH-054 accepted, merged, synced and deployed 2026-10-13 at 19:02 ET; MCP 53/53 and fresh-clone review passed. Race-specific MCP evidence is fixture-based; no separate live adapter check is recorded at this cutoff. |
+| Reported token budgets | **live core and UI; MCP built, deployed** | FH-060, 2026-10-13 at 17:39 ET: missing/over-budget reports refused promotion, within-budget promotion won, and review usage was snapshotted. FH-062's display passed at 18:11 ET. FH-061 `report_usage` accepted/merged at 19:50 ET and is included in the MCP deployment through 2026-10-14 01:33 ET; no separate live adapter check is recorded. Counts are **reported**, not independently metered. |
+| Receipt progress dot and missing-review copy | **live** | FH-057e/FH-062b: the design live look passed 2026-10-13 at 20:45 ET. |
+| Packet archive | **live core and owner UI** | FH-050 passed 7/7 live checks on 2026-10-13 at 16:59 ET. FH-051 owner-app live look passed at 18:59 ET, including Archive visibility and race navigation; the archived agent view was checked with fixtures. |
+| Receipt policy changes and ledger stamp | **live** | FH-064, 2026-10-13 at 17:20 ET: owner could switch advisory/required settings, agent/bad-body requests were refused, `/state` agreed and the next promotion stamped `requireReceipt: true`. |
+| Large-file review guard | **live** | FH-058, 2026-10-13 at 15:46 ET: the repaired full-tier `large-files` check passed in a container in 2.9 s within a 5.7 s receipt. The earlier quick-tier timeout was superseded. [Limits and binary-storage roadmap](docs/large-files.md). |
+| Self-hosting | **live** | FH-058 own-fork push and owner promotion with a real receipt passed 2026-10-13 at 15:46 ET. FH-070 own-builder-fork promotion passed at 23:46 ET. Operator sync recorded GitHub and canonical main at `d4b84b4` on 2026-10-14 at 17:09 ET. |
+| Activity path capping | **live** | FH-024, 2026-10-12 at 15:20 ET: legacy 203/205-path entries served 50 paths with original count/truncation; blocker detection retained the full diff. |
+| Stable v0 (shared contract package plus gatekeeper workflow calls) | **built, deployed** | FH-065a/FH-065b accepted and integrated 2026-10-13 at 20:41 ET, then deployed at 20:43 ET. Live acceptance still waits for the owner's Cloudflare OS agent workflow loop. |
+| Advisory race judge (the owner still promotes) | **live** | FH-063 core passed 22/22 live checks 2026-10-13 at 23:55 ET, including judge refusal to race, scoped reads, verdict rules and finish. FH-063c panel live look passed 2026-10-14 at 00:11 ET. The owner still promotes the winner. |
+| Advisory race judge over MCP | **built, deployed** | FH-063b tools accepted at main `3bf61be` and deployed 2026-10-14 at 01:33 ET; no separate live MCP check is recorded. |
+| Promote from builder forks | **live** | FH-070 accepted and deployed 2026-10-13 at 20:43 ET. Its live check at 23:46 ET promoted FH-063 from its own builder fork in 11.4 s. |
+| Review-detail cache | **live** | FH-046 accepted 2026-10-14 at 04:28 ET and deployed at 04:31 ET. The 04:38 ET live check measured two review reads at 34.9 s and 24.5 s cold, then 0.3 s and 0.2 s warm, with identical Git detail. |
+| Fork catch-up and collision checks | **built, deployed; live trespass check passed** | FH-068 accepted 2026-10-14 at 03:29 ET and deployed at 03:33 ET. A real trespass still raised a blocker at 03:39 ET; legitimate catch-up and conservative fallback cases passed workerd tests. |
+| First-run states and existing history | **live look; empty cases fixture-verified** | FH-073 deployed 2026-10-14 at 13:10 ET; populated-project live look passed at 13:25 ET. FH-073b deployed at 14:33 ET and passed the populated-project look at 14:39 ET. Fresh empty states and zero-packet projects with pushes are covered by fixtures. |
+| Race lane polish | **live** | FH-074 live look passed 2026-10-14 at 13:25 ET: two-digit saddlecloths, the checks-didn't-finish legend and judge advice on a real race. |
+| Accessibility and narrow layouts | **live look; remaining cases fixture-verified** | FH-075 deployed 2026-10-14 at 14:33 ET. The 14:39 ET live look checked graph controls, named panels/tables, receipt button names and glyph annotations; fixtures cover the remaining accessibility and race-layout cases. |
+| Race creation through the owner CLI | **built, merged** | FH-077 accepted 2026-10-14 at 12:28 ET with CLI 17/17 checks. Packet files support race fields; this CLI change needs no Worker deployment. No separate live CLI race-creation check is recorded. |
+| Agent status and resume view | **live look; active cases fixture-verified** | FH-078 deployed 2026-10-14 at 16:10 ET. The 16:18 ET live look checked the idle-agent table, folding and OS agent view. The OS frame lacks caller identity, so it correctly omits the reduced resume card; active states and caller-known cards are fixture-verified. |
+| Refresh stamp and stale-data controls | **live look; stale-write cases fixture-verified** | FH-079 deployed 2026-10-14 at 13:53 ET. The 13:59 ET live look checked the freshness stamp and a real failed-review message. Slow-load copy and disabling writes after failed refreshes were checked with fixtures, without forcing a live refresh failure. |
+| Races tab and agent-view copy | **live** | FH-081 plus the copy fix deployed 2026-10-14 at 17:17 ET. The 17:24 ET live look passed: a real empty Races tab, populated standings and finish/navigation, and the owner-promotes description in the OS agent frame. |
+| Cold Cloudflare OS app load | **known limitation** | The OS agent frame took about 40 s to paint in the 2026-10-14 16:18 ET live look. Review details can take 10–35 s cold; FH-046 warm reads measured 0.2–0.3 s. Pre-warm the OS frame and any reviews you plan to demo. |
+| Federation, Mac execution lane and native app | **roadmap** | No accepted cross-instance protocol or project-specific native execution path. |
+| Gadget/blueprint and read-only terminal log | **roadmap** | FH-009/FH-011 remain held work. |
+
+**The Stable: identity for many agents.** Stable v0 ships shared contracts, gatekeeper workflow calls (context, join, claim, request review and release), and a separate identity for each Cloudflare OS agent, so agents can share a project with changes attributed to their own work. Stable v1 is proposed and being built on a separate instance. It would connect each place agents run once, rather than each agent or project; give every worker a named seat and resumable work session; and replace stored keys with short-lived leases. Each assignment would belong to the chat that claimed it, preventing another worker from acting through that assignment. v1 is outside this entry. See the [Stable contracts](packages/forkhorse-stable/README.md).
+
+## Deploy your own
+
+1. **Prepare your instance.** If you already use the hosted Cloudflare OS deployment, follow the [migration guide](docs/migrate-from-hosted.md) to preserve its Workers and storage. For a fresh instance, start with [deployment configuration](docs/customization.md#deployment-configuration).
+2. **Configure Fork Horse.** Follow the [core integration guide](docs/core-integration.md) for owner configuration, Access, Artifacts repositories and push subscriptions.
+3. **Deploy and verify.** Use the [customization guide](docs/customization.md) for branding and policy, and complete the [checks and remaining gates](docs/core-integration.md#checks-and-remaining-gates) before connecting agents.
 
 ## How Fork Horse built itself
 
@@ -65,14 +111,14 @@ flowchart TD
   Canonical -->|pushed event subscription| Queue
   Queue --> Core
   DO --> Claims[Claims / blockers / reviews / ledger]
-  DO -. receipt authority integration pending .-> Runner[Sandbox receipt adapter]
-  Runner -. exact-commit checks; live run pending .-> Forks
+  DO -->|exact reviewed commit| Runner[Receipt runner]
+  Runner -->|bounded snapshot reads| Forks
   OS[Pinned Cloudflare OS] -->|MCP connector / OAuth| MCP
   OS --> Gatekeeper[Gatekeeper and Kumo sidebar app]
   Gatekeeper -->|agent capability / dashboard transport| Core
 ```
 
-A claim binds a packet, agent and fork immutably. Owner approval binds the review's SHA and receipt digest; promote re-reads the heads, checks fast-forward ancestry, and pushes against the captured canonical base with compare-and-swap. Blockers currently record collisions; core does not make them an additional approval gate. The receipt adapter defines exact-commit container checks and bounded logs, but its execution triggers, trusted storage, default passing-receipt requirement and pre-promote rerun are **not wired into core**. See the [core contract](packages/forkhorse-core/README.md), [integration guide](docs/core-integration.md) and [runner integration requirements](packages/forkhorse-runner/README.md#fh-005-integration-dependencies-not-implemented-here).
+A claim binds a packet, agent and fork immutably. Owner approval binds the review's SHA and receipt evidence; promotion re-reads the heads and canonical base before a fast-forward compare-and-swap push. Open collision blockers gate the trespassing review. Required receipts gate approval and re-run checks before promotion; advisory receipts remain visible without gating it. Quick checks run in Dynamic Workers before full checks in containers. See the [core contract](packages/forkhorse-core/README.md), [integration guide](docs/core-integration.md) and [receipt workflow](docs/receipts.md).
 
 ## Deploy your own instance
 
@@ -97,7 +143,7 @@ cp deployment.jsonc deployment.local.jsonc
    pnpm deploy
    ```
 
-   `pnpm check` runs tests/builds and Worker dry runs; it does not prove live behavior. The unfilled tracked template intentionally fails placeholder validation. `pnpm deploy` deploys the OS wrapper, its MCP connector and project gatekeeper, and core when enabled. The receipt runner remains separate integration work (FH-032). See the [starter deployment instructions](#deploy) and [core integration guide](docs/core-integration.md).
+   `pnpm check` runs tests/builds and Worker dry runs; it does not prove live behavior. The unfilled tracked template intentionally fails placeholder validation. `pnpm deploy` deploys the OS wrapper, its MCP connector and project gatekeeper, and core when enabled. The receipt runner requires its own configuration and operational verification. See the [starter deployment instructions](#deploy) and [core integration guide](docs/core-integration.md).
 6. Complete the [OS verification checklist](#4-verify-the-deployment). Use the [owner API contract](packages/forkhorse-core/README.md#http-contract) to create the configured project and enroll agents, then add its repo subscriptions. Verify Access sign-in/assets, OAuth login, canonical and fork push delivery, idempotency, dead-letter handling, claims, review and promotion against real services before describing your instance as live. Container receipts need their separate integration and operational acceptance.
 
 For offline development, run `pnpm test` and `pnpm lint`. The [dashboard fixture instructions](packages/forkhorse-dashboard/README.md#run-and-check) provide a labeled local UI; fixture approval and promotion operate only on its fictional API.
@@ -132,7 +178,7 @@ For OAuth, omit `bearer_token_env_var`, then run `codex mcp login packet_agent`.
 
 Once the owner has deployed and enabled its MCP connector, add the owner-provided HTTPS MCP URL through that connector and complete OAuth/Access consent. The [pinned upstream MCP connector](cloudflare-os/packages/gatekeeper-mcp/README.md#how-the-connect-flow-works) describes discovery, registration and PKCE. This repo's deploy wiring provisions that connector (FH-016) and the dedicated project gatekeeper/sidebar app (FH-008). The OAuth path has a verified live `get_context` call; the dedicated sidebar has verified live project data and Kumo UI. Attach the connection to the agent's workspace before requesting tools.
 
-After connecting any client, verify the seven agent tools: `get_context`, `join`, `claim`, `request_review`, `submit_work`, `status`, `activity`. Call `join` once for the packet, pass its returned `repoName` explicitly to claim, work within the packet paths, and request review for the exact resulting SHA. Refresh an expired token on the same fork; never join again to refresh it. After the owner records promotion, release your claim if it remains live. See the [task-packet skill](skills/forkhorse/SKILL.md) for the token and release routes. Owner enrollment, approval and promotion are not agent tools.
+After connecting any client, verify `get_context` and inspect `tools/list` against the [MCP tool contract](packages/forkhorse-mcp/README.md#tool-contract). Call `join` once for the packet, pass its returned `repoName` explicitly to claim, work within the packet paths, and request review for the exact resulting SHA. Refresh an expired token on the same fork; never join again to refresh it. After the owner records promotion, release your claim if it remains live. See the [task-packet skill](skills/forkhorse/SKILL.md) for the token and release routes. Owner enrollment, approval and promotion are not agent tools.
 
 ## Security model
 
@@ -143,17 +189,16 @@ After connecting any client, verify the seven agent tools: `get_context`, `join`
 
 ## Limits and known gaps
 
-- FH-027's layout, reconnect and loading follow-ups remain in progress. The OS sidebar rail retains its cached icon until the account reconnects; the deferred reconnect does not change the live mark on the other verified surfaces.
-- **Checks are not currently enforced by core.** Core can approve a review with a null receipt digest; null means no check evidence. The runner's default-required receipt validator exists separately. Review-trigger execution, durable receipt attachment, default enforcement, pre-promote execution and large-repository sandbox Git remain open integration work.
-- MCP is POST/JSON Streamable HTTP, with seven tools, a 25-second call deadline and responses strictly below 1 MiB; there is no persistent GET/SSE session. Server-side commits accept at most 200 text files within a bounded 1 MiB request; they do not delete files.
-- Core's current Git transport bounds requests/responses to 8 MiB and its ephemeral filesystem to 32 MiB. Oversized operations fail closed; transient decompression is not fully bounded. This is not a large-repository execution lane.
-- New forks provision their own event subscriptions; pending subscriptions need inspection, and older repositories need owner backfill. Blockers and historical alerts are retained, state arrays are mostly unpaged, and the core dashboard has no server WebSocket endpoint or command-log receipt API. The OS sidebar uses the gatekeeper's live capability relay.
-- Uncertain project creation, token revocation or promotion outcomes can require owner inspection. Client timeouts do not undo accepted writes: inspect state/activity before retrying. OAuth grants have expiry/rotation constraints described in the [MCP contract](packages/forkhorse-mcp/README.md#oauth-and-owner-consent).
-- Quick-tier checks, gadget/blueprint, read-only terminal logs and an interactive shell remain future work. Federation, the Mac lane and the native app are roadmap.
+- **Cold loads:** the first Cloudflare OS frame can take about 40 s to paint. Review details can take 10–35 s cold and about 0.2 s warm. The review cache stores immutable Git detail after its first read; it does not remove the OS frame's initial load. Pre-warm the OS frame and any reviews you plan to demo.
+- **Repository size:** Git transport and review snapshots have bounded budgets and fail closed when exceeded. Large repositories and binary assets need the [large-file limits](docs/large-files.md) and storage plan; there is no general large-repository execution lane.
+- **Agent transport:** MCP uses POST/JSON Streamable HTTP with bounded calls and responses; it has no persistent GET/SSE session. Server-side commits accept bounded text-only submissions and do not delete files. See the [MCP contract](packages/forkhorse-mcp/README.md#tool-contract).
+- **Owner setup:** pending push subscriptions and older repositories need inspection or backfill. Cloudflare OS can retain duplicate project connections after reconnect; the owner removes stale registrations.
+- **History and uncertain writes:** state arrays are mostly unpaged. A timeout does not undo a write; inspect state and activity before retrying uncertain creation, revocation or promotion. Full receipt logs are owner-only; the dashboard has no interactive shell or command-log API.
+- **Usage and identity:** token reports are agent-provided; the live records do not establish independent gateway metering. Stable v0's Cloudflare OS agent workflow loop remains pending. Stable v1, federation, the Mac execution lane, native app, gadget/blueprint and read-only terminal log remain outside this entry.
 
 ## License and credits
 
-This repository is licensed under [Apache-2.0](LICENSE). [NOTICE](NOTICE) records its origins and attribution: deployment tooling from [cloudflare-os-starter](https://github.com/cloudflare/cloudflare-os-starter), with history preserved, and an unmodified pinned [Cloudflare OS](https://github.com/cloudflare/cloudflare-os) submodule. The project uses Cloudflare Workers, Durable Objects, Artifacts and the MCP ecosystem; it is independent and not endorsed by Cloudflare or the Git trademark holder.
+This repository is licensed under [Apache-2.0](LICENSE). [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md) record origins and third-party attribution: deployment tooling from [cloudflare-os-starter](https://github.com/cloudflare/cloudflare-os-starter), with history preserved, and an unmodified pinned [Cloudflare OS](https://github.com/cloudflare/cloudflare-os) submodule. The project uses Cloudflare Workers, Durable Objects, Artifacts and the MCP ecosystem; it is independent and not endorsed by Cloudflare or the Git trademark holder.
 
 ---
 
