@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Empty, LayerCard, Table, Tooltip } from "@cloudflare/kumo";
 import type { Activity, Brand, ProjectState } from "./contracts.ts";
 import { agentStatusRows, type AgentStatusRow } from "./agent-status-model.ts";
-import { clockTime, packetPushes, timestamp } from "./fork-graph-model.ts";
+import { clockTime, oldestLoadedActivity, packetPushes, timestamp } from "./fork-graph-model.ts";
 import { Saddlecloth } from "./lane.tsx";
 import { relativeTime } from "./time.ts";
 import { agentUsageToday } from "./usage.ts";
@@ -21,11 +21,11 @@ export function AgentStatusBadge({ row }: { row: AgentStatusRow }) {
     {row.status.label}
   </Badge> : <Badge variant="secondary">Idle</Badge>;
 }
-function LastPush({ row, now, resume = false }: { row: AgentStatusRow; now: number; resume?: boolean }) {
+function LastPush({ row, now }: { row: AgentStatusRow; now: number }) {
   return row.lastPush ? <Tooltip content={new Date(row.lastPush.recordedAt).toLocaleString()}
     render={<span className="agent-last-push" />}>
     <code>{row.lastPush.after.slice(0, 7)}</code> · <time dateTime={row.lastPush.recordedAt}>{relativeTime(row.lastPush.recordedAt, now)}</time>
-  </Tooltip> : <span>{resume ? "No push yet" : row.missingPush}</span>;
+  </Tooltip> : <span>{row.missingPush}</span>;
 }
 function Fork({ value }: { value?: string }) {
   return value ? <Tooltip content={value} render={<code className="truncated-code" />}>{value}</Tooltip> : null;
@@ -106,12 +106,14 @@ export function ResumeCard({ state, activity, agent }: { state: ProjectState; ac
     timestamp(row.status.claim.createdAt) ?? 0, now).toSorted((a, b) =>
     (timestamp(b.recordedAt) ?? 0) - (timestamp(a.recordedAt) ?? 0) || b.sequence - a.sequence)[0] : undefined;
   const packet = state.packets.find((entry) => entry.id === row.status?.claim.packet);
+  const missingPush = (timestamp(row.status?.claim.createdAt) ?? -Infinity) > oldestLoadedActivity(activity)
+    ? "No push yet" as const : "Not in loaded activity" as const;
   return <LayerCard className="p-4 resume-card">
     <h3>Resume where you left off</h3>
     {row.status ? <dl>
       <dt>Packet</dt><dd><code>{row.status.claim.packet}</code>{packet && ` · ${packet.title}`}</dd>
       <dt>Fork</dt><dd><Fork value={row.status.claim.repoName} /></dd>
-      <dt>Last push</dt><dd><LastPush row={{ ...row, lastPush }} now={now} resume /></dd>
+      <dt>Last push</dt><dd><LastPush row={{ ...row, lastPush, missingPush }} now={now} /></dd>
       <dt>Status</dt><dd><AgentStatusBadge row={row} /></dd>
     </dl> : <p>No live claim.</p>}
   </LayerCard>;

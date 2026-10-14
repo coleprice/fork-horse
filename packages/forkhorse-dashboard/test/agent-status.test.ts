@@ -105,6 +105,8 @@ test("FH-078 reduced Resume card is read-only, absent for unknown callers and ha
   assert.doesNotMatch(card, /<button|<dt>Next<\/dt>|unavailable/);
   const idle = fixture("agent-idle");
   assert.match(markup(createElement(ResumeCard, { state: idle, activity: idle.recentActivity!, agent: "fixture-agent" })), /No live claim\./);
+  const incomplete = fixture("agents-short-activity");
+  assert.match(markup(createElement(ResumeCard, { state: incomplete, activity: incomplete.recentActivity!, agent: "held" })), /Not in loaded activity/);
 });
 
 async function until(check: () => boolean) {
