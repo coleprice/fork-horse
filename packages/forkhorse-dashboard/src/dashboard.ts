@@ -45,7 +45,7 @@ export function mountDashboard(
   const sectionFromHash = (): Section => {
     const hash = window.location.hash.slice(1).split("/")[0];
     if (hash === "race") return "work";
-    return ["overview", "work", "review", "agents"].includes(hash) ? (hash as Section) : "overview";
+    return ["overview", "work", "review", "agents", "races"].includes(hash) ? (hash as Section) : "overview";
   };
   const reviewFromHash = () => {
     const match = /^#review\/(.+)$/.exec(window.location.hash);
@@ -74,6 +74,10 @@ export function mountDashboard(
   };
   let selectedRaceId = raceFromHash();
   let section = sectionFromHash();
+  const raceReturnFromHistory = (): "work" | "races" =>
+    window.history.state?.raceReturnSection === "races" ? "races" : "work";
+  let raceReturnSection = raceReturnFromHistory();
+  if (selectedRaceId) section = raceReturnSection;
   let selectedReviewId = reviewFromHash();
   function openReview(id?: string) {
     if (id && !options.transport.getReview) return;
@@ -90,18 +94,25 @@ export function mountDashboard(
   }
   function openRace(id?: string) {
     const previous = selectedRaceId;
-    section = "work";
+    if (id && !previous) raceReturnSection = section === "races" ? "races" : "work";
+    section = raceReturnSection;
     selectedRaceId = id;
     selectedReviewId = undefined;
-    const hash = id ? `race/${encodeURIComponent(id)}` : "work";
+    const hash = id ? `race/${encodeURIComponent(id)}` : raceReturnSection;
     try {
-      window.history.pushState(null, "", `#${hash}`);
+      window.history.pushState(id ? { raceReturnSection } : null, "", `#${hash}`);
     } catch {
       window.location.hash = hash;
     }
     draw();
     if (!id && previous)
       requestAnimationFrame(() => {
+        if (raceReturnSection === "races") {
+          [...root.querySelectorAll<HTMLElement>("[data-race-packet]")]
+            .find((row) => row.dataset.racePacket === previous)
+            ?.querySelector<HTMLElement>(".race-list-link")?.focus();
+          return;
+        }
         [...root.querySelectorAll<HTMLElement>("[data-packet-id]")]
           .find((row) => row.dataset.packetId === previous)
           ?.querySelector<HTMLElement>(".packet-link")
@@ -122,9 +133,15 @@ export function mountDashboard(
     draw();
   }
   function onHash() {
+    const previousRaceId = selectedRaceId;
     section = sectionFromHash();
     selectedReviewId = reviewFromHash();
     selectedRaceId = raceFromHash();
+    if (selectedRaceId) {
+      // The opaque-frame hash fallback already recorded its source in memory.
+      if (selectedRaceId !== previousRaceId) raceReturnSection = raceReturnFromHistory();
+      section = raceReturnSection;
+    }
     draw();
   }
   window.addEventListener("hashchange", onHash);
@@ -138,6 +155,7 @@ export function mountDashboard(
           actions: {
             section,
             raceId: selectedRaceId,
+            raceBackSection: raceReturnSection,
             openRace,
             reviewId: selectedReviewId,
             openReview,
@@ -182,13 +200,14 @@ export function mountDashboard(
     );
   }
 
-  async function load() {
+  async function load(afterWrite = false) {
     const current = ++generation;
-    view.busy = true;
+    view.refreshing = true;
     view.error = undefined;
     draw();
     try {
       const state = await options.transport.getState(view.project);
+      if (current !== generation || disposed) return;
       const recent = state.recentActivity ?? [];
       const activity = await options.transport.getActivity(
         view.project,
@@ -208,27 +227,24 @@ export function mountDashboard(
       ]
         .toSorted((a, b) => a.sequence - b.sequence)
         .slice(-100);
-      view.updatedAt = new Date().toLocaleTimeString(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
+      view.updatedAt = new Date().toISOString();
+      view.stale = false;
     } catch (error) {
       if (current !== generation || disposed) return;
       view.error = error instanceof Error ? error.message : "Unable to load this project.";
-      // A failed refresh must not leave actionable approvals from an older snapshot.
-      view.state = undefined;
-      view.activity = [];
+      // Retain evidence, but fence every owner write until a complete read succeeds.
+      view.stale = !!view.state;
     } finally {
       if (current === generation && !disposed) {
-        view.busy = false;
+        view.refreshing = false;
+        if (afterWrite) view.busy = false;
         draw();
       }
     }
   }
 
   async function refresh() {
-    if (disposed || !view.project || view.busy) return;
+    if (disposed || !view.project || view.busy || view.refreshing) return;
     view.notice = undefined;
     view.noticeReview = undefined;
     await load();
@@ -252,6 +268,8 @@ export function mountDashboard(
     view.project = id;
     view.state = undefined;
     view.activity = [];
+    view.updatedAt = undefined;
+    view.stale = false;
     view.notice = undefined;
     view.noticeReview = undefined;
     invalidated = false;
@@ -259,7 +277,7 @@ export function mountDashboard(
     if (disposed) return;
     try {
       unsubscribe = options.transport.subscribe?.(id, () => {
-        if (view.busy) invalidated = true;
+        if (view.busy || view.refreshing) invalidated = true;
         else void refresh();
       });
     } catch (error) {
@@ -271,11 +289,17 @@ export function mountDashboard(
     }
   }
 
+  function beginWrite() {
+    generation++;
+    view.refreshing = false;
+    view.busy = true;
+  }
+
   async function action(kind: "approve" | "promote", reviewId: string) {
-    if (options.owner === false || view.busy || !view.state) return false;
+    if (options.owner === false || view.busy || view.stale || !view.state) return false;
     const review = view.state.reviews.find((entry) => entry.id === reviewId);
     if (!review || !reviewGate(review, view.state)[kind]) return false;
-    view.busy = true;
+    beginWrite();
     view.error = undefined;
     view.notice = undefined;
     view.noticeReview = undefined;
@@ -302,13 +326,13 @@ export function mountDashboard(
         error.status === 409 &&
         message === "Checks failed before promote.";
       // No retry: even a connection failure can follow a successful server-side write.
-      await load();
+      await load(true);
       if (handledReceiptFailure) throw error;
       view.error = message;
       draw();
       return false;
     }
-    await load();
+    await load(true);
     view.notice = message;
     view.noticeSha = kind === "approve" ? review.sha.slice(0, 7) : undefined;
     draw();
@@ -322,10 +346,10 @@ export function mountDashboard(
   async function archivePacket(kind: "archive" | "unarchive", id: string) {
     const write = kind === "archive"
       ? options.transport.archivePacket : options.transport.unarchivePacket;
-    if (options.owner === false || view.busy || !view.state || !write) return false;
+    if (options.owner === false || view.busy || view.stale || !view.state || !write) return false;
     const packet = view.state.packets.find((entry) => entry.id === id);
     if (!packet || (kind === "archive" ? !canArchive(view.state, id) : !packet.archived)) return false;
-    view.busy = true;
+    beginWrite();
     view.notice = undefined;
     view.noticeSha = undefined;
     draw();
@@ -333,17 +357,17 @@ export function mountDashboard(
       await write(view.project, id);
     } catch (error) {
       // Re-fetch only. The panel owns sanitized action errors, including uncertain writes.
-      await load();
+      await load(true);
       throw error;
     }
-    await load();
+    await load(true);
     view.notice = `${kind === "archive" ? "Archived" : "Unarchived"} ${id}`;
     draw();
     return true;
   }
 
   async function returnReview(id: string, reason: string) {
-    if (options.owner === false || view.busy || !view.state || !options.transport.returnReview)
+    if (options.owner === false || view.busy || view.stale || !view.state || !options.transport.returnReview)
       return false;
     const review = view.state.reviews.find((r) => r.id === id);
     const fork = view.state.forks.find((f) => f.repoName === review?.repoName);
@@ -357,7 +381,7 @@ export function mountDashboard(
       reason.length > 2000
     )
       return false;
-    view.busy = true;
+    beginWrite();
     view.notice = undefined;
     view.noticeReview = undefined;
     draw();
@@ -365,10 +389,10 @@ export function mountDashboard(
       await options.transport.returnReview(view.project, id, reason);
     } catch (error) {
       // Refresh reads only: an uncertain write is never retried. Dialog owns its error.
-      await load();
+      await load(true);
       throw error;
     }
-    await load();
+    await load(true);
     view.notice = `Returned to ${review.agent}`;
     view.noticeSha = undefined;
     draw();
@@ -376,14 +400,14 @@ export function mountDashboard(
   }
 
   async function resolveBlocker(id: string, reason: string) {
-    if (options.owner === false || view.busy || !view.state || !options.transport.resolveBlocker ||
+    if (options.owner === false || view.busy || view.stale || !view.state || !options.transport.resolveBlocker ||
         reason.trim().length < 1 || reason.length > 200)
       throw new Error("Collision action unavailable.");
     // The server is idempotent: keep an opened dialog usable if a claim ends meanwhile.
     const blocker = view.state.blockers.find((b) => b.id === id);
     const project = view.project;
     if (!blocker) throw new ApiError(404, "Collision unavailable.");
-    view.busy = true;
+    beginWrite();
     view.notice = undefined;
     view.noticeReview = undefined;
     view.noticeSha = undefined;
@@ -394,11 +418,11 @@ export function mountDashboard(
       if (!result.blocker.resolved) throw new Error("Resolution missing from response.");
     } catch (error) {
       // Reads only after uncertain writes. The dialog owns safe error copy.
-      if (!disposed && project === view.project) await load();
+      if (!disposed && project === view.project) await load(true);
       throw error;
     }
     if (disposed || project !== view.project) return result.blocker;
-    await load();
+    await load(true);
     if (disposed || project !== view.project) return result.blocker;
     const resolution = result.blocker.resolved!;
     const blocked = blockedLabel(blocker);
@@ -413,20 +437,20 @@ export function mountDashboard(
   }
 
   async function setSettings(requireReceipt: boolean) {
-    if (options.owner === false || view.busy || !options.transport.setSettings || !view.state)
+    if (options.owner === false || view.busy || view.stale || !options.transport.setSettings || !view.state)
       return;
-    view.busy = true;
+    beginWrite();
     view.error = undefined;
     view.notice = undefined;
     view.noticeReview = undefined;
     draw();
     try {
       await options.transport.setSettings(view.project, { requireReceipt });
-      await load();
+      await load(true);
       view.notice = "Receipt settings updated";
       view.noticeSha = undefined;
     } catch (error) {
-      await load();
+      await load(true);
       view.error =
         error instanceof Error
           ? error.message
@@ -439,6 +463,8 @@ export function mountDashboard(
     view.livePaused = paused;
     draw();
   });
+  // One quiet clock updates the stamp and stale-control tooltips together, without reads.
+  const freshnessClock = setInterval(() => { if (view.state) draw(); }, 30_000);
   draw();
   if (initial) void selectProject(initial);
   return {
@@ -448,6 +474,7 @@ export function mountDashboard(
       generation++;
       unsubscribe?.();
       stopLive?.();
+      clearInterval(freshnessClock);
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("popstate", onHash);
       flushSync(() => react.unmount());

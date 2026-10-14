@@ -511,6 +511,7 @@ test("detail loading/error/retry/not-found and late response after queue navigat
   try {
     await until(() => n.root.textContent!.includes("This review doesn't exist anymore."));
     assert.ok(button(n, "← Review queue"));
+    assert.equal(button(n, "Try again"), undefined, "a missing review has no retry button");
   } finally {
     n.close();
   }
@@ -669,7 +670,7 @@ test("stale causes match in detail and queue before a click, with no owner actio
   }
 });
 
-test("non-stale guarded main movement keeps Approved and Promote; returned suppresses stale banner", async () => {
+test("guarded main movement keeps approval, pending promotion hides Promote, and returned suppresses stale banner", async () => {
   for (const scenario of ["review-reconciler", "review-pending-promotion", "review-returned", "review-promoted"]) {
     const c = setup(scenario);
     if (["review-returned", "review-promoted"].includes(scenario)) {
@@ -680,7 +681,8 @@ test("non-stale guarded main movement keeps Approved and Promote; returned suppr
       await until(() => c.root.querySelector(".review-milestones"));
       const detail = c.root.querySelector(".review-detail")!;
       assert.doesNotMatch(detail.textContent!, /The fork moved|main moved to|This review no longer applies/);
-      if (["review-reconciler", "review-pending-promotion"].includes(scenario)) assert.ok(button(c, "Promote"));
+      if (scenario === "review-reconciler") assert.ok(button(c, "Promote"));
+      if (scenario === "review-pending-promotion") assert.equal(button(c, "Promote"), undefined);
     } finally { c.close(); }
   }
 });

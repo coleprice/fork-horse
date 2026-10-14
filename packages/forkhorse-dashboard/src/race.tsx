@@ -1,14 +1,16 @@
+import { JudgeAdvice, JudgePickBadge } from "./judge.tsx";
 import { ArchivedBadge } from "./archive.tsx";
 import { RaceCompare } from "./race-usage.tsx";
 import { BudgetUsage, UsageFigures } from "./usage.tsx";
 import { LaneRunner, laneSilkStyle, LaneMarker, LaneConnector } from "./lane.tsx";
 import { Badge, Button, Tooltip } from "@cloudflare/kumo";
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Brand, ProjectState, Race, RaceEntrant } from "./contracts.ts";
 import type { ViewModel } from "./model.ts";
 import type { ViewActions } from "./view.tsx";
 import { duration, receiptWord } from "./receipts.tsx";
 import { oldestLoadedActivity, packetPushes } from "./fork-graph-model.ts";
+import { milestoneDescription, raceAnnouncementChanges, raceAnnouncementSnapshot } from "./race-announcements.ts";
 import {
   entrantResult,
   entrantChecks,
@@ -19,7 +21,6 @@ import {
   raceMilestones,
   raceSplit,
   raceStart,
-  raceTimeText,
   rejectionDelta,
   timestamp,
 } from "./race-model.ts";
@@ -93,15 +94,12 @@ function Lane({
         const label = failure ? receiptWord(receipt!.status).label : milestone.label;
         const eventAt = failure ? failureAt : at;
         const split = raceSplit(eventAt, start);
-        const description =
-          reached || failure
-            ? `${failure ? `Checks ${label.toLowerCase()}` : label}${raceTimeText(eventAt, start) ? `, ${raceTimeText(eventAt, start)}` : ""}`
-            : "Not yet";
+        const { description } = milestoneDescription(state, race, entrant, milestone);
         const marker = (
           <LaneMarker
             kind={
               failure
-                ? "failed"
+                ? receipt!.status === "failed" ? "failed" : "interrupted"
                 : promoted
                   ? "promoted"
                   : hurdle && reached && receipt?.status === "passed"
@@ -163,6 +161,7 @@ function Lane({
       </td>
       <td className="race-result">
         <Place entrant={entrant} />
+        <JudgePickBadge race={race} agent={entrant.agent} />
         <strong>{entrantResult(entrant, owner)}</strong>
         {entrant.promotedAt && (
           <span className="caption">
@@ -200,6 +199,26 @@ export function RaceView({
   actions: ViewActions;
 }) {
   const state = view.state;
+  const observedRace = state?.races?.find((entry) => entry.packet === packet);
+  const previous = useRef<{ scope: string; snapshot: ReturnType<typeof raceAnnouncementSnapshot> } | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  useEffect(() => {
+    if (!state || !observedRace || view.error) {
+      previous.current = null;
+      setAnnouncement("");
+      return;
+    }
+    const scope = `${view.project}:${packet}`;
+    const snapshot = raceAnnouncementSnapshot(state, observedRace);
+    if (previous.current?.scope === scope) {
+      const message = raceAnnouncementChanges(previous.current.snapshot, snapshot);
+      if (message) setAnnouncement(message);
+    } else {
+      // Establish a baseline on load or switch; don't narrate historical milestones.
+      setAnnouncement("");
+    }
+    previous.current = { scope, snapshot };
+  }, [packet, view.project, state, observedRace, view.error]);
   const title = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     // Focus after the triggering click completes, including tooltip focus restoration.
@@ -208,10 +227,10 @@ export function RaceView({
   }, [packet, !!state]);
   const back = (
     <Button variant="ghost" size="sm" onClick={() => actions.openRace?.()}>
-      ← Work
+      ← {actions.raceBackSection === "races" ? "Races" : "Work"}
     </Button>
   );
-  if (view.error)
+  if (view.error && !view.stale)
     return (
       <section className="race-page">
         {back}
@@ -262,6 +281,7 @@ export function RaceView({
   const now = Date.now();
   return (
     <article className="race-page" aria-labelledby="race-title">
+      <div className="sr-only" role="status" aria-live="polite">{announcement}</div>
       <div className="race-navigation flex items-center gap-3">
         {back}
         {work && actions.showPacket && <Button variant="ghost" size="sm"
@@ -274,12 +294,13 @@ export function RaceView({
             {work?.archived && <ArchivedBadge at={work.archived.at} />}
           </h2>
           <p className="race-flag">
-            ⚑ {race.status === "finished" ? "Finished" : "Racing"}
+            <span aria-hidden="true">⚑</span> {race.status === "finished" ? "Finished" : "Racing"}
             {photo >= 2 && " · photo finish"}
           </p>
           <p className="caption muted">
             <code>{packet}</code> · Race · {entrants.length}{" "}
             {entrants.length === 1 ? "entrant" : "entrants"}
+            {race.judge && <> · Judge {race.judge}</>}
             {start !== undefined && (
               <>
                 {" "}
@@ -359,7 +380,7 @@ export function RaceView({
           ))}
         </tbody>
       </table>
-      {!!entrants.length && <RaceCompare race={race} state={{ ...state, recentActivity: view.activity }} brand={view.brand} getReview={actions.getReview} />}
+      {(!!entrants.length || !!race.judge) && <RaceCompare race={race} state={{ ...state, recentActivity: view.activity }} brand={view.brand} getReview={actions.getReview} advice={<JudgeAdvice race={race} view={view} actions={actions} />} />}
       {!entrants.length && (
         <p className="race-empty">No entrants yet. Agents join by claiming {packet}.</p>
       )}

@@ -1,5 +1,7 @@
 import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, raceStates, recordPromoteRejected } from "./race-entrants";
 import { ReviewReader } from "./review-detail";
+import { ReviewCache } from "./review-cache";
+import { judgeMayRead, raceFinished, saveVerdict } from "./race-judge";
 import { requireTokenBudget, tokenCount, usageSources } from "./usage";
 import { publicReview, readReceipt, settings } from "./receipts";
 import type { Receipts } from "./receipts";
@@ -25,7 +27,7 @@ import type {
   LedgerEntry,
   Packet,
   RaceEntrant,
-  RaceResult,
+  RaceRecord,
   ReconcilerAlert,
   Review,
   SettingsChange,
@@ -150,7 +152,7 @@ export class Workflow {
     const records = await entrants(txn, claim.packet);
     const winner = records.find(entrant => entrant.agent === claim.agent);
     if (!winner || winner.closedAt !== null || winner.repoName !== claim.repoName ||
-        winner.createdAt !== claim.createdAt || await txn.get(`race:${claim.packet}`))
+        winner.createdAt !== claim.createdAt || await raceFinished(txn, claim.packet))
       throw new Error("Race binding changed during promotion");
     // The durable intent predates external Git I/O. Finish only after that I/O succeeds,
     // including milestones reached by advisory receipts while the push was in flight.
@@ -170,16 +172,18 @@ export class Workflow {
         await txn.put(entrantKey(entrant.packet, entrant.agent), finished);
       }
     }
+    const advice = await txn.get<RaceRecord>(`race:${claim.packet}`);
     await txn.put(`race:${claim.packet}`, {
+      ...advice,
       winner: winner.agent, places: placed.map((entrant, index) => ({ agent: entrant.agent, place: index + 1 })),
       finishedAt, ledgerEntryId: entry.id,
-    } satisfies RaceResult);
+    } satisfies RaceRecord);
   }
 
   private async rejectRacePromote(project: Project, review: Review, found?: string, rejection = staleBase()): Promise<never> {
     try {
       const head = found ?? await this.head(project.repoName, project.defaultBranch);
-      if (head !== review.base || await this.storage.get(`race:${review.packet}`))
+      if (head !== review.base || await raceFinished(this.storage, review.packet))
         await recordPromoteRejected(this.storage, review, head);
     }
     catch {
@@ -203,7 +207,8 @@ export class Workflow {
       return json({ released: true });
     }
     const agent = this.agent(actor);
-    if (await this.storage.get(`race:${packet.id}`)) throw new HttpError(409, "Race finished.");
+    if (packet.judge === agent) throw new HttpError(409, "The judge can't race.");
+    if (await raceFinished(this.storage, packet.id)) throw new HttpError(409, "Race finished.");
     const current = await this.storage.get<RaceEntrant>(entrantKey(packet.id, agent));
     if (current) {
       if (current.closedAt !== null) throw new HttpError(409, "Race entrant is closed.");
@@ -350,9 +355,13 @@ export class Workflow {
         !data.acceptance.every((entry) => text(entry, 2000))
       )
         throw new HttpError(400, "Invalid packet fields.");
+      if (data.judge !== undefined && (data.mode !== "race" || !slug(data.judge, 32) ||
+          !(await this.storage.get(`agent:${data.judge}`))))
+        throw new HttpError(400, "judge must be an enrolled agent on a race packet.");
       const packet: Packet = {
         id: data.id,
         mode: data.mode ?? "standard",
+        ...(data.judge !== undefined ? { judge: data.judge as string } : {}),
         ...(data.tokenBudget !== undefined ? { tokenBudget: data.tokenBudget as number } : {}),
         title: data.title,
         goal: data.goal,
@@ -364,6 +373,14 @@ export class Workflow {
         throw new HttpError(409, "Packet already exists.");
       await this.storage.put(`packet:${packet.id}`, packet);
       return json({ packet }, 201);
+    }
+    const verdictRoute = /^\/races\/([^/]+)\/verdict$/.exec(path);
+    if (verdictRoute && method === "POST") {
+      const agent = this.agent(actor);
+      const packet = await this.storage.get<Packet>(`packet:${verdictRoute[1]}`);
+      if (packet?.mode !== "race" || packet.judge !== agent)
+        throw new HttpError(403, "Only this race's judge can submit a verdict.");
+      return json({ verdict: await saveVerdict(this.storage, packet.id, await body(request)) });
     }
     const archiving = /^\/packets\/([^/]+)\/(archive|unarchive)$/.exec(path);
     if (archiving && method === "POST") {
@@ -525,12 +542,18 @@ export class Workflow {
     if (detail && method === "GET") {
       const review = await this.storage.get<Review>(`review:${detail[1]}`);
       if (!review) throw new HttpError(404, "Review not found.");
-      if (!actor.owner && actor.agent !== review.agent)
+      if (!actor.owner && actor.agent !== review.agent && !await judgeMayRead(this.storage, actor.agent, review))
         throw new HttpError(403, "Review belongs to another agent.");
-      using repo = await this.env.ARTIFACTS.get(review.repoName);
-      const reader = new ReviewReader(repo);
-      const changes = await reader.changes(review.base, review.sha);
-      if (detail[2]) return json(await reader.diff(new URL(request.url).searchParams.get("path") ?? "", changes));
+      const cache = new ReviewCache(this.storage);
+      if (detail[2]) {
+        const path = new URL(request.url).searchParams.get("path") ?? "";
+        return json(await cache.diff(review.base, review.sha, path, async () => {
+          using repo = await this.env.ARTIFACTS.get(review.repoName);
+          const reader = new ReviewReader(repo);
+          const changes = await reader.changes(review.base, review.sha);
+          return { patch: await reader.diff(path, changes), complete: !changes.public.truncated };
+        }));
+      }
       const packet = await this.storage.get<Packet>(`packet:${review.packet}`);
       if (!packet) throw new HttpError(404, "Packet not found.");
       // Historical stores can grow indefinitely; fail closed instead of scanning without a budget.
@@ -539,9 +562,15 @@ export class Workflow {
       if (ledgerEntries.size > 2048 || blockerEntries.size > 2048)
         throw new HttpError(413, "Review exceeds the bounded read limit.");
       const ledger = [...ledgerEntries.values()].find(entry => entry.review === review.id);
+      const gitDetail = await cache.detail(review.base, review.sha, async () => {
+        using repo = await this.env.ARTIFACTS.get(review.repoName);
+        const reader = new ReviewReader(repo);
+        const changes = await reader.changes(review.base, review.sha);
+        return { changes: changes.public, ...await reader.history(review.base, review.sha) };
+      });
       return json({ review: publicReview(review),
         packet: { id: packet.id, title: packet.title, goal: packet.goal, paths: packet.paths, acceptance: packet.acceptance },
-        changes: changes.public, ...await reader.history(review.base, review.sha),
+        ...gitDetail,
         promotion: ledger ? { before: ledger.before, after: ledger.after, recordedAt: ledger.recordedAt, receiptDigest: ledger.receiptDigest,
           ...(ledger.requireReceipt === undefined ? {} : { requireReceipt: ledger.requireReceipt }),
         } : null,
@@ -582,7 +611,7 @@ export class Workflow {
       const race = packet?.mode === "race";
       // Finished entrants have no live binding and their reviews are stale. Preserve
       // the photo-finish response before those guards hide the canonical CAS loss.
-      if (race && reviewing[2] === "promote" && await this.storage.get(`race:${review.packet}`))
+      if (race && reviewing[2] === "promote" && await raceFinished(this.storage, review.packet))
         return this.rejectRacePromote(project, review);
       const { claim, fork } = await this.binding(project, review.packet, review.repoName, review.agent);
       if (race && reviewing[2] === "promote") requireTokenBudget(packet.tokenBudget, claim.usage);
@@ -817,6 +846,8 @@ export async function recordWorkflowPush(
   project: Project,
   event: PushEvent,
   entry: Activity,
+  differing: Set<string> | null,
+  candidates: Set<string>,
   forkHead?: string,
 ): Promise<void> {
   if (entry.agent) {
@@ -825,13 +856,22 @@ export async function recordWorkflowPush(
     const pushingClaims = claims.filter(claim => claim.agent === entry.agent && claim.repoName === entry.repoName);
     // Raw push events name a fork, not a packet. Multiple bindings cannot be attributed safely.
     const pushingPacket = pushingClaims.length === 1 ? pushingClaims[0]!.packet : null;
-    for (const claim of claims) {
+    const collisions = claims.flatMap(claim => {
       const paths = entry.changedPaths.filter((path) =>
         claim.paths.some((claimed) => overlaps(claimed, path)),
       );
       const sameRace = raceEntrants.some(entrant => entrant.packet === claim.packet &&
         entrant.agent === entry.agent && entrant.repoName === entry.repoName);
-      if (claim.agent !== entry.agent && paths.length && !sameRace) {
+      return claim.agent !== entry.agent && paths.length && !sameRace ? [{ claim, paths }] : [];
+    });
+    for (const collision of collisions) {
+      const { claim } = collision;
+      // A foreign claim may appear after precomputation. Unread paths and failed
+      // comparisons must remain blockers; this transaction performs only storage I/O.
+      const paths = collision.paths.filter(path =>
+        differing === null || !candidates.has(path) || differing.has(path),
+      );
+      if (paths.length) {
         // A colon cannot occur in packet/agent slugs, so race IDs cannot collide with standard packet IDs.
         const id = `${entry.sequence}-${claim.packet}${"closedAt" in claim ? `:${claim.agent}` : ""}`;
         const blocker: Blocker = {

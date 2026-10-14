@@ -18,6 +18,9 @@ export interface ViewModel {
   state?: ProjectState;
   activity: Activity[];
   busy: boolean;
+  /** Reads keep the last good snapshot on screen; busy is reserved for owner writes. */
+  refreshing?: boolean;
+  stale?: boolean;
   error?: string;
   notice?: string;
   noticeSha?: string;
@@ -69,6 +72,14 @@ export function reviewGate(
     promote: review.status === "approved" && !usageReason,
     reason: usageReason || receiptGateCaption(review, requireReceipt),
   };
+}
+
+/** Shared queue/action visibility; a pending outcome and a required re-check hide Promote. */
+export function promotionAvailable(review: Review, state: ProjectState, owner = true): boolean {
+  const rechecking = state.project.settings?.requireReceipt === true &&
+    review.receipt?.trigger === "before-promote" && review.receipt.status === "running";
+  return owner && !state.promotionPending && !rechecking &&
+    reviewQueue(state).some((r) => r.id === review.id) && reviewGate(review, state, owner).promote;
 }
 
 export type ReviewState = {

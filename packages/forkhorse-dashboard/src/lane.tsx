@@ -37,9 +37,9 @@ export function Saddlecloth({ identity }: { identity?: AgentIdentity }) {
     <span
       className="race-saddlecloth race-cloth"
       style={silkStyle(identity)}
-      aria-label={identity ? `Agent number ${identity.number}` : "Agent number unavailable"}
     >
-      {identity?.number ?? "—"}
+      <span aria-hidden="true">{identity?.number ?? "—"}</span>
+      <span className="sr-only">{identity ? `Agent number ${identity.number}` : "Agent number unavailable"}</span>
     </span>
   );
 }
@@ -49,6 +49,7 @@ export type LaneMarkKind =
   | "review"
   | "passed"
   | "failed"
+  | "interrupted"
   | "approved"
   | "promoted";
 export const markGlyph: Record<LaneMarkKind, string> = {
@@ -57,12 +58,13 @@ export const markGlyph: Record<LaneMarkKind, string> = {
   review: "○",
   passed: "✓",
   failed: "✗",
+  interrupted: "!",
   approved: "◆",
   promoted: "●",
 };
 export function LaneMarker({ kind }: { kind: LaneMarkKind | "unreached" | "reached" }) {
-  const hurdle = kind === "passed" || kind === "failed";
-  const reached = kind !== "unreached" && kind !== "failed";
+  const hurdle = kind === "passed" || kind === "failed" || kind === "interrupted";
+  const reached = kind !== "unreached" && kind !== "failed" && kind !== "interrupted";
   return (
     <span className={`lane-marker lane-marker-${kind} race-marker ${reached ? "reached" : ""} ${kind === "promoted" ? "promoted" : ""} ${hurdle ? `hurdle ${kind}` : ""}`} aria-hidden="true">
       {kind === "unreached" ? "○" : kind === "reached" ? "●" : markGlyph[kind]}

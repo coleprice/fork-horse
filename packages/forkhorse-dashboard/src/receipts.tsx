@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Badge, Button, ClipboardText } from "@cloudflare/kumo";
 import { relativeTime } from "./time.ts";
 import type { OwnerReceipt, ReceiptStatus, ReceiptSummary, Review } from "./contracts.ts";
@@ -49,13 +49,18 @@ export function ReceiptBadge({
 }
 export function ReceiptCell({
   receipt,
+  packet,
+  sha,
   required,
   open,
 }: {
   receipt?: ReceiptSummary | null;
+  packet: string;
+  sha: string;
   required: boolean;
   open(): void;
 }) {
+  const captionId = useId();
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (receipt?.status !== "running" || receipt.trigger === "before-promote") return;
@@ -115,13 +120,14 @@ export function ReceiptCell({
       type="button"
       className="receipt-cell"
       onClick={open}
-      aria-label={`View receipt: ${receiptWord(receipt.status, required && receipt.trigger === "before-promote").label}`}
+      aria-label={`View receipt for ${packet} at ${sha.slice(0, 7)}: ${receiptWord(receipt.status, required && receipt.trigger === "before-promote").label}`}
+      aria-describedby={captionId}
     >
       <ReceiptBadge
         status={receipt.status}
         recheck={required && receipt.trigger === "before-promote"}
       />
-      <span className="caption muted">{caption}</span>
+      <span id={captionId} className="caption muted">{caption}</span>
     </button>
   );
 }

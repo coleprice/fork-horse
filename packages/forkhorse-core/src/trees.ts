@@ -2,6 +2,43 @@ import type { Repository } from "./types";
 
 export const ZERO_SHA = "0".repeat(40);
 
+/** Read object IDs only along requested paths; never walk unrelated subtrees or read blobs. */
+export async function pathHashes(
+  repo: Repository,
+  sha: string,
+  paths: string[],
+): Promise<Map<string, string | undefined>> {
+  const hashes = new Map<string, string | undefined>();
+  if (sha === ZERO_SHA) return new Map(paths.map(path => [path, undefined]));
+  const commit = await repo.readCommit(sha);
+  if (!commit) throw new Error("Commit unavailable");
+  const cache = new Map<string, ArtifactsTreeEntry[]>();
+  let visited = 0;
+  for (const path of paths) {
+    const parts = path.split("/");
+    if (parts.length > 64) throw new Error("Tree depth limit exceeded");
+    let tree = commit.treeHash;
+    let hash: string | undefined;
+    for (const [index, part] of parts.entries()) {
+      let entries = cache.get(tree);
+      if (!entries) {
+        entries = (await repo.readTree(tree)) ?? undefined;
+        if (!entries) throw new Error("Tree unavailable");
+        visited += entries.length;
+        if (visited > 10000) throw new Error("Tree entry limit exceeded");
+        cache.set(tree, entries);
+      }
+      const entry = entries.find(candidate => candidate.name === part);
+      if (!entry) break;
+      if (index === parts.length - 1) hash = entry.hash;
+      else if (entry.type === "tree") tree = entry.hash;
+      else break;
+    }
+    hashes.set(path, hash);
+  }
+  return hashes;
+}
+
 /** Compare complete snapshots, including modes, removals, symlinks and submodules. */
 export async function changedPaths(
   repo: Repository,

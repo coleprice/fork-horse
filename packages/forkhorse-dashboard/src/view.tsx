@@ -1,5 +1,8 @@
+import { FreshnessStamp, WriteHint, snapshotAge, staleReason } from "./freshness.tsx";
+import { judgePromotion } from "./judge.ts";
+import { FirstRunEmpty, overviewFirstRun } from "./empty.tsx";
 import { UsageFigures } from "./usage.tsx";
-import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
+import { usagePromotionCaption, usageValues } from "./usage.ts";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Badge,
@@ -32,6 +35,7 @@ import {
   workPackets,
   blockerGatesReview,
   promotionReceipt,
+  promotionAvailable,
   recentReceipts,
   receiptGateCaption,
   reviewGate,
@@ -42,22 +46,26 @@ import {
 import { ArchiveControl, ArchivedBadge } from "./archive.tsx";
 import { CollisionBanner, CollisionRows, ResolveCollisionDialog } from "./collisions.tsx";
 import { RaceView } from "./race.tsx";
+import { Races, openRaceCount } from "./races.tsx";
 import { ReviewView } from "./review.tsx";
 import { ForkGraph } from "./fork-graph.tsx";
 import { NeedsYou } from "./needs-you.tsx";
+import { AgentStatusTable, ResumeCard } from "./agent-status.tsx";
 import type { OwnerNeed } from "./needs-you-model.ts";
 import type { ReviewDetail, ReviewDiff, Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
 import { relativeTime as relative } from "./time.ts";
 
-export type Section = "overview" | "work" | "review" | "agents";
+export type Section = "overview" | "work" | "review" | "agents" | "races";
 export interface ViewActions {
   resolveBlocker?(id: string, reason: string): Promise<import("./contracts.ts").WireBlocker>;
   openCollision?(blocker: import("./contracts.ts").BlockerView): void;
   showPacket?(id: string): void;
   raceId?: string;
+  raceBackSection?: "work" | "races";
   openRace?(id?: string): void;
   reviewId?: string;
   openReview(id?: string): void;
+  openReceipt?(id: string): void;
   getReview?(id: string): Promise<ReviewDetail>;
   getDiff?(id: string, path: string): Promise<ReviewDiff>;
   returnReview?(id: string, reason: string): Promise<boolean>;
@@ -169,14 +177,16 @@ function DataTable({
   headings,
   children,
   kind,
+  labelledBy,
 }: {
   headings: string[];
   children: ReactNode;
   kind: string;
+  labelledBy: string;
 }) {
   return (
     <div className={`table-scroll table-${kind}`}>
-      <Table>
+      <Table aria-labelledby={labelledBy}>
         <Table.Header>
           <Table.Row>
             {headings.map((text) => (
@@ -221,17 +231,20 @@ export function ReviewActions({
   view,
   actions,
   openReceipt,
+  advice,
 }: {
   review: Review;
   view: ViewModel;
   actions: ViewActions;
   openReceipt(): void;
+  advice?: { judge: string; pick: string; at: string };
 }) {
   const [confirmation, setConfirmation] = useState<{
     sha: string;
     base?: string;
     digest: string | null;
     branch: string;
+    adviceAt?: string;
   }>();
   const [promoting, setPromoting] = useState(false);
   const [failure, setFailure] = useState(false);
@@ -241,9 +254,13 @@ export function ReviewActions({
     review.sha === confirmation.sha &&
     review.base === confirmation.base &&
     review.receiptDigest === confirmation.digest &&
-    view.state!.project.defaultBranch === confirmation.branch;
+    view.state!.project.defaultBranch === confirmation.branch &&
+    (!advice || confirmation.adviceAt === advice.at);
   const gate = reviewGate(review, view.state!, actions.owner);
   const race = view.state!.races?.find((entry) => entry.packet === review.packet && entry.status === "open");
+  const advised = race && advice ? judgePromotion({ ...view.state!, recentActivity: view.activity }, race) : undefined;
+  const canPromote = promotionAvailable(review, view.state!, actions.owner) &&
+    (!advice || (advised?.available && advised.review?.id === review.id && race?.verdict?.at === advice.at));
   const otherEntrants = race?.entrants.filter((entrant) => entrant.repoName !== review.repoName && !entrant.closedAt).map((entrant) => entrant.agent) ?? [];
   const rechecking =
     required && review.receipt?.status === "running" && review.receipt.trigger === "before-promote";
@@ -251,39 +268,42 @@ export function ReviewActions({
   if (!actions.owner) return usageCaption ? <p className="caption muted usage-promotion-caption">{usageCaption}</p> : null;
   return (
     <>
-      {usageCaption && <p className="caption muted usage-promotion-caption">{usageCaption}</p>}
-      {gate.approve && (
-        <Button
+      {!advice && usageCaption && <p className="caption muted usage-promotion-caption">{usageCaption}</p>}
+      {!advice && gate.approve && (
+        <WriteHint reason={staleReason(view)}><Button
           size="sm"
           variant="secondary"
           data-action="approve"
           data-review={review.id}
-          disabled={view.busy}
-          onClick={() => void actions.action("approve", review.id)}
+          disabled={view.busy || view.stale}
+          onClick={() => { if (!view.busy && !view.stale) void actions.action("approve", review.id); }}
         >
           Approve
-        </Button>
+        </Button></WriteHint>
       )}
-      {gate.promote && !promoting && !rechecking && (
-        <Button
+      {canPromote && !promoting && !rechecking && (
+        <WriteHint reason={staleReason(view)}><Button
           size="sm"
           variant="secondary"
-          data-action="promote"
+          data-action={advice ? "promote-judge-pick" : "promote"}
+          aria-label={advice ? `Promote ${advice.pick}, the judge's pick` : undefined}
           data-review={review.id}
-          disabled={view.busy}
-          onClick={() => (
-            setFailure(false),
+          disabled={view.busy || view.stale}
+          onClick={() => {
+            if (view.busy || view.stale) return;
+            setFailure(false);
             setConfirmation({
               sha: review.sha,
               base: review.base,
               digest: review.receiptDigest,
               branch: view.state!.project.defaultBranch,
-            })
-          )}
+              adviceAt: advice?.at,
+            });
+          }}
         >
           <ArrowLineUp size={16} />
-          Promote
-        </Button>
+          {advice ? "Promote judge's pick" : "Promote"}
+        </Button></WriteHint>
       )}
       <Dialog.Root
         open={!!confirmation}
@@ -345,25 +365,26 @@ export function ReviewActions({
               </Button>
             </div>
           )}
-          {!promoting && !failure && (!matches || !gate.promote) && (
+          {!promoting && !failure && (!matches || !canPromote) && (
             <Banner
               variant="alert"
               size="sm"
               description="Review changed. Close and review again."
             />
           )}
+          {advice && <p className="caption judge-promote-caption">{advice.judge} picked {advice.pick}. This is advice; promoting is your call.</p>}
           {race && <p className="caption race-promote-warning">Promoting this finishes the race.{otherEntrants.length > 0 && <> {otherEntrants.join(" and ")} will be closed and placed.</>}</p>}
           <div className="dialog-actions">
             <Button disabled={promoting} onClick={() => setConfirmation(undefined)}>
               Cancel
             </Button>
-            <Button
+            <WriteHint reason={staleReason(view)}><Button
               variant="primary"
               data-action="confirm-promote"
-              disabled={!matches || !gate.promote || view.busy || promoting || failure}
+              disabled={!matches || !canPromote || view.busy || view.stale || promoting || failure}
               aria-busy={promoting}
               onClick={async () => {
-                if (!matches || !gate.promote || promoting) return;
+                if (!matches || !canPromote || promoting || view.busy || view.stale) return;
                 setPromoting(true);
                 try {
                   if (await actions.action("promote", review.id)) setConfirmation(undefined);
@@ -384,7 +405,7 @@ export function ReviewActions({
               ) : (
                 <>Promote to {confirmation?.branch}</>
               )}
-            </Button>
+            </Button></WriteHint>
           </div>
         </Dialog>
       </Dialog.Root>
@@ -424,6 +445,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const collisionHeading = useRef<HTMLHeadingElement>(null);
   const collisionOrigin = useRef<HTMLElement | null>(null);
   const [highlightedCollision, setHighlightedCollision] = useState<string>();
+  const [agentRepo, setAgentRepo] = useState<string>();
+  useEffect(() => setAgentRepo(undefined), [view.project]);
   const [collision, setCollision] = useState<import("./contracts.ts").BlockerView>();
   useEffect(() => { setCollision(undefined); setHighlightedCollision(undefined); }, [view.project]);
   const [packetId, setPacketId] = useState<string>();
@@ -439,6 +462,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const [askError, setAskError] = useState<string>();
   const toggleRef = useRef<HTMLButtonElement>(null);
   const state = view.state;
+  const overviewEmpty = state ? overviewFirstRun(state) : undefined;
   const blockers = state?.blockers.filter(
     (b) => !b.resolved && !isArchived(state, b.packet) &&
       !(b.pushingPacket && isArchived(state, b.pushingPacket)),
@@ -509,6 +533,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
       setHighlightedCollision(target.collision);
       showPacket(target.packet);
     } else if ("repo" in target) {
+      setAgentRepo(target.repo);
       actions.setSection("agents");
       requestAnimationFrame(() => {
         const row = [...document.querySelectorAll<HTMLElement>("[data-agent-repo]")]
@@ -552,7 +577,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
       id={`view-${id}`}
       className="view-stack"
       role="tabpanel"
-      aria-label={id}
+      aria-label={{ overview: "Overview", work: "Work", review: "Review", agents: "Agents", races: "Races" }[id]}
     >
       {content}
     </div>
@@ -604,7 +629,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                 packet={selected}
                 state={state}
                 owner={actions.owner}
-                busy={view.busy}
+                busy={view.busy || !!view.stale}
+                disabledReason={staleReason(view)}
                 archive={actions.archivePacket}
                 unarchive={actions.unarchivePacket}
                 missing={(message) => {
@@ -677,7 +703,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     state.forks.some((f) => f.repoName === r.repoName && f.head === r.sha));
                   return review && <button className="claim-link caption" onClick={() => actions.openReview(review.id)}>Open review</button>;
                 } : undefined}
-                open={actions.resolveBlocker ? openCollision : undefined} disabled={view.busy} />
+                open={actions.resolveBlocker ? openCollision : undefined} disabled={view.busy || view.stale} disabledReason={staleReason(view)} />
             </section>;
           })()}
           {selected && (
@@ -726,7 +752,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     <>
       {actions.owner && actions.resolveBlocker && collision &&
         <ResolveCollisionDialog key={`${view.project}:${collision.id}`} blocker={collision}
-          resolve={actions.resolveBlocker} close={closeCollision} />}
+          resolve={actions.resolveBlocker} close={closeCollision} disabled={view.busy || view.stale} disabledReason={staleReason(view)} />}
       <Notice message={view.notice} sha={view.noticeSha} review={actions.getReview ? view.noticeReview : undefined} openReview={actions.openReview} />
       <ReceiptAnnouncements project={view.project} reviews={state?.reviews ?? []} />
       <div className={`app-shell ${panel && !actions.raceId ? "panel-open" : ""} ${actions.raceId ? "race-shell" : ""}`}>
@@ -736,7 +762,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
               <div>
                 <h1 className="page-title">{view.project || view.brand.name}</h1>
                 <p className="page-description">
-                  Agents work in their own forks. You review and promote.
+                  Agents work in their own forks. {actions.owner ? "You review and promote." : "The owner reviews and promotes."}
                 </p>
               </div>
               <div className="actions">
@@ -788,7 +814,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                       <span className="tab-label">
                         Work
                         {blockers.length + claims.length > 0 && (
-                          <Badge variant="secondary">{blockers.length + claims.length}</Badge>
+                          <><span className="sr-only">, </span><Badge variant="secondary">{blockers.length + claims.length}</Badge></>
                         )}
                       </span>
                     ),
@@ -799,13 +825,19 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     label: (
                       <span className="tab-label">
                         Review
-                        {reviewCount > 0 && <Badge variant="secondary">{reviewCount}</Badge>}
+                        {reviewCount > 0 && <><span className="sr-only">, </span><Badge variant="secondary">{reviewCount}</Badge></>}
                       </span>
                     ),
                   },
                   { className: "text-[13px]", value: "agents", label: "Agents" },
+                  { className: "text-[13px]", value: "races", label: <span className="tab-label">
+                    Races
+                    {openRaceCount(state?.races ?? []) > 0 && <><span className="sr-only">, </span>
+                      <Badge variant="secondary">{openRaceCount(state?.races ?? [])}</Badge></>}
+                  </span> },
                 ]}
               />
+              <FreshnessStamp view={view} retry={actions.retry} />
             </div>
             <div className="content">
               {view.livePaused && (
@@ -815,7 +847,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   className="live-paused"
                   icon={<Warning size={16} />}
                   role="status"
-                  description={`Live updates paused. Showing data from ${view.updatedAt ?? "the last snapshot"}.`}
+                  description={`Live updates paused. Last updated ${snapshotAge(view)}.`}
                   action={
                     actions.reconnect && (
                       <Button
@@ -846,14 +878,14 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   description="Local synthetic snapshots only. No account connection."
                 />
               )}
-              {(view.busy || askError) && (
+              {(((view.refreshing || view.busy) && !state) || askError) && (
                 <div role="status" aria-live="polite">
-                  {view.busy && !actions.raceId && <p>Loading the latest project snapshot…</p>}
+                  {(view.refreshing || view.busy) && !state && !actions.raceId && <p>Loading the latest project snapshot…</p>}
                   {askError && <p>{askError}</p>}
                 </div>
               )}
               {packetError && <Banner variant="error" role="alert" description={packetError} />}
-              {view.error && !actions.raceId && (
+              {view.error && !view.stale && !actions.raceId && (
                 <Banner
                   variant="error"
                   className="text-kumo-default"
@@ -862,17 +894,20 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   description={view.error}
                   action={
                     actions.retry && (
-                      <Button size="sm" onClick={() => void actions.retry!()}>
+                      <Button variant="secondary" size="sm" onClick={() => void actions.retry!()}>
                         Try again
                       </Button>
                     )
                   }
                 />
               )}
-              {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={{ ...actions, showPacket: (id) => showPacket(id, true) }} /> : !state ? (
+              {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={{ ...actions, showPacket: (id) => showPacket(id, true), openReceipt: (id) => { actions.openRace?.(); showReceipt(id); } }} /> : !state ? (
+                !view.refreshing &&
                 !view.busy &&
                 !view.error &&
-                empty(view.project ? "No snapshot loaded." : "Select a configured project.")
+                (!view.project && !view.projects.length
+                  ? <FirstRunEmpty kind="projects" owner={actions.owner} />
+                  : empty(view.project ? "No snapshot loaded." : "Select a configured project."))
               ) : (
                 <>
                   {state.promotionPending && (
@@ -897,8 +932,13 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
-                      <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
-                        openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />
+                      {!actions.owner && <ResumeCard key={view.project} state={state} activity={view.activity} agent={actions.agent} />}
+                      {overviewEmpty ? (
+                        <section aria-label="Forks">
+                          <FirstRunEmpty kind={overviewEmpty} owner={actions.owner} />
+                        </section>
+                      ) : <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
+                        openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />}
                       {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
                       <LayerCard className="p-4 project-card">
                         <div className="section-heading">
@@ -945,12 +985,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         {state.project.settings ? (
                           actions.owner && actions.setSettings ? (
                             <>
-                              <Switch
+                              <WriteHint reason={staleReason(view)}><Switch
                                 label="Require passing receipts"
                                 checked={state.project.settings.requireReceipt}
-                                disabled={view.busy}
-                                onCheckedChange={(checked) => void actions.setSettings!(checked)}
-                              />
+                                disabled={view.busy || view.stale}
+                                onCheckedChange={(checked) => { if (!view.busy && !view.stale) void actions.setSettings!(checked); }}
+                              /></WriteHint>
                               <p className="caption muted">Approve waits for a passing receipt.</p>
                             </>
                           ) : (
@@ -972,12 +1012,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         ].map(([label, count]) => (
                           <LayerCard key={label} className="p-4">
                             <span className="caption">{label}</span>
-                            <h3 className="metric-value">
+                            <p className="metric-value">
                               {count}
                               {label === "Blockers" && blockers.length > 0 && (
-                                <span className="warning-dot" aria-label="Open blockers" />
+                                <><span className="warning-dot" aria-hidden="true" /><span className="sr-only"> open blockers</span></>
                               )}
-                            </h3>
+                            </p>
                             {label === "In review" &&
                               reviews.some((r) => r.receipt?.status === "running") && (
                                 <p className="caption muted">
@@ -988,13 +1028,6 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           </LayerCard>
                         ))}
                       </section>
-                      {!state.packets.length && (
-                        <Empty
-                          title="No packets yet"
-                          description="Ask an agent to claim work, or create a packet with the owner CLI."
-                          contents={ask}
-                        />
-                      )}
                     </>,
                   )}
                   {section(
@@ -1005,15 +1038,16 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           {blockers.map((b) => (
                             <CollisionBanner key={b.id} blocker={b} owner={actions.owner}
                               open={actions.resolveBlocker ? openCollision : undefined}
-                              showPacket={showPacket} disabled={view.busy} />
+                              showPacket={showPacket} disabled={view.busy || view.stale} disabledReason={staleReason(view)} />
                           ))}
                         </section>
                       )}
                       <section id="packets">
-                        <h2>Packets and claims</h2>
+                        <h2 id="packets-heading">Packets and claims</h2>
                         {packets.length ? (
                           <DataTable
                             kind="work"
+                            labelledBy="packets-heading"
                             headings={["Packet", "State", "Claimed by", "Fork", "Paths", "Claimed"]}
                           >
                             {packets.map((p) => {
@@ -1088,7 +1122,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             })}
                           </DataTable>
                         ) : (
-                          empty(archivedCount ? "No active packets." : "No packets created.")
+                          archivedCount ? empty("No active packets.")
+                            : <FirstRunEmpty kind="packets" owner={actions.owner} />
                         )}
                         {archivedCount > 0 && (
                           <Button
@@ -1115,10 +1150,11 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     "review",
                     actions.reviewId && actions.getReview ? <ReviewView key={`${view.project}:${actions.reviewId}`} id={actions.reviewId} view={view} actions={{ ...actions, openCollision: actions.resolveBlocker ? openCollision : undefined, showPacket }} openReceipt={showReceipt} /> : <>
                       <section id="reviews">
-                        <h2>Review queue</h2>
+                        <h2 id="reviews-heading">Review queue</h2>
                         {reviews.length ? (
                           <DataTable
                             kind="review"
+                            labelledBy="reviews-heading"
                             headings={[
                               "Packet",
                               "Agent",
@@ -1179,6 +1215,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                     <div className="caption muted folded">
                                       <ReceiptCell
                                         receipt={r.receipt}
+                                        packet={r.packet}
+                                        sha={r.sha}
                                         required={state.project.settings?.requireReceipt === true}
                                         open={() => showReceipt(r.id)}
                                       />
@@ -1213,6 +1251,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                                   <Table.Cell className="column-receipts">
                                     <ReceiptCell
                                       receipt={r.receipt}
+                                      packet={r.packet}
+                                      sha={r.sha}
                                       required={state.project.settings?.requireReceipt === true}
                                       open={() => showReceipt(r.id)}
                                     />
@@ -1240,7 +1280,9 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                             })}
                           </DataTable>
                         ) : (
-                          empty("No reviews waiting for owner action.")
+                          state.reviews.length ? empty("No reviews waiting for owner action.")
+                            : <FirstRunEmpty kind="reviews" owner={actions.owner}
+                              goToWork={() => actions.setSection("work")} />
                         )}
                       </section>
                       <section id="recent-receipts" aria-labelledby="recent-receipts-heading">
@@ -1248,6 +1290,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         {history.length ? (
                           <DataTable
                             kind="receipt-history"
+                            labelledBy="recent-receipts-heading"
                             headings={[
                               "Packet",
                               "Head",
@@ -1314,83 +1357,10 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   )}
                   {section(
                     "agents",
-                    <section id="lanes">
-                      <h2 id="agents-heading" tabIndex={-1}>Agents</h2>
-                      <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>
-                      {state.agents.length ? (
-                        <DataTable
-                          kind="agents"
-                          headings={["Agent", "Fork", "Last push", "Claim", "Events", "Tokens"]}
-                        >
-                          {state.agents.flatMap((agent) => {
-                            const forks = state.forks.filter((f) => f.agent === agent.name);
-                            return (forks.length ? forks : [undefined]).map((fork) => {
-                              const recent = view.activity.findLast((e) =>
-                                fork ? e.repoName === fork.repoName : e.agent === agent.name,
-                              );
-                              return (
-                                <Table.Row key={`${agent.name}-${fork?.repoName ?? "none"}`} data-agent-repo={fork?.repoName} tabIndex={-1}>
-                                  <Table.Cell>
-                                    <Tooltip
-                                      content={agent.name}
-                                      render={<span className="truncated-name" />}
-                                    >
-                                      {agent.name}
-                                    </Tooltip>
-                                    <div className="caption muted folded">
-                                      {fork && <TruncatedCode value={fork.repoName} />}
-                                      <UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} />
-                                    </div>
-                                  </Table.Cell>
-                                  <Table.Cell className="column-fork">
-                                    {fork && <TruncatedCode value={fork.repoName} />}
-                                  </Table.Cell>
-                                  <Table.Cell>
-                                    {recent ? (
-                                      <div className="last-push">
-                                        <Paths paths={recent.changedPaths} event={recent} />
-                                        <div className="caption muted">
-                                          {short(recent.after)} ·{" "}
-                                          <time dateTime={recent.recordedAt}>
-                                            {relative(recent.recordedAt)}
-                                          </time>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      "No recent pushes"
-                                    )}
-                                  </Table.Cell>
-                                  <Table.Cell>
-                                    {claims
-                                      .filter(
-                                        (c) =>
-                                          c.agent === agent.name &&
-                                          (!fork || c.repoName === fork.repoName),
-                                      )
-                                      .map((c) => (
-                                        <button
-                                          key={c.packet}
-                                          className="claim-link"
-                                          onClick={() => showPacket(c.packet)}
-                                        >
-                                          {c.packet}
-                                        </button>
-                                      ))}
-                                  </Table.Cell>
-                                  <Table.Cell>
-                                    <Events value={fork?.events} />
-                                  </Table.Cell>
-                                  <Table.Cell className="column-tokens"><UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} /></Table.Cell>
-                                </Table.Row>
-                              );
-                            });
-                          })}
-                        </DataTable>
-                      ) : (
-                        empty("No enrolled agents.")
-                      )}
-                    </section>,
+                    <AgentStatusTable key={view.project} state={state} activity={view.activity}
+                      brand={view.brand} owner={actions.owner} openPacket={showPacket} revealRepo={agentRepo} />,
                   )}
+                  {section("races", <Races state={state} owner={actions.owner} openRace={(id) => actions.openRace?.(id)} />)}
                 </>
               )}
             </div>

@@ -1,9 +1,13 @@
+import { judgeScenarios, judgeFixtureState, judgeFixtureDetail } from "./judge-fixtures.ts";
+import { agentStatusScenarios, agentStatusFixtureState } from "./agent-status-fixtures.ts";
 import { archiveFixtureState, archiveScenarios, archiveRace } from "./archive-fixtures.ts";
+import { emptyFixtureState, emptyScenarios } from "./empty-fixtures.ts";
 
 import { usageScenarios, usageFixtureState, usageFixtureDetail } from "./usage-fixtures.ts";
 import { collisionScenarios, collisionFixtureState } from "./collision-fixtures.ts";
 import { readFileSync } from "node:fs";
 import { raceScenarios, raceFixtureState } from "./race-fixtures.ts";
+import { racesScenarios, racesFixtureState } from "./races-fixtures.ts";
 import { forkScenarios, forkFixtureState } from "./fork-graph-fixtures.ts";
 import { needsScenarios, needsFixtureState } from "./needs-you-fixtures.ts";
 import {
@@ -112,6 +116,36 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const agentStatusRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (agentStatusRoute && racesScenarios.includes(agentStatusRoute[1])) {
+      const state = racesFixtureState(agentStatusRoute[1]);
+      send(agentStatusRoute[2] === "state" ? state : { activity: [], nextAfter: 0 });
+      return;
+    }
+    if (agentStatusRoute && agentStatusScenarios.includes(agentStatusRoute[1])) {
+      if (!states.has(agentStatusRoute[1])) states.set(agentStatusRoute[1], agentStatusFixtureState(agentStatusRoute[1]));
+      const state = states.get(agentStatusRoute[1])!;
+      if (agentStatusRoute[2] === "state") send(state);
+      else send({ activity: [], nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+      return;
+    }
+    const emptyRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (emptyRoute && emptyScenarios.includes(emptyRoute[1])) {
+      send(emptyRoute[2] === "state"
+        ? emptyFixtureState(emptyRoute[1])
+        : { activity: [], nextAfter: 0 });
+      return;
+    }
+    const judgeRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
+    if (judgeRoute && judgeScenarios.includes(judgeRoute[1])) {
+      if (!states.has(judgeRoute[1])) states.set(judgeRoute[1], judgeFixtureState(judgeRoute[1]));
+      const state = states.get(judgeRoute[1])!;
+      if (judgeRoute[2] === "state") send(state);
+      else if (judgeRoute[2] === "activity") send({ activity: [], nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+      else if (!state.reviews.some((r) => r.id === judgeRoute[3])) send({ error: "Fixture review missing" }, 404);
+      else send(judgeFixtureDetail(state, judgeRoute[3]));
+      return;
     }
     const archiveRoute = /^\/projects\/([^/]+)\/(state|activity|packets\/([^/]+)\/(archive|unarchive)|reviews\/([^/]+)(?:\/(receipt|diff))?)$/.exec(url.pathname);
     if (archiveRoute && archiveScenarios.includes(archiveRoute[1])) {

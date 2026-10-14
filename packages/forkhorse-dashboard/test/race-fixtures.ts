@@ -13,6 +13,9 @@ export const raceScenarios = [
   "race-standard",
   "race-advisory",
   "race-reused-forks",
+  "race-timed-out",
+  "race-couldnt-run",
+  "race-two-digit",
 ];
 const at = (seconds: number) =>
   new Date(Date.parse("2026-10-13T14:02:00Z") + seconds * 1000).toISOString();
@@ -41,11 +44,13 @@ const entrant = (
 });
 // The contract test checks these slices against core's public declarations without
 // pulling the Worker environment into the browser package's compiler.
-export type RaceFixture = StateResponse & {
+export type RaceFixture = Omit<StateResponse, "races"> & {
   agents: { name: string; createdAt: string | null }[];
   races: (Race &
     Required<Pick<Race, "finishedAt" | "winner" | "ledgerEntryId" | "places">> & {
       tokenBudget: null;
+      judge: null;
+      verdict: null;
       entrants: ReturnType<typeof entrant>[];
     })[];
   reviews: (StateResponse["reviews"][number] & {
@@ -71,6 +76,12 @@ export function raceFixtureState(scenario = "race-open"): RaceFixture {
     { name: "amber", createdAt: null },
     { name: "birch", createdAt: null },
   ];
+  if (scenario === "race-two-digit") {
+    // Nine earlier enrollments exercise identities 10, 11 and 12, not race places.
+    state.agents.unshift(...Array.from({ length: 9 }, (_, index) => ({
+      name: `agent-${String(index + 1).padStart(2, "0")}`, createdAt: null,
+    })));
+  }
   state.packets = [
     {
       id: "race-01",
@@ -95,10 +106,12 @@ export function raceFixtureState(scenario = "race-open"): RaceFixture {
     receiptPassedAt: at(480),
     approvedAt: at(600),
   });
-  const finished = ["race-finished", "race-photo", "race-photo-unattempted", "race-reused-forks"].includes(scenario);
+  const finished = ["race-finished", "race-photo", "race-photo-unattempted", "race-reused-forks", "race-timed-out", "race-couldnt-run", "race-two-digit"].includes(scenario);
   const race: RaceFixture["races"][number] = {
     packet: "race-01",
     tokenBudget: null,
+    judge: null,
+    verdict: null,
     status: finished ? ("finished" as const) : ("open" as const),
     finishedAt: finished ? at(720) : null,
     winner: finished ? "cedar" : null,
@@ -184,6 +197,8 @@ export function raceFixtureState(scenario = "race-open"): RaceFixture {
           ? "failed"
           : "passed",
       );
+      if (entry.agent === "amber" && (scenario === "race-timed-out" || scenario === "race-couldnt-run"))
+        receipt.status = scenario === "race-timed-out" ? "timed-out" : "infrastructure-error";
       receipt.startedAt = entry.reviewRequestedAt!;
       receipt.finishedAt = entry.receiptPassedAt ?? at(600);
       receipt.durationMs = Date.parse(receipt.finishedAt) - Date.parse(receipt.startedAt);

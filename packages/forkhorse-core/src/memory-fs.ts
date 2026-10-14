@@ -1,6 +1,7 @@
 import { HttpError } from "./http";
 
 type Entry = { bytes: Uint8Array | null; modified: number };
+const storedByteLimit = 32 * 1024 * 1024;
 function failure(code: string): Error {
   return Object.assign(new Error(code), { code });
 }
@@ -61,8 +62,11 @@ export class MemoryFs {
       const bytes =
         typeof content === "string" ? new TextEncoder().encode(content) : new Uint8Array(content);
       const size = this.size - (old?.bytes?.length ?? 0) + bytes.length;
-      if (size > 32 * 1024 * 1024)
-        throw new HttpError(413, "Repository requires the sandbox Git runner.");
+      if (size > storedByteLimit)
+        throw new HttpError(
+          413,
+          `Git memory filesystem exceeds the ${storedByteLimit}-byte stored-byte limit; reached ${size} bytes. Repository requires the sandbox Git runner.`,
+        );
       this.entries.set(path, { bytes, modified: Date.now() });
       this.size = size;
     },

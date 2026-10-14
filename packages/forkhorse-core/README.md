@@ -265,7 +265,14 @@ syntax, traversal, empty components, backslashes, control bytes and `.git`
 components are rejected. `src` and `src-old` are siblings, not overlapping paths.
 A claim overlapping another agent's live claim returns 409. On recorded pushes,
 changes overlapping another agent's live claims create immutable blocker records
-in the activity transaction; duplicate delivery creates no duplicate blocker.
+in the activity transaction only when their pushed object IDs differ from canonical's
+current head. Catch-up merges and fast-forwards carrying canonical content create no
+blocker. A deletion counts when canonical still contains the path. Only overlapping
+paths' trees are read, without blob reads or tokens; if canonical or pushed objects
+cannot be read, all overlaps remain candidates for blockers. Duplicate delivery creates no duplicate blocker.
+Artifacts reads finish before the storage transaction opens. The transaction
+re-reads live claims and treats any overlapping path absent from the precomputed
+candidates as a blocker, so a claim created during the comparison stays conservative.
 Blockers are observations, not an additional approval gate or a claim release.
 
 Commit validates the live packet/agent/repo binding independently of its client:
@@ -353,12 +360,18 @@ authentication/rotation, invalid commit inputs, stale commit and receipt approva
 two promote race scenarios, external CAS races, token cleanup, uncertain-outcome
 fencing, canonical reconciliation, and real Git objects/packs over fixture HTTP.
 The production transport refuses redirects and bounds each Git HTTP request and
-response to 8 MiB with a 30-second fetch timeout. The ephemeral filesystem also caps stored bytes at 32 MiB. These bounds do not
-fully bound transient decompression allocations. Oversized operations fail closed with 413 and need
-the FH-007 sandbox Git runner. `GitOperations`/`PreparedPush` define the integration
+response to 16 MiB with a 30-second fetch timeout. The ephemeral filesystem also
+caps stored bytes at 32 MiB. A 413 names the request, response, or stored-byte limit
+and the cumulative byte count reached. These bounds do not fully bound transient
+decompression allocations. Oversized operations fail closed with 413 and need the
+FH-007 sandbox Git runner. `GitOperations`/`PreparedPush` define the integration
 seam; FH-032 wires container receipts separately from this Git transport. Large-repository
 Git transport and live container acceptance remain separate work; the local suite
 uses mocked container ports.
+
+Promote currently clones the fork's full single-branch history without a checkout.
+After submission, reduce transfer size by negotiating what canonical already has,
+or by pairing a shallow fetch with a server-side ancestry check.
 
 ## Public Worker composition (FH-012)
 
@@ -453,7 +466,8 @@ reason and at. Returned reviews cannot be approved or promoted: both return
 stale normally; the agent requests a new review. Returning does not release the claim.
 
 `GET /projects/:id/reviews/:rid` is available to the owner and that review's agent,
-including historical reviews after claim release. It returns:
+including historical reviews after claim release. A race's named judge may also
+read its entrants' reviews, subject to the exact binding described below. It returns:
 
 - `review`: public review, excluding private receipt execution identity and logs;
 - `packet`: `{id, title, goal, paths, acceptance}`;
@@ -480,6 +494,17 @@ linear algorithm avoids quadratic work on adversarial inputs. The patch is cappe
 at 64 KiB of UTF-8, at whole diff-line boundaries, with `truncated:true` if incomplete.
 Mode-only changes can have an empty patch. Symlink targets are content, never followed;
 gitlinks render their commit references without accessing the referenced repository.
+
+The Supervisor durably caches only complete Git-derived detail and requested
+patches by the exact `(base, head)` commit pair, shared across reviews of that
+pair in the same project. Authorization, review status, receipts, approval, usage,
+packet metadata, promotion ledger and blockers are read fresh on every request.
+Cache hits avoid opening the repository. Each pair's UTF-8 JSON (including cached
+patches and bookkeeping) is capped at 64 KiB; larger values are served without
+caching. At most 32 pairs are retained, evicting the oldest insertion rather than
+the least recent read. Oversized updates retain any smaller complete values already
+stored. Failed reads, truncated file lists/history and truncated patches are never
+cached. Patches populate on demand; creating a review does not wait for cache warming.
 
 Reads fail closed with 413 above these input budgets: 20,000 combined tree entries,
 64 directory levels, 4 KiB per path, 2,048 distinct commits (including base ancestry),
@@ -569,7 +594,8 @@ Caller `/me.work` includes open race entries with the existing `next` rules.
 The first approved review whose canonical Git compare-and-swap succeeds wins.
 The ledger transaction records the winner's `promotedAt` and place 1, releases
 all still-open entrants, stales their outstanding reviews, and stores
-`race:<packet>` as `{winner, places, finishedAt, ledgerEntryId}`. `winner` is the
+`race:<packet>` as `{winner, places, finishedAt, ledgerEntryId}`, preserving any
+existing advisory `verdict`. `winner` is the
 agent name; `places` is an ordered array of `{agent, place}`. `ledgerEntryId`
 is the string `ledger[].id`, and that ledger entry's `race` is the packet ID.
 `/state.races[]` exposes this result (`places: []` and null finish metadata while
@@ -585,7 +611,8 @@ audit for its exact review, allowing an already-running advisory receipt to
 attach without changing final placings. Other open entrants use the existing
 release mechanism with `releasedBy: "race-finished"`; their affected blockers
 resolve with `by: "race-finished"`. Other packets' bindings remain untouched.
-Finished races refuse new or repeated entrant claims with `409 "Race finished."`.
+Finished races refuse new or repeated entrant claims with `409 "Race finished."`
+(the named judge always receives `409 "The judge can't race."`).
 
 A race promote refused on a canonical-base mismatch, including a finished race,
 keeps the usual `409 {"error":"stale base, rebase"}`. A separate small transaction
@@ -597,6 +624,35 @@ logged without changing the definite 409 response. Uncertain pushes or finish
 transaction failures retain `promotionPending` for inspection, with no partial
 ledger, finish, placement or release writes. These fixture tests are offline
 workerd evidence only; live race acceptance is separate.
+
+### Advisory race judge (FH-063)
+
+Race creation accepts an optional immutable `judge` naming an enrolled project
+agent. Standard packets reject this field. The judge cannot claim that race:
+`409 {"error":"The judge can't race."}`. It can enter other races normally.
+
+The judge's sole cross-agent read exception is `GET /reviews/:rid` and
+`GET /reviews/:rid/diff?path=...` for that race's entrants. The review must match
+the retained entrant's packet, agent and fork binding, including after withdrawal
+or race finish. Other agents' reviews outside this race remain forbidden (`403`).
+Receipt logs, fork credentials, approval, return and promotion retain their
+existing authorization rules; approval and promotion remain owner-only.
+
+`POST /projects/:id/races/:packet/verdict` accepts
+`{ranking: [agent, ...], rationale}` and returns `200 {verdict}`. Only the named
+judge may submit; the owner and other agents receive `403`. Ranking must be an
+exact permutation of the current retained entrant roster (including withdrawals),
+and rationale must be nonblank and 1–2000 characters. Invalid input gets `400`.
+Adding an entrant changes the permutation required for the next submission.
+
+The stored `race:<packet>.verdict` is `{ranking, rationale, at}`, where `at` is
+server time. The judge can replace it until owner promotion finishes the race;
+later submissions return `409`. `/state.races[]` includes `judge` (null when
+absent) and `verdict` (null until submitted). A verdict alone does not finish the
+race, prevent claims, approve work, change places or promote anything. The owner
+may choose a different winner; the finish transaction preserves the advice.
+The workerd tests use offline Artifacts fixtures; live judged-race acceptance
+requires a separate operator run.
 
 ### Cumulative usage and race token budgets
 

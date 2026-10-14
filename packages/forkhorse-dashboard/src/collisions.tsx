@@ -1,3 +1,4 @@
+import { WriteHint } from "./freshness.tsx";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Badge, Banner, Button, Dialog, Textarea, Tooltip } from "@cloudflare/kumo";
 import { Warning } from "@phosphor-icons/react";
@@ -28,23 +29,25 @@ export function MarkResolved({
   owner,
   open,
   disabled,
+  disabledReason,
 }: {
   blocker: BlockerView;
   owner: boolean;
   open?: (blocker: BlockerView) => void;
   disabled?: boolean;
+  disabledReason?: string;
 }) {
   if (!owner || !open || blocker.resolved) return null;
   return (
-    <Button
+    <WriteHint reason={disabledReason}><Button
       variant="secondary"
       size="sm"
       disabled={disabled}
       aria-label={`Mark resolved: collision on ${blocker.packet}`}
-      onClick={() => open(blocker)}
+      onClick={() => { if (!disabled) open(blocker); }}
     >
       Mark resolved
-    </Button>
+    </Button></WriteHint>
   );
 }
 
@@ -54,12 +57,14 @@ export function CollisionBanner({
   open,
   showPacket,
   disabled,
+  disabledReason,
 }: {
   blocker: BlockerView;
   owner: boolean;
   open?: (blocker: BlockerView) => void;
   showPacket(id: string): void;
   disabled?: boolean;
+  disabledReason?: string;
 }) {
   return (
     <Banner
@@ -73,10 +78,10 @@ export function CollisionBanner({
       }
       action={
         <div className="actions">
-          <Button size="sm" onClick={() => showPacket(blockerPacket(blocker))}>
+          <Button size="sm" aria-label={`View packet ${blockerPacket(blocker)}`} onClick={() => showPacket(blockerPacket(blocker))}>
             View packet
           </Button>
-          <MarkResolved blocker={blocker} owner={owner} open={open} disabled={disabled} />
+          <MarkResolved blocker={blocker} owner={owner} open={open} disabled={disabled} disabledReason={disabledReason} />
         </div>
       }
     />
@@ -88,6 +93,7 @@ export function CollisionRows({
   owner,
   open,
   disabled,
+  disabledReason,
   highlighted,
   reviewLink,
 }: {
@@ -95,6 +101,7 @@ export function CollisionRows({
   owner: boolean;
   open?: (blocker: BlockerView) => void;
   disabled?: boolean;
+  disabledReason?: string;
   highlighted?: string;
   reviewLink?(blocker: BlockerView): ReactNode;
 }) {
@@ -151,7 +158,7 @@ export function CollisionRows({
               <p className="caption plain-text">“{resolution.reason}”</p>
             )}
             {b.id === newestResolved?.id && reviewLink?.(b)}
-            <MarkResolved blocker={b} owner={owner} open={open} disabled={disabled} />
+            <MarkResolved blocker={b} owner={owner} open={open} disabled={disabled} disabledReason={disabledReason} />
           </article>
         );
       })}
@@ -164,7 +171,11 @@ export function ResolveCollisionDialog({
   blocker,
   resolve,
   close,
+  disabled,
+  disabledReason,
 }: {
+  disabled?: boolean;
+  disabledReason?: string;
   blocker: BlockerView;
   resolve(id: string, reason: string): Promise<WireBlocker>;
   close(resolved?: boolean): void;
@@ -184,7 +195,7 @@ export function ResolveCollisionDialog({
     if (missing) closeButton.current?.focus();
   }, [missing]);
   const submit = async () => {
-    if (sending || missing || reason.trim().length < 1 || reason.length > 200) return;
+    if (disabled || sending || missing || reason.trim().length < 1 || reason.length > 200) return;
     setSending(true);
     setError(undefined);
     try {
@@ -286,14 +297,14 @@ export function ResolveCollisionDialog({
             {missing ? "Close" : "Cancel"}
           </Button>
           {!missing && (
-            <Button
+            <WriteHint reason={disabledReason}><Button
               variant="primary"
               data-action="confirm-resolve"
-              disabled={sending || reason.trim().length < 1 || reason.length > 200}
+              disabled={disabled || sending || reason.trim().length < 1 || reason.length > 200}
               onClick={() => void submit()}
             >
               Mark resolved
-            </Button>
+            </Button></WriteHint>
           )}
         </div>
       </Dialog>

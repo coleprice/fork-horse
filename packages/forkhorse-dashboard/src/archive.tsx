@@ -1,3 +1,4 @@
+import { WriteHint } from "./freshness.tsx";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Tooltip } from "@cloudflare/kumo";
 import { Warning } from "@phosphor-icons/react";
@@ -23,6 +24,7 @@ export function ArchiveControl({
   state,
   owner,
   busy,
+  disabledReason,
   archive,
   unarchive,
   missing,
@@ -31,6 +33,7 @@ export function ArchiveControl({
   state: ProjectState;
   owner: boolean;
   busy: boolean;
+  disabledReason?: string;
   archive?: (id: string) => Promise<boolean>;
   unarchive?: (id: string) => Promise<boolean>;
   missing(message: string): void;
@@ -52,7 +55,7 @@ export function ArchiveControl({
   return (
     <>
       {offered && (
-        <Button
+        <WriteHint reason={disabledReason}><Button
           ref={button}
           variant="secondary"
           size="sm"
@@ -60,7 +63,7 @@ export function ArchiveControl({
           aria-label={`${label} ${packet.id}`}
           disabled={busy}
           onClick={async () => {
-            if (pending.current) return;
+            if (busy || pending.current) return;
             pending.current = true;
             setError(undefined);
             restoreFocus.current = true;
@@ -84,7 +87,7 @@ export function ArchiveControl({
           }}
         >
           {label}
-        </Button>
+        </Button></WriteHint>
       )}
       {error && (
         <p className="receipt-error-line caption" role="alert">

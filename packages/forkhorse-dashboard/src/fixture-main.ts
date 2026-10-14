@@ -1,8 +1,13 @@
+import { freshnessFixtureTransport, freshnessScenarios } from "../test/freshness-fixtures.ts";
+import { judgeScenarios } from "../test/judge-fixtures.ts";
+import { agentStatusScenarios } from "../test/agent-status-fixtures.ts";
 import { archiveScenarios } from "../test/archive-fixtures.ts";
+import { emptyScenarios } from "../test/empty-fixtures.ts";
 
 import { usageScenarios } from "../test/usage-fixtures.ts";
 import { collisionScenarios } from "../test/collision-fixtures.ts";
 import { raceScenarios } from "../test/race-fixtures.ts";
+import { racesScenarios } from "../test/races-fixtures.ts";
 import { forkScenarios } from "../test/fork-graph-fixtures.ts";
 import { needsScenarios } from "../test/needs-you-fixtures.ts";
 import { reviewScenarios } from "../test/review-fixtures.ts";
@@ -17,7 +22,8 @@ declare const __DASHBOARD_BRAND__: Brand;
 document.title = `${__DASHBOARD_BRAND__.name} · Fixture projects`;
 let paused = new URL(location.href).searchParams.get("scenario") === "paused";
 const statusListeners = new Set<(paused: boolean) => void>();
-const fixtureTransport = createHttpTransport({ origin: location.origin });
+const scenario = new URL(location.href).searchParams.get("scenario") ?? "demo";
+const fixtureTransport = freshnessFixtureTransport(createHttpTransport({ origin: location.origin }), scenario);
 // Labeled fixture for capability hosts that support queue/receipts but not detail reads.
 if (new URL(location.href).searchParams.get("host") === "queue-only") {
   delete fixtureTransport.getReview;
@@ -51,7 +57,7 @@ if (new URL(location.href).searchParams.get("scenario") === "fork-live") {
   });
   document.body.append(push);
 }
-mountDashboard(document.getElementById("dashboard")!, {
+const dashboard = mountDashboard(document.getElementById("dashboard")!, {
   brand: __DASHBOARD_BRAND__,
   fixture: true,
   owner: new URL(location.href).searchParams.get("role") !== "agent",
@@ -60,13 +66,19 @@ mountDashboard(document.getElementById("dashboard")!, {
     document.getElementById("fixture-prompt")!.textContent =
       `Fixture prompt received (not sent): ${prompt}`;
   },
-  initialProject: new URL(location.href).searchParams.get("scenario") ?? "demo",
-  projects: [
+  initialProject: new URL(location.href).searchParams.get("scenario") === "empty-projects"
+    ? undefined : new URL(location.href).searchParams.get("scenario") ?? "demo",
+  projects: new URL(location.href).searchParams.get("scenario") === "empty-projects" ? [] : [
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
     ...[
+      ...freshnessScenarios,
+      ...judgeScenarios,
+      ...agentStatusScenarios,
       ...archiveScenarios,
+      ...emptyScenarios.filter((id) => id !== "empty-projects"),
       ...raceScenarios,
+      ...racesScenarios,
       ...reviewScenarios,
       ...usageScenarios,
       ...collisionScenarios,
@@ -95,6 +107,10 @@ mountDashboard(document.getElementById("dashboard")!, {
   ],
   transport: fixtureTransport,
 });
+
+// Retained-data captures start from a real loaded fixture snapshot before the read fails/waits.
+if (scenario === "freshness-refreshing" || scenario === "freshness-failed")
+  setTimeout(() => void dashboard.refresh(), 1000);
 
 const stopTheme = followSystemTheme();
 window.addEventListener("pagehide", stopTheme, { once: true });

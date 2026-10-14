@@ -231,6 +231,13 @@ test("lane state labels and dots distinguish failed checks, warnings and review"
       `${word}: ${tone}`,
     );
   }
+  const interruptions = [...document.querySelectorAll(".lane-marker-interrupted")];
+  assert.equal(interruptions.length, 2);
+  assert.ok(interruptions.every((marker) => marker.textContent === "!"));
+  assert.equal(document.querySelector(".lane-marker-failed")!.textContent, "✗");
+  assert.match(document.querySelector(".fork-legend")!.textContent!, /! checks didn't finish/);
+  assert.match(document.querySelector(".fork-table")!.textContent!, /timed out/);
+  assert.match(document.querySelector(".fork-table")!.textContent!, /couldn't run/);
   await act(async () => root.unmount());
 });
 test("a claimed lane without a review shows an In progress brand dot", async () => {
@@ -331,10 +338,10 @@ test("fixture DOM leaves closed table in accessibility tree, supports navigation
     chips.filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent),
     ["Last 4 h"],
   );
-  const image = document.querySelector('[role="img"]')!;
-  const table = document.getElementById(image.getAttribute("aria-describedby")!)!;
+  const group = document.querySelector('[role="group"].fork-picture')!;
+  const table = document.getElementById(group.getAttribute("aria-describedby")!)!;
   assert.match(
-    image.getAttribute("aria-label")!,
+    group.getAttribute("aria-label")!,
     /Fork graph: 4 live claims · 1 race · 1 promotion today/,
   );
   assert.ok(table.querySelector("table"));

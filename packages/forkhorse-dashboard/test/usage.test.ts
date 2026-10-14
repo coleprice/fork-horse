@@ -336,7 +336,7 @@ test("fork graph keeps tokens in tooltip and table, without figures on lane labe
     await until(() => c.root.querySelector(".fork-lane-label"));
     const label = c.root.querySelector(".fork-lane-label")!;
     assert.doesNotMatch(label.textContent!, /tokens|reported/);
-    assert.match(label.getAttribute("title")!, /tokens · reported/);
+    assert.match(label.getAttribute("title")!, /^Tokens: 420k · reported · as of/);
     assert.match(label.getAttribute("title")!, /can't verify it/);
     assert.match(
       c.root.querySelector(".fork-table-wrap")?.textContent ??

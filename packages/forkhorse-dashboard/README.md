@@ -63,6 +63,57 @@ review, showing only the latter in the card. Use `role=agent` to check
 absence and `host=queue-only` to check the capability fallback. These snapshots
 are synthetic, and fixture routes are excluded from production assets.
 
+## Agent status and resume
+
+FH-078 shows one Agents row per enrolled identity, ordered by the existing
+saddlecloth rank. Its most urgent live claim determines Status and Packet;
+additional live claims appear as a count. Last push comes from loaded fork
+activity, with exact time in a tooltip. Returned reviews, failed or running
+receipts, current review/approval and pushing-fork collision gates precede
+claim activity. The table uses the existing state words, tones and usage figures.
+
+A held claim is not a heartbeat. After 30 minutes without a loaded push the
+row says **Claimed, no recent push**, with the observed push or claim time.
+That absence requires the oldest loaded activity to reach back at least
+30 minutes. Shorter history keeps the active-claim state and says
+**Not in loaded activity** when no push is visible. A claim newer than the
+loaded history can say **No push yet**. Idle agents, including legacy identities
+without enrollment timestamps, start collapsed; Needs you reveals a targeted
+idle row before focusing it.
+
+The agent Overview starts with **Resume where you left off** when the host
+supplies a caller name found in the existing state. This read-only reduced
+card shows Packet, Fork, assignment-scoped Last push and the table's Status.
+It has no Next row because this host does not provide `myWork` next actions.
+No live claim reads **No live claim.** An unknown caller has no card.
+The owner Overview has no Resume card. No adapter or endpoint changes are needed.
+
+Labeled local scenarios `agents-status`, `agents-short-activity`, `agent-resume`
+and `agent-idle` cover all statuses and the activity-history boundary. Use
+`role=agent` for the read-only frame copy and reduced Resume card. Fixtures
+and source authoring do not establish acceptance; focused/root tests, lint,
+fresh-clone/D5 and light/dark capture review remain separately gated.
+
+## Race judge advice
+
+FH-063c reads the fixed optional race `judge` and `verdict: {ranking, rationale,
+at}` seam. The UI calls this **Judge's advice**, shows the ranked entrant
+saddlecloths, and keeps advice visible after a race finishes. Missing judge fields
+leave the existing race view unchanged. Rationale is escaped plain text; more
+than five rendered lines can expand in place, with the full text retained in the DOM.
+
+The owner can promote the pick through the existing review confirmation and
+promote endpoint, with the same visibility gate as the review queue. A pending
+promotion or required before-promote re-check hides Promote. Later review or push
+evidence also hides the advice action until new advice arrives. Agents see advice
+without owner controls. No dashboard advice submission or new write endpoint is
+introduced. Review detail and Needs you carry the pick's advisory context.
+
+`judge-*` loopback scenarios cover waiting, owner/agent, later pushes/reviews,
+promotion gates, finished results, long rationale and no-judge views. These are
+fixed-contract fixtures only; accepted-core integration and live acceptance are
+separate gates.
+
 ## Host composition
 
 Serve `dist/index.html` for `/app` and `/app/` (or redirect `/app` to `/app/`), and
@@ -446,3 +497,43 @@ owner/agent explanations; resolving a collision leaves the current entrant budge
 gate in force. All eight design fixes remain. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
 serialized operator checks. Saddler PASS and owner review remain open. This local
 candidate has no live Cloudflare, deployment, or owner-acceptance evidence.
+
+## First-run guidance
+
+Empty owner views show a placeholder owner CLI command using the existing
+clipboard control. Copying it performs no API request. The CLI reads the owner
+credential from the owner's private environment; the dashboard never reads,
+stores or inserts that credential or actual endpoint/config values into commands.
+Agent hosts show the same guidance without commands or Copy controls. Empty
+reviews offer owners a Go to Work button using existing tab navigation.
+
+Overview shows one empty state: enroll agents, create packets, then wait for an
+agent to claim work. Existing forks, promotion history and race entries preserve
+the graph even when no active claim remains. Archive-only Work and reviews with
+retained history keep their existing empty-queue behavior. Race packets remain in
+Work. The additive Races tab lists all recorded races and has its own first-run
+guidance. Missing race bookmarks and real races waiting for entrants retain their
+existing messages.
+
+The labeled loopback scenarios are `empty-projects`, `empty-agents`,
+`empty-packets`, `empty-forks`, `empty-reviews` and `empty-races`. Select tabs with
+`#overview`, `#work`, `#agents` or `#review`; `role=agent` exercises hidden owner
+commands. `empty-projects` supplies no configured projects and makes no project
+read. These are synthetic fixtures, not evidence from a new deployed instance.
+
+## Races tab (FH-081)
+
+The last tab, `#races`, reads the existing state snapshot without new requests or
+owner write controls. Its badge counts open races with entrants. Rows retain lane
+order and enrollment identities, separate the judge's advice from the winner,
+and link to the existing race view. Opening from this list changes that view's
+back link to “← Races”; opening from Work retains “← Work”. Judge and start metadata
+fold beneath the title at viewport widths up to 899px or pane widths up to 819px.
+
+`fixtures.html?scenario=races-list#races` supplies labeled synthetic open,
+zero-entrant, finished, photo-finish, archived, judged and awaiting-advice races.
+`scenario=races-empty` covers first-run guidance; `role=agent` hides the owner CLI
+command. Additive fixture tests cover ordering, separate winner/advice semantics,
+tab naming, read-only requests, refreshes and return navigation. Browser captures
+and scroll measurements at 1440/1024/900/800, dashboard tests/types/lint/build,
+fresh-clone review and Saddler approval are operator acceptance gates.

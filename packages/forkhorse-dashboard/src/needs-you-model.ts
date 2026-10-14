@@ -1,3 +1,4 @@
+import { adviceForReview } from "./judge.ts";
 import type { Brand, ProjectState } from "./contracts.ts";
 import { isArchived, blockedLabel, blockerPacket, reviewGate, reviewState } from "./model.ts";
 import { duration } from "./receipts.tsx";
@@ -185,6 +186,7 @@ export function ownerNeeds(state: ProjectState, brand: Brand, now = Date.now()):
                 ...(state.packets.find((packet) => packet.id === review.packet)?.mode === "race"
                   ? [" First promote wins the race."]
                   : []),
+                ...(adviceForReview(state, review)?.index === 0 ? [" The judge picked this entrant."] : []),
               ]
             : ["Approving lets you promote it to ", mono("main"), "."],
         target: { review: review.id },

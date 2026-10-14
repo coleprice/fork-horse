@@ -6,7 +6,7 @@ import { readTextCapped } from "@gadgets/gatekeeper-kit/response-body";
 import { RESOURCE, type Env } from "./account.ts";
 import brand from "../../../../brand.json";
 import { markIconUrl } from "../../../forkhorse-dashboard/src/mark.ts";
-import TYPES from "../fork-types.txt";
+import { TYPES } from "./api-types.ts";
 export { UserAccount, AgentAccount, AgentVerifier } from "./account.ts";
 export { ForkGatekeeper } from "./fork.ts";
 

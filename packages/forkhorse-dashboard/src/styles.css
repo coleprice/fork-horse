@@ -155,6 +155,58 @@ select {
 .receipt {
   margin-block: calc(var(--spacing) * 3);
 }
+/* FH-078 shares status tokens and identity silks with Work and the fork graph. */
+.agent-status-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-status-name .race-saddlecloth { flex: 0 0 auto; min-width: 24px; height: 24px; font-size: 12px; }
+.table-agent-status { overflow-x: auto; }
+.table-agent-status table { min-width: var(--agent-table-min-width, 0); width: 100%; }
+/* Outrank legacy positional widths while retaining the Agents integration hook. */
+.table-agents.table-agent-status .column-agent { width: var(--agent-name-width, 19%); }
+.table-agents.table-agent-status .column-status { width: var(--agent-status-width, 20%); }
+.table-agents.table-agent-status .column-packet { width: var(--agent-packet-width, 10%); }
+.table-agents.table-agent-status .column-last-push { width: var(--agent-push-width, 14%); }
+.table-agents.table-agent-status .column-waiting-on { width: var(--agent-waiting-width, 17%); }
+.table-agents.table-agent-status .column-tokens { width: 20%; }
+.table-agent-status .column-packet .caption { display: block; }
+.table-agent-status .agent-packet-link { display: block; width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.agent-last-push-stacked > code, .agent-last-push-stacked > time { display: block; }
+/* Match the existing fold boundaries for both active and disclosed idle rows. */
+@container (max-width: 819px) {
+  .table-agent-status { --agent-table-min-width: 0; --agent-name-width: 35%; --agent-status-width: 23%; --agent-packet-width: 12%; --agent-push-width: 14%; --agent-waiting-width: 16%; }
+  .table-agents.table-agent-status .column-tokens, .table-agent-status .agent-fork-caption { display: none; }
+}
+@media (max-width: 899px) {
+  .table-agent-status { --agent-table-min-width: 0; --agent-name-width: 35%; --agent-status-width: 23%; --agent-packet-width: 12%; --agent-push-width: 14%; --agent-waiting-width: 16%; }
+  .table-agents.table-agent-status .column-tokens, .table-agent-status .agent-fork-caption { display: none; }
+}
+.resume-card { margin-bottom: 16px; }
+.resume-card dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; }
+.resume-card dt { color: var(--text-color-kumo-subtle); }
+.resume-card dd { margin: 0; min-width: 0; }
+/* FH-081 folds metadata rather than imposing a wider race-list table. */
+.table-races table { width: 100%; min-width: 0; }
+.table-races th, .table-races td { white-space: normal; overflow-wrap: anywhere; }
+.table-races .race-list-column-0 { width: var(--race-list-title-width, 25%); }
+.table-races .race-list-column-1 { width: var(--race-list-status-width, 12%); }
+.table-races .race-list-column-2 { width: var(--race-list-entrants-width, 20%); }
+.table-races .race-list-column-3 { width: var(--race-list-winner-width, 17%); }
+.table-races .race-list-column-4 { width: 16%; }
+.table-races .race-list-column-5 { width: 10%; }
+.table-races td > .caption:not(.folded), .table-races .folded > span { display: block; }
+.race-list-runner { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.race-list-name { min-width: 0; overflow-wrap: anywhere; }
+.race-list-runner .race-saddlecloth { flex: 0 0 24px; min-width: 24px; width: 24px; height: 24px; font-size: 12px; }
+.race-list-entrant + .race-list-entrant { margin-top: 8px; }
+.race-list-entrant > .caption { display: block; padding-left: 32px; }
+.table-races .race-list-link { white-space: normal; overflow-wrap: anywhere; }
+@container (max-width: 819px) {
+  .table-races { --race-list-title-width: 30%; --race-list-status-width: 17%; --race-list-entrants-width: 28%; --race-list-winner-width: 25%; }
+  .table-races .race-list-column-4, .table-races .race-list-column-5 { display: none; }
+}
+@media (max-width: 899px) {
+  .table-races { --race-list-title-width: 30%; --race-list-status-width: 17%; --race-list-entrants-width: 28%; --race-list-winner-width: 25%; }
+  .table-races .race-list-column-4, .table-races .race-list-column-5 { display: none; }
+}
 .caption {
   font-size: var(--text-xs);
   line-height: var(--text-xs--line-height);
@@ -381,6 +433,12 @@ footer {
   max-width: 16rem;
 }
 .metric-value {
+  /* Preserve the former h3 typography and spacing after correcting its semantics. */
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  font-weight: 600;
+  color: var(--text-color-kumo-strong);
+  margin-block: 0;
   display: flex;
   align-items: center;
   gap: calc(var(--spacing) * 2);
@@ -745,9 +803,14 @@ footer {
 /* Shared FH-055/FH-057 identity: silk means agent; shape and state words mean outcome. */
 .race-saddlecloth {
   display: inline-flex;
-  width: 24px;
+  min-width: 24px;
+  width: max-content;
   height: 24px;
-  flex: 0 0 24px;
+  flex: 0 0 auto;
+  padding-inline: 3px;
+  box-sizing: border-box;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
@@ -805,7 +868,8 @@ footer {
   font-size: 20px;
 }
 .lane-marker-passed,
-.lane-marker-failed {
+.lane-marker-failed,
+.lane-marker-interrupted {
   width: 22px;
   height: 22px;
   color: var(--race-hurdle-ink);
@@ -818,6 +882,9 @@ footer {
 }
 .lane-marker-failed {
   background: var(--color-kumo-danger);
+}
+.lane-marker-interrupted {
+  background: var(--color-kumo-warning);
 }
 .lane-marker-promoted {
   background: var(--color-kumo-success);
@@ -1454,7 +1521,7 @@ footer {
     animation: none;
   }
 }
-@media (max-width: 639px) {
+@media (max-width: 1023px) {
   .race-header {
     flex-direction: column;
     margin-bottom: 24px;
@@ -1626,7 +1693,66 @@ footer {
   .race-compare td { display: grid; grid-template-columns: minmax(88px, 1fr) minmax(0, 2fr); gap: 8px; padding: 8px 0; border: 0; }
   .compare-entrant { display: flex; gap: 6px; align-items: flex-start; min-width: 0; }
   .compare-entrant > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-  .compare-entrant .race-saddlecloth { flex: 0 0 22px; width: 22px; height: 22px; font-size: 12px; }
+  .compare-entrant .race-saddlecloth { flex: 0 0 auto; min-width: 22px; height: 22px; font-size: 12px; }
   .compare-value { min-width: 0; }
   .race-compare .usage-source, .race-compare .token-budget-state, .race-compare .usage-freshness { font-size: 12px; }
+}
+
+/* FH-063c advice stays below the factual track, with existing host tokens. */
+.race-page { isolation: isolate; } /* Keep positioned lane marks beneath the shared dialog portal. */
+.judge-advice { border: 1px solid var(--color-kumo-line); background: var(--color-kumo-base); border-radius: var(--radius-lg); padding: calc(var(--spacing) * 4); display: grid; gap: calc(var(--spacing) * 3); margin-block: calc(var(--spacing) * 4); }
+.judge-advice h4, .judge-pick { display: flex; align-items: center; gap: calc(var(--spacing) * 2); }
+.judge-advice h4, .judge-advice p { margin: 0; }
+.judge-pick { width: fit-content; margin-block: calc(var(--spacing) * 2); }
+.judge-forecast, .judge-forecast > span, .judge-ranking li > div { display: flex; align-items: center; gap: calc(var(--spacing) * 3); }
+.judge-forecast { flex-wrap: wrap; }
+.judge-ranking { list-style: none; padding: 0; margin: 0; display: grid; gap: calc(var(--spacing) * 3); }
+.judge-ranking li, .judge-ranking strong { min-width: 0; overflow-wrap: anywhere; }
+.judge-rationale { border-left: 2px solid var(--color-kumo-line); padding-left: calc(var(--spacing) * 4); margin: 0; }
+.judge-rationale p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.judge-rationale footer { margin-top: calc(var(--spacing) * 2); }
+.judge-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; }
+.judge-action { display: flex; align-items: center; gap: calc(var(--spacing) * 3); flex-wrap: wrap; }
+@media (prefers-reduced-motion: no-preference) { .judge-advice { animation: judge-advice-in 150ms ease-out; } }
+@keyframes judge-advice-in { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 639px) { .judge-action { flex-direction: column; align-items: stretch; } .judge-action > button { width: 100%; } }
+
+/* Freshness uses the existing tab gutter, leaving populated content in place. */
+.tab-gutter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--spacing) * 2);
+  flex-wrap: wrap;
+}
+.freshness-stamp {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+}
+.write-hint {
+  display: inline-flex;
+  align-items: center;
+}
+/* First-run guidance reuses the Overview clipboard control without duplicating command text. */
+.first-run-command {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 3);
+  width: 100%;
+  max-width: 50rem;
+  min-width: 0;
+}
+.first-run-command code {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  text-align: left;
+}
+.first-run-copy {
+  flex-shrink: 0;
+}
+.first-run-copy > span:first-child {
+  display: none;
 }
