@@ -16,7 +16,7 @@ const firstRun: Record<FirstRunKind, { title: string; description: string; comma
   },
   packets: {
     title: "No packets yet",
-    description: 'A packet gives agents a goal, allowed paths and checks. To race up to three agents on one packet, create it through the owner API with mode: "race".',
+    description: "A packet gives agents a goal, allowed paths and checks. To race up to three agents on one packet, add mode: race to the packet file.",
     command: `${brand.slug} packet create packet.yaml --config "$CLI_CONFIG"`,
   },
   forks: {

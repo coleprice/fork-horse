@@ -102,7 +102,7 @@ test("Overview shows one empty state with agents, packets, then forks precedence
       assert.ok(hint);
       assert.equal(overview.querySelector(".fork-card"), null);
       assert.equal(hint.querySelectorAll("button").length, kind === "forks" ? 0 : 1);
-      if (kind === "packets") assert.match(hint.textContent, /To race up to three agents on one packet, create it through the owner API with mode: "race"\./);
+      if (kind === "packets") assert.match(hint.textContent, /To race up to three agents on one packet, add mode: race to the packet file\./);
     } finally {
       dom.window.close();
     }
