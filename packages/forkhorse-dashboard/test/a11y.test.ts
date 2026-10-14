@@ -103,8 +103,8 @@ test("summary values leave the heading outline, panels use title case, tabs sepa
       const name = { overview: "Overview", work: "Work", review: "Review", agents: "Agents" }[section];
       assert.ok(getByRole(root, "tabpanel", { name }));
       assert.equal(queryByRole(root, "tabpanel", { name: section }), null);
-      assert.ok(getByRole(root, "tab", { name: /^Work, \d+$/ }));
-      assert.ok(getByRole(root, "tab", { name: /^Review, \d+$/ }));
+      assert.ok(getByRole(root, "tab", { name: /^Work\s*,\s+\d+$/ }));
+      assert.ok(getByRole(root, "tab", { name: /^Review\s*,\s+\d+$/ }));
       assert.equal(queryByRole(root, "tab", { name: /^Work\d+$/ }), null);
       if (section === "overview") {
         const summary = getByRole(root, "region", { name: "Project summary" });
@@ -152,6 +152,15 @@ test("race status is initially silent, batches new milestones and failure, suppr
   const container = dom.window.document.getElementById("fixture")!;
   const root = createRoot(container);
   let state = stateView(raceFixtureState());
+  // The open fixture's last entrant has not requested review yet. Establish an
+  // in-flight receipt before mounting, so the next snapshot tests its failure.
+  const initialAmber = state.races![0].entrants.find((entrant) => entrant.agent === "amber")!;
+  initialAmber.firstPushAt = "2026-10-13T14:09:00Z";
+  initialAmber.reviewRequestedAt = "2026-10-13T14:10:00Z";
+  state.reviews.push({ ...structuredClone(state.reviews[0]),
+    id: "fixture-amber-review", agent: "amber", repoName: initialAmber.repoName,
+    requestedAt: initialAmber.reviewRequestedAt, receipt: fixtureReceipt("running"),
+  });
   const render = async (packet = "race-01", project = "fixture-race") => {
     await act(async () => root.render(createElement(TooltipProvider, null,
       createElement(RaceView, { packet, view: { ...model(state), project }, actions }),
