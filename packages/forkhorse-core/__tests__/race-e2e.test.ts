@@ -3,7 +3,7 @@ import { createExecutionContext, runInDurableObject, waitOnExecutionContext } fr
 import { describe, expect, it } from "vitest";
 import worker from "../src/index";
 import type { PushEvent } from "../src/types";
-import type { Review, StateSnapshot } from "../src/workflow-types";
+import type { RaceVerdict, Review, StateSnapshot } from "../src/workflow-types";
 import type { StoredReceipt } from "../../forkhorse-runner/src/types";
 import { AFTER, BEFORE } from "./fixtures";
 import { TestSupervisor } from "./worker";
@@ -73,11 +73,14 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
       instance.useRpcRunner = true;
       instance.fixture.checks = JSON.stringify([{ name: "quick", tier: "quick", module: ".forkhorse/quick/check.js" }]);
       instance.fixture.quickSource = 'export default async ctx => ({ok:(await ctx.list(".forkhorse/quick")).includes(".forkhorse/quick/check.js")});';
+      instance.fixture.reviewBlobs.set("7".repeat(40), new Blob(["before\n"]));
+      instance.fixture.reviewBlobs.set("8".repeat(40), new Blob(["after\n"]));
     });
-    const created = await api("", "", OWNER, { id, agents: names, requireReceipt: false });
+    const created = await api("", "", OWNER, { id, agents: [...names, "judge"], requireReceipt: false });
     expect(created.status).toBe(201);
     const { agents } = await created.json<{ agents: { apiToken: string }[] }>();
     const tokens = agents.map(agent => agent.apiToken);
+    const judgeToken = tokens[4]!;
     const forks: string[] = [];
     for (const [index, agent] of names.entries()) {
       const joined = await api(id, "/join", tokens[index]!, { agent });
@@ -86,13 +89,14 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
     }
     expect(new Set(forks).size).toBe(4);
     expect((await api(id, "/packets", OWNER, {
-      id: RACE, mode: "race", tokenBudget: 100, title: "Demo race", goal: "Exercise the complete race workflow",
+      id: RACE, mode: "race", tokenBudget: 100, judge: "judge", title: "Demo race", goal: "Exercise the complete race workflow",
       paths: ["src/**"], acceptance: ["One CAS winner with retained history"],
     })).status).toBe(201);
     expect((await api(id, "/packets", OWNER, {
       id: "standard", title: "Protected documentation", goal: "Exercise trespass resolution",
       paths: ["docs/**"], acceptance: ["Owner resolves the blocker"],
     })).status).toBe(201);
+    await refusal(await api(id, `/packets/${RACE}/claim`, judgeToken, {}), "The judge can't race.");
     for (const index of [0, 1, 2])
       expect((await api(id, `/packets/${RACE}/claim`, tokens[index]!, { repoName: forks[index] })).status).toBe(201);
     expect((await api(id, `/packets/${RACE}/claim`, tokens[3]!, { repoName: forks[3] })).status).toBe(409);
@@ -103,7 +107,7 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
     expect((await api(id, "/usage", tokens[0]!, { packet: RACE, inputTokens: 40, outputTokens: 20, model: "fixture" })).status).toBe(200);
     expect((await api(id, "/usage", tokens[1]!, { packet: RACE, inputTokens: 90, outputTokens: 11, model: "fixture" })).status).toBe(200);
     const entered = (await snapshot(id)).races[0]!;
-    expect(entered).toMatchObject({ tokenBudget: 100, status: "open", winner: null, ledgerEntryId: null });
+    expect(entered).toMatchObject({ tokenBudget: 100, judge: "judge", verdict: null, status: "open", winner: null, ledgerEntryId: null });
     expect(entered.entrants.map(e => ({ agent: e.agent, repoName: e.repoName, budget: e.budget }))).toEqual([
       { agent: "alpha", repoName: forks[0], budget: "within" },
       { agent: "beta", repoName: forks[1], budget: "over" },
@@ -133,6 +137,21 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
     const reviews = [];
     for (const [index, sha] of [AFTER, "b".repeat(40), "c".repeat(40)].entries())
       reviews.push(await requestReview(id, tokens[index]!, forks[index]!, sha));
+    for (const review of reviews)
+      expect((await api(id, `/reviews/${review.id}`, judgeToken)).status).toBe(200);
+    expect((await api(id, `/reviews/${reviews[0]!.id}/diff?path=src%2Findex.ts`, judgeToken)).status).toBe(200);
+    // The judge prefers beta; advice neither finishes the race nor overrides the
+    // usage/blocker/CAS gates or the owner's eventual choice of alpha.
+    const advice = { ranking: ["beta", "alpha", "gamma"], rationale: "Beta leads the code review; the owner must still enforce usage and promotion gates." };
+    for (const token of [OWNER, tokens[0]!])
+      expect((await api(id, `/races/${RACE}/verdict`, token, advice)).status).toBe(403);
+    const judged = await api(id, `/races/${RACE}/verdict`, judgeToken, advice);
+    expect(judged.status).toBe(200);
+    const { verdict } = await judged.json<{ verdict: RaceVerdict }>();
+    expect(verdict).toEqual({ ...advice, at: expect.any(String) });
+    const advised = await snapshot(id);
+    expect(advised.races[0]).toMatchObject({ judge: "judge", verdict, status: "open", winner: null, places: [], ledgerEntryId: null });
+    expect(advised.ledger).toEqual([]);
     for (const review of reviews.slice(1))
       expect((await api(id, `/reviews/${review.id}/approve`, OWNER, {})).status).toBe(200);
     const trespassError = "This fork pushed into paths another agent has claimed. The owner must resolve the blocker first.";
@@ -155,7 +174,7 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
     const missed = await snapshot(id);
     expect(missed.ledger).toEqual([]);
     expect(missed.promotionPending).toBeNull();
-    expect(missed.races[0]).toMatchObject({ status: "open", winner: null, places: [], ledgerEntryId: null });
+    expect(missed.races[0]).toMatchObject({ verdict, status: "open", winner: null, places: [], ledgerEntryId: null });
     expect(missed.races[0]!.entrants[0]).toMatchObject({ closedAt: null, place: null,
       promoteRejected: { at: expect.any(String), expected: BEFORE, found: "f".repeat(40) } });
 
@@ -176,6 +195,7 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
     expect((await api(id, `/reviews/${winnerReview.id}/approve`, OWNER, {})).status).toBe(200);
     expect((await api(id, "/settings", OWNER, { requireReceipt: true }, "PATCH")).status).toBe(200);
     expect((await api(id, `/reviews/${winnerReview.id}/promote`, tokens[0]!, {})).status).toBe(403);
+    expect((await api(id, `/reviews/${winnerReview.id}/promote`, judgeToken, {})).status).toBe(403);
     const promoted = await api(id, `/reviews/${winnerReview.id}/promote`, OWNER, {});
     expect(promoted.status, await promoted.clone().text()).toBe(200);
     const finished = await snapshot(id);
@@ -183,7 +203,7 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
     const ledger = finished.ledger[0]!;
     expect(ledger).toMatchObject({ review: winnerReview.id, race: RACE, repoName: id,
       before: "f".repeat(40), after: winnerSha, requireReceipt: true, receiptDigest: expect.any(String) });
-    expect(finished.races[0]).toMatchObject({ status: "finished", winner: "alpha", ledgerEntryId: ledger.id,
+    expect(finished.races[0]).toMatchObject({ judge: "judge", verdict, status: "finished", winner: "alpha", ledgerEntryId: ledger.id,
       finishedAt: expect.any(String), places: [{ agent: "alpha", place: 1 }, { agent: "beta", place: 2 }, { agent: "gamma", place: 3 }] });
     for (const entrant of finished.races[0]!.entrants)
       expect(entrant).toMatchObject({ closedAt: finished.races[0]!.finishedAt, closedBy: "race-finished",
@@ -200,6 +220,7 @@ describe("FH-066 end-to-end race regression in workerd with offline Git/Artifact
     const receipt = await receiptResponse.json<StoredReceipt>();
     expect(receipt.receipt).toMatchObject({ evidence: "dynamic-worker", commit: winnerSha, trigger: "before-promote" });
     expect(receipt.digest).toBe(ledger.receiptDigest);
+    await refusal(await api(id, `/races/${RACE}/verdict`, judgeToken, advice), "Race finished.");
     await inspect(id, instance => {
       expect(instance.gitFixture.pushes).toEqual([{ remote: `https://git.idiot.tax/fixture/${id}.git`, expected: "f".repeat(40), sha: winnerSha }]);
       expect(instance.fixture.heads.get(id)).toBe(winnerSha);
