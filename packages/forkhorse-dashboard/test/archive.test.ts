@@ -173,7 +173,9 @@ test("owner archives in the panel, retains focus, toggles neutral rows and undoe
       { reviews: c.state.reviews, ledger: c.state.ledger, activity: c.state.activity },
       history,
     );
-    assert.equal(c.root.querySelector(".metrics h3")!.textContent, "1");
+    const packetsMetric = c.root.querySelector(".metrics p.metric-value")!;
+    assert.equal(packetsMetric.textContent, "1");
+    assert.equal(c.root.querySelector(".metrics h3"), null);
     assert.equal(c.calls.filter((p) => p.startsWith("POST")).length, 1);
     c.button("toggle-archived")!.click();
     await until(() => c.root.querySelectorAll("#packets tbody tr").length === 2);

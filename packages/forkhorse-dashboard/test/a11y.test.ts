@@ -97,7 +97,13 @@ test("collision packet buttons identify the packet they open", () => {
 });
 
 test("summary values leave the heading outline, panels use title case, tabs separate counts and all four tables are named", () => {
-  const view = model();
+  // Keep live claims and blockers for the count tabs, plus promoted receipts for
+  // the history table. The receipt-history fixture alone has no Work count.
+  const state = stateView(fixtureState());
+  const history = stateView(fixtureState("history-required"));
+  state.reviews.push(...history.reviews.filter((review) => review.status === "promoted"));
+  state.ledger = history.ledger;
+  const view = model(state);
   for (const section of ["overview", "work", "review", "agents"] as Section[]) {
     const dom = markup(createElement(DashboardView, { view, actions: { ...actions, section } }));
     try {
@@ -122,6 +128,11 @@ test("summary values leave the heading outline, panels use title case, tabs sepa
       }
     } finally { dom.window.close(); }
   }
+  const uncounted = markup(createElement(DashboardView, { view: model(), actions }));
+  try {
+    assert.ok(getByRole(uncounted.window.document.body, "tab", { name: "Work" }));
+    assert.equal(queryByRole(uncounted.window.document.body, "tab", { name: /^Work\s*,/ }), null);
+  } finally { uncounted.window.close(); }
 });
 
 test("saddlecloth exposes spoken identity once, including unknown agents; the race flag is decorative", () => {
