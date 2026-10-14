@@ -157,7 +157,7 @@ select {
 }
 /* FH-078 shares status tokens and identity silks with Work and the fork graph. */
 .agent-status-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.agent-status-name .race-saddlecloth { flex: 0 0 24px; width: 24px; height: 24px; font-size: 12px; }
+.agent-status-name .race-saddlecloth { flex: 0 0 auto; min-width: 24px; height: 24px; font-size: 12px; }
 .table-agent-status { overflow-x: auto; }
 .table-agent-status table { min-width: 960px; }
 .table-agent-status .column-agent { width: 19%; }
