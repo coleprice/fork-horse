@@ -511,6 +511,7 @@ test("detail loading/error/retry/not-found and late response after queue navigat
   try {
     await until(() => n.root.textContent!.includes("This review doesn't exist anymore."));
     assert.ok(button(n, "← Review queue"));
+    assert.equal(button(n, "Try again"), undefined, "a missing review has no retry button");
   } finally {
     n.close();
   }

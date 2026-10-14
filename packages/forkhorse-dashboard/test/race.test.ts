@@ -25,6 +25,7 @@ import { renderDashboard } from "../src/render.ts";
 import type { ProjectState, DashboardTransport } from "../src/contracts.ts";
 import type { ViewModel } from "../src/model.ts";
 import type { ViewActions } from "../src/view.tsx";
+import { getByRole } from "./roles.ts";
 const brand = { name: "Fixture app", tagline: "Fixture" };
 const actions: ViewActions = {
   section: "work",
@@ -168,7 +169,7 @@ test("semantic track keeps claim order at finish, checks after request, and real
   assert.match(track.textContent!, /Closed at the finish/);
   assert.equal(track.querySelector(".lane-marker-review")!.textContent, "○");
   assert.equal(track.querySelector(".lane-marker-approved")!.textContent, "◆");
-  assert.equal(track.querySelector(".race-saddlecloth")!.getAttribute("aria-label"), "Agent number 2");
+  assert.equal(track.querySelector(".race-saddlecloth .sr-only")!.textContent, "Agent number 2");
   assert.doesNotMatch(html(value), /Photo finish|progressbar|% done/);
   assert.equal(raceStart(race), Date.parse("2026-10-13T14:01:59Z"));
 });
@@ -322,8 +323,10 @@ test("two-digit fixture keeps enrollment numbers throughout the race", () => {
     for (const [agent, number] of [["amber", 10], ["birch", 11], ["cedar", 12]] as const) {
       assert.equal(saddlecloth(value.state!, agent), number);
       const cloth = dom.window.document.querySelector(`[data-race-agent="${agent}"] .race-saddlecloth`)!;
-      assert.equal(cloth.textContent, String(number));
-      assert.equal(cloth.getAttribute("aria-label"), `Agent number ${number}`);
+      assert.equal(cloth.querySelector('[aria-hidden="true"]')!.textContent, String(number));
+      assert.equal(cloth.querySelector(".sr-only")!.textContent, `Agent number ${number}`);
+      const track = getByRole(dom.window.document.body, "table", { name: "Race progress for race-01" });
+      assert.ok(getByRole(track, "row", { name: new RegExp(`^Agent number ${number} ${agent}\\b`) }));
     }
   } finally { dom.window.close(); }
 });

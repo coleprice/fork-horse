@@ -1,3 +1,4 @@
+import { freshnessFixtureTransport, freshnessScenarios } from "../test/freshness-fixtures.ts";
 import { judgeScenarios } from "../test/judge-fixtures.ts";
 import { agentStatusScenarios } from "../test/agent-status-fixtures.ts";
 import { archiveScenarios } from "../test/archive-fixtures.ts";
@@ -20,7 +21,8 @@ declare const __DASHBOARD_BRAND__: Brand;
 document.title = `${__DASHBOARD_BRAND__.name} · Fixture projects`;
 let paused = new URL(location.href).searchParams.get("scenario") === "paused";
 const statusListeners = new Set<(paused: boolean) => void>();
-const fixtureTransport = createHttpTransport({ origin: location.origin });
+const scenario = new URL(location.href).searchParams.get("scenario") ?? "demo";
+const fixtureTransport = freshnessFixtureTransport(createHttpTransport({ origin: location.origin }), scenario);
 // Labeled fixture for capability hosts that support queue/receipts but not detail reads.
 if (new URL(location.href).searchParams.get("host") === "queue-only") {
   delete fixtureTransport.getReview;
@@ -54,7 +56,7 @@ if (new URL(location.href).searchParams.get("scenario") === "fork-live") {
   });
   document.body.append(push);
 }
-mountDashboard(document.getElementById("dashboard")!, {
+const dashboard = mountDashboard(document.getElementById("dashboard")!, {
   brand: __DASHBOARD_BRAND__,
   fixture: true,
   owner: new URL(location.href).searchParams.get("role") !== "agent",
@@ -69,6 +71,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "demo", label: "Demo workspace" },
     { id: "quiet", label: "Quiet project" },
     ...[
+      ...freshnessScenarios,
       ...judgeScenarios,
       ...agentStatusScenarios,
       ...archiveScenarios,
@@ -102,6 +105,10 @@ mountDashboard(document.getElementById("dashboard")!, {
   ],
   transport: fixtureTransport,
 });
+
+// Retained-data captures start from a real loaded fixture snapshot before the read fails/waits.
+if (scenario === "freshness-refreshing" || scenario === "freshness-failed")
+  setTimeout(() => void dashboard.refresh(), 1000);
 
 const stopTheme = followSystemTheme();
 window.addEventListener("pagehide", stopTheme, { once: true });

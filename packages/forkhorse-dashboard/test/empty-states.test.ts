@@ -119,10 +119,38 @@ test("Overview shows one empty state with agents, packets, then forks precedence
   }
 });
 
+test("zero packets with real fork pushes or promotion history retain the Overview graph", () => {
+  const pushed = fixtureState();
+  pushed.packets = [];
+  pushed.claims = [];
+  pushed.reviews = [];
+  pushed.blockers = [];
+  pushed.activity = [{ ...pushed.activity[0]!, changedPaths: ["README.md"] }];
+  const historical = stateView(forkFixtureState("fork-hero", Date.now()));
+  historical.packets = [];
+  historical.claims = [];
+  historical.recentActivity = [];
+  assert.equal(pushed.ledger.length, 0);
+  assert.ok(historical.ledger.length);
+  for (const state of [stateView(pushed), historical]) {
+    assert.equal(state.packets.length, 0);
+    assert.equal(overviewFirstRun(state), undefined);
+    const dom = new JSDOM(html({ ...snapshot("demo"), state, activity: state.recentActivity ?? [] }));
+    try {
+      const overview = dom.window.document.querySelector("#view-overview");
+      assert.ok(overview.querySelector(".fork-card"));
+      assert.equal(overview.querySelector("[data-first-run]"), null);
+    } finally {
+      dom.window.close();
+    }
+  }
+});
+
 test("loading, failures and populated project views do not offer first-run actions", () => {
   const empty = snapshot("empty-projects");
   for (const view of [
     { ...empty, busy: true },
+    { ...empty, refreshing: true },
     { ...empty, error: "Snapshot unavailable" },
     { ...snapshot("demo"), state: stateView(fixtureState()) },
   ]) {

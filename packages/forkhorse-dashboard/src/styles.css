@@ -399,6 +399,12 @@ footer {
   max-width: 16rem;
 }
 .metric-value {
+  /* Preserve the former h3 typography and spacing after correcting its semantics. */
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  font-weight: 600;
+  color: var(--text-color-kumo-strong);
+  margin-block: 0;
   display: flex;
   align-items: center;
   gap: calc(var(--spacing) * 2);
@@ -1481,7 +1487,7 @@ footer {
     animation: none;
   }
 }
-@media (max-width: 639px) {
+@media (max-width: 1023px) {
   .race-header {
     flex-direction: column;
     margin-bottom: 24px;
@@ -1677,6 +1683,24 @@ footer {
 @keyframes judge-advice-in { from { opacity: 0; } to { opacity: 1; } }
 @media (max-width: 639px) { .judge-action { flex-direction: column; align-items: stretch; } .judge-action > button { width: 100%; } }
 
+/* Freshness uses the existing tab gutter, leaving populated content in place. */
+.tab-gutter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--spacing) * 2);
+  flex-wrap: wrap;
+}
+.freshness-stamp {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+}
+.write-hint {
+  display: inline-flex;
+  align-items: center;
+}
 /* First-run guidance reuses the Overview clipboard control without duplicating command text. */
 .first-run-command {
   display: flex;

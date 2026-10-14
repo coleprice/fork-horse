@@ -7,6 +7,7 @@ import { createHttpTransport, ApiError } from "../src/transport.ts";
 import { renderDashboard } from "../src/render.ts";
 import { assertState, reviewGate, stateView } from "../src/model.ts";
 import { DIGEST, fixtureActivity, fixtureState, NEXT_HEAD } from "./fixtures.ts";
+import { getByRole } from "./roles.ts";
 
 const require = createRequire(import.meta.url);
 // jsdom is used only for local DOM acceptance; production has no runtime dependency.
@@ -271,8 +272,8 @@ test("expired session clears old actionable state; project switching shows empty
     assert.equal(context.root.querySelectorAll(".review-card").length, 0);
     context.fixture.expireSession();
     await context.app.refresh();
-    assert.match(context.root.textContent!, /Owner session unavailable/);
-    assert.equal(context.root.querySelector("#reviews"), null);
+    assert.match(context.root.textContent!, /Couldn't refresh\. Last updated/);
+    assert.ok(context.root.querySelector("#reviews"), "the last loaded project stays visible");
   } finally {
     context.cleanup();
   }
@@ -417,11 +418,13 @@ test("top tabs select one visible view and preserve focus across refreshes", asy
   const context = setup();
   try {
     await until(() => Boolean(context.root.querySelector("#reviews")));
-    const tabs = [...context.root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-    assert.deepEqual(
-      tabs.map((tab) => tab.textContent!.replace(/\s*\d+$/, "").trim()),
-      ["Overview", "Work", "Review", "Agents"],
-    );
+    const tabs = [
+      getByRole(context.root, "tab", { name: "Overview" }),
+      getByRole(context.root, "tab", { name: /^Work\s*,\s+\d+$/ }),
+      getByRole(context.root, "tab", { name: /^Review\s*,\s+\d+$/ }),
+      getByRole(context.root, "tab", { name: "Agents" }),
+    ];
+    assert.equal(context.root.querySelectorAll('[role="tab"]').length, tabs.length);
     tabs[1].focus();
     tabs[1].click();
     assert.equal(context.root.querySelector<HTMLElement>("#view-work")!.hidden, false);
@@ -688,7 +691,7 @@ test("live pause preserves the snapshot and tabs; Reconnect clears the warning",
     notify(true);
     assert.match(
       root.querySelector(".live-paused")!.textContent!,
-      /Live updates paused. Showing data from/,
+      /Live updates paused. Last updated/,
     );
     root.querySelectorAll<HTMLButtonElement>("[role=tab]")[3].click();
     await until(() => !root.querySelector<HTMLElement>("#view-agents")!.hidden);
