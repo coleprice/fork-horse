@@ -272,8 +272,8 @@ test("expired session clears old actionable state; project switching shows empty
     assert.equal(context.root.querySelectorAll(".review-card").length, 0);
     context.fixture.expireSession();
     await context.app.refresh();
-    assert.match(context.root.textContent!, /Owner session unavailable/);
-    assert.equal(context.root.querySelector("#reviews"), null);
+    assert.match(context.root.textContent!, /Couldn't refresh\. Last updated/);
+    assert.ok(context.root.querySelector("#reviews"), "the last loaded project stays visible");
   } finally {
     context.cleanup();
   }
@@ -691,7 +691,7 @@ test("live pause preserves the snapshot and tabs; Reconnect clears the warning",
     notify(true);
     assert.match(
       root.querySelector(".live-paused")!.textContent!,
-      /Live updates paused. Showing data from/,
+      /Live updates paused. Last updated/,
     );
     root.querySelectorAll<HTMLButtonElement>("[role=tab]")[3].click();
     await until(() => !root.querySelector<HTMLElement>("#view-agents")!.hidden);

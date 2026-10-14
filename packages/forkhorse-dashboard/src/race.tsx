@@ -230,7 +230,7 @@ export function RaceView({
       ← Work
     </Button>
   );
-  if (view.error)
+  if (view.error && !view.stale)
     return (
       <section className="race-page">
         {back}
