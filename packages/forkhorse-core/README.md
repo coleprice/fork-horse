@@ -270,6 +270,9 @@ current head. Catch-up merges and fast-forwards carrying canonical content creat
 blocker. A deletion counts when canonical still contains the path. Only overlapping
 paths' trees are read, without blob reads or tokens; if canonical or pushed objects
 cannot be read, all overlaps remain candidates for blockers. Duplicate delivery creates no duplicate blocker.
+Artifacts reads finish before the storage transaction opens. The transaction
+re-reads live claims and treats any overlapping path absent from the precomputed
+candidates as a blocker, so a claim created during the comparison stays conservative.
 Blockers are observations, not an additional approval gate or a claim release.
 
 Commit validates the live packet/agent/repo binding independently of its client:

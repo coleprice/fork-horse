@@ -833,7 +833,8 @@ export async function recordWorkflowPush(
   project: Project,
   event: PushEvent,
   entry: Activity,
-  differentFromCanonical: (paths: string[]) => Promise<Set<string>>,
+  differing: Set<string> | null,
+  candidates: Set<string>,
   forkHead?: string,
 ): Promise<void> {
   if (entry.agent) {
@@ -850,16 +851,13 @@ export async function recordWorkflowPush(
         entrant.agent === entry.agent && entrant.repoName === entry.repoName);
       return claim.agent !== entry.agent && paths.length && !sameRace ? [{ claim, paths }] : [];
     });
-    // Catch-up pushes carry already-promoted files. Read only foreign-claimed overlaps,
-    // once per path, and retain every candidate if canonical or pushed objects are unavailable.
-    let differing = new Set(collisions.flatMap(collision => collision.paths));
-    if (differing.size) {
-      try { differing = await differentFromCanonical([...differing]); }
-      catch { /* Keep today's conservative blocker behavior on read failure. */ }
-    }
     for (const collision of collisions) {
       const { claim } = collision;
-      const paths = collision.paths.filter(path => differing.has(path));
+      // A foreign claim may appear after precomputation. Unread paths and failed
+      // comparisons must remain blockers; this transaction performs only storage I/O.
+      const paths = collision.paths.filter(path =>
+        differing === null || !candidates.has(path) || differing.has(path),
+      );
       if (paths.length) {
         // A colon cannot occur in packet/agent slugs, so race IDs cannot collide with standard packet IDs.
         const id = `${entry.sequence}-${claim.packet}${"closedAt" in claim ? `:${claim.agent}` : ""}`;

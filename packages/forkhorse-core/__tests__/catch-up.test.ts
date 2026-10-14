@@ -103,6 +103,51 @@ describe("catch-up trespass detection in workerd with offline Artifacts fixtures
     expect(result.blockers.map(blocker => blocker.paths)).toEqual([[A]]);
   });
 
+  it.each([true, false])("flags an unseen path claimed after precomputation (initial overlaps: %s)", async initialOverlap => {
+    const f = await fixture();
+    const readsInsideTransaction: string[] = [];
+    await f.mutate(async (instance, state) => {
+      const original = (await state.storage.get<Claim>("claim:claimed"))!;
+      if (initialOverlap) await state.storage.put("claim:claimed", { ...original, paths: [A] });
+      else await state.storage.delete("claim:claimed");
+      const lateClaim: Claim = { ...original, packet: "late", agent: "late",
+        repoName: `${f.id}--late-1`, paths: [B],
+      };
+      const transaction = state.storage.transaction.bind(state.storage);
+      let inTransaction = false;
+      vi.spyOn(state.storage, "transaction").mockImplementationOnce(async callback => {
+        // This path was not a candidate when Git was read; it is claimed just
+        // before the transaction, which must re-read claims and flag it anyway.
+        await state.storage.put("claim:late", lateClaim);
+        return transaction(async txn => {
+          inTransaction = true;
+          try { return await callback(txn); }
+          finally { inTransaction = false; }
+        });
+      });
+      const get = instance.fixture.get.bind(instance.fixture);
+      vi.spyOn(instance.fixture, "get").mockImplementation(async name => {
+        const observe = (method: string) => {
+          if (inTransaction) readsInsideTransaction.push(`${name}:${method}`);
+        };
+        observe("get");
+        const repo = await get(name);
+        const log = repo.log.bind(repo), readCommit = repo.readCommit.bind(repo), readTree = repo.readTree.bind(repo);
+        repo.log = async options => { observe("log"); return log(options); };
+        repo.readCommit = async sha => { observe("readCommit"); return readCommit(sha); };
+        repo.readTree = async hash => { observe("readTree"); return readTree(hash); };
+        return repo;
+      });
+    });
+    const result = await f.push(MERGE);
+    expect(result.activity[0]?.changedPaths).toEqual([A, B]);
+    expect(result.blockers).toMatchObject([{
+      packet: "late", claimingAgent: "late", pushingPacket: "builder", paths: [B], resolved: null,
+    }]);
+    expect(result.blockers).toHaveLength(1);
+    expect(readsInsideTransaction).toEqual([]);
+  });
+
   it.each([DELETION, ZERO_SHA])("blocks deletion while the path still exists in canonical (%s)", async head => {
     const f = await fixture();
     const result = await f.push(head, CANONICAL);
