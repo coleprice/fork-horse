@@ -41,11 +41,13 @@ const entrant = (
 });
 // The contract test checks these slices against core's public declarations without
 // pulling the Worker environment into the browser package's compiler.
-export type RaceFixture = StateResponse & {
+export type RaceFixture = Omit<StateResponse, "races"> & {
   agents: { name: string; createdAt: string | null }[];
   races: (Race &
     Required<Pick<Race, "finishedAt" | "winner" | "ledgerEntryId" | "places">> & {
       tokenBudget: null;
+      judge: null;
+      verdict: null;
       entrants: ReturnType<typeof entrant>[];
     })[];
   reviews: (StateResponse["reviews"][number] & {
@@ -99,6 +101,8 @@ export function raceFixtureState(scenario = "race-open"): RaceFixture {
   const race: RaceFixture["races"][number] = {
     packet: "race-01",
     tokenBudget: null,
+    judge: null,
+    verdict: null,
     status: finished ? ("finished" as const) : ("open" as const),
     finishedAt: finished ? at(720) : null,
     winner: finished ? "cedar" : null,

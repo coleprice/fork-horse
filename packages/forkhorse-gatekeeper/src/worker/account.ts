@@ -1,3 +1,5 @@
+import { forkAddress, storedAgentKeyProvider } from "../../../forkhorse-stable/src/index.ts";
+import type { WorkflowWrite } from "./workflow.ts";
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import type {
   AccountDescription, AppUiContext, ConnectHandoff, Gatekeeper, GatekeeperConnectCallback,
@@ -47,7 +49,7 @@ export class UserAccount extends DurableObject<Env> {
       if (generation !== this.#generation || !this.ctx.storage.kv.get("credentials")) {
         throw new Error("Agent connection unavailable.");
       }
-    });
+    }, storedAgentKeyProvider(() => this.ctx.storage.kv.get<Credentials>("credentials")));
   }
   async initiate(callback: Fetcher<GatekeeperConnectCallback>, nonce: string): Promise<void> {
     if (this.ctx.storage.kv.get("callback")) throw new Error("Connection already initiated.");
@@ -112,6 +114,10 @@ export class UserAccount extends DurableObject<Env> {
     await this.ctx.storage.deleteAll();
   }
   async alarm(): Promise<void> { await this.revoke(); }
+  async workflowContext() { return this.#client().context(); }
+  async executeWorkflow(operation: WorkflowWrite): Promise<void> { await this.#client().executeWorkflow(operation); }
+  async readReview(review: string) { return this.#client().readReview(review); }
+  async readReceipts(review: string) { return this.#client().readReceipts(review); }
   async identity() { return this.#client().identity(); }
   async state(): Promise<ProjectState> { return this.#client().state(); }
   async fork(repoName: string) { return this.#client().fork(repoName); }
@@ -145,7 +151,7 @@ class ForkPicker extends RpcTarget {
   async list(): Promise<{ url: string; repoName: string; head: string }[]> {
     const meta = await this.source.metadata();
     return (await this.source.identity()).forks.map(f => ({
-      url: `${meta.coreOrigin}/projects/${meta.project}/forks/${encodeURIComponent(f.repoName)}`,
+      url: forkAddress({ origin: meta.coreOrigin, project: meta.project, repoName: f.repoName }),
       repoName: f.repoName, head: f.head,
     }));
   }
@@ -155,9 +161,13 @@ export class AgentAccount extends WorkerEntrypoint<Env, AccountProps> implements
   #account() { return account(this.ctx.exports, this.ctx.props.accountId); }
   async describe(): Promise<AccountDescription> {
     const meta = await this.#account().metadata();
-    return { ...sidebarAccountDescription(), uniqueName: `${meta.agent} · ${meta.project}` };
+    return { ...sidebarAccountDescription(meta.agent), uniqueName: `${meta.agent} · ${meta.project}` };
   }
-  async getSupportedResources(): Promise<SupportedResource[]> { await this.#account().identity(); return [RESOURCE]; }
+  async getSupportedResources(): Promise<SupportedResource[]> {
+    const meta = await this.#account().metadata();
+    const address = forkAddress({ origin: meta.coreOrigin, project: meta.project, repoName: `${meta.project}--repo-name` });
+    return [{ ...RESOURCE, description: `An agent-owned Git fork. Attach its exact address: ${address.slice(0, address.lastIndexOf("/") + 1)}<repoName>. Choose one of the connected agent's forks in the resource picker.` }];
+  }
   async getGatekeeperClassFor(url: string): Promise<{ class: DurableObjectClass<Gatekeeper<any>>; resource: SupportedResource }> {
     const source = this.#account();
     const meta = await source.metadata();
@@ -165,6 +175,7 @@ export class AgentAccount extends WorkerEntrypoint<Env, AccountProps> implements
     if (!url.startsWith(prefix)) throw new Error("Fork is outside the connected project.");
     const repoName = url.slice(prefix.length);
     if (encodeURIComponent(repoName) !== repoName) throw new Error("Invalid fork URL.");
+    if (forkAddress({ origin: meta.coreOrigin, project: meta.project, repoName }) !== url) throw new Error("Invalid fork URL.");
     await source.fork(repoName);
     return { class: this.ctx.exports.ForkGatekeeper({ props: { accountId: this.ctx.props.accountId, repoName } }), resource: RESOURCE };
   }

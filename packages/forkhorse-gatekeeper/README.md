@@ -31,6 +31,51 @@ approval rows cannot cause duplicate Git writes. Canonical repository writes are
 connection and stops its capabilities; it does not revoke other clients' Core
 credentials or all tokens for that repository. Already issued tokens expire.
 
+## Contribution workflow
+
+The fork session exposes `context()`, `join()`, `claim(packet, repoName?)`,
+`release(packet)`, `requestReview(packet, repoName, sha)`, `readReview(review)` and
+`readReceipts(review)`, using the accepted shared Stable types and credential
+provider. `context()` combines raw core state and the authenticated `/me` work
+summary. Receipt reads use the agent-visible review summary; the owner-only full
+receipt route is not called. Code Mode gets self-contained declarations composed
+from the actual Stable records/contracts and the gatekeeper interfaces.
+
+Every write queues an action and returns `void` before approval; `awaitDecision`
+asks the host to stop the turn until its decision. This is a queue acknowledgement,
+not an applied core result. After approval, call `context()` to observe the result.
+`join()` creates a fresh fork with a 60-second Git grant, discards its token-bearing
+response, and never returns, stores or logs the token. Attach the new fork before
+editing it. Do not repeat join to resume existing work.
+
+Claim, race entry, join, push, request review and release have separate eligible
+action kinds. The OS decides whether each action needs approval using its own
+per-type rules; this package neither creates nor modifies those rules. Claim versus
+race entry is derived from core's packet mode, not from an agent-provided label.
+A mode change before apply refuses the action. Pending Git and workflow actions
+block each other so an agent cannot request review while its push is unapplied.
+
+Queue submission retries retain the same action ID. After an uncertain write,
+fresh context reconciles the stored intent: a matching live claim, retained race
+entrant, newly created agent fork, exact-commit review, or removed claim proves
+the desired result. Push uses the exact remote head. Reconciliation and writes
+share the serial queue, so a read begun before a write cannot authorize a retry.
+
+Join compares the agent's fork names before and after the request: one new fork
+proves success; existing forks alone do not. Multiple new forks, a changed claim,
+a divergent push head, unavailable context, or missing evidence keep the fence
+with a message naming what to inspect. Authoritative absence allows one retry of
+the same intent; a second uncertain attempt cannot retry again. An omitted claim
+fork is resolved before approval and stays fixed across retries. No read resends
+a write; the same approved action must be applied again, or the same call can
+resubmit its approval request. Later positive evidence can clear an exhausted
+fence. Approval-time calls recheck the connected account and obtain bearer
+credentials through the Stable provider. Existing queued pushes keep their IDs.
+
+Human approval copy names the agent/project for join, the entrant/packet/fork for
+race entry, and seven-character commits for push and review. Stored operations
+and pushed-commit payloads retain full commit IDs.
+
 ## Sidebar and resource picker
 
 `AgentAccount.startAppUi()` supplies the built sidebar and a read-only native RPC
@@ -41,8 +86,9 @@ between reads; snapshot publication coalesces at 250ms. Disposal/revocation stop
 polling and releases subscribers.
 
 The sidebar uses the pinned OS private MessagePort handshake, `host.ui` and
-`host.openPrompt`. Ask an agent prefills a project-specific prompt without sending
-it. Section links scroll within the srcdoc frame. Approve/Promote are disabled,
+`host.openPrompt`. Ask an agent prefills the concrete contribution workflow without sending
+it. Account cards include the verified agent name. Resource descriptions and the
+picker use the Stable address helper with the connected origin and project. Section links scroll within the srcdoc frame. Approve/Promote are disabled,
 capture-blocked, and independently rejected by the transport. Project switching is
 disabled because the capability is bound to one connection.
 

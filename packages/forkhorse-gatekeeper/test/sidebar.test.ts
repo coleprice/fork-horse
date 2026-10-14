@@ -185,7 +185,11 @@ for (const fixtureMode of [true, false])
     )!;
     ask.click();
     await until(() => prompts.length === 1);
-    assert.equal(prompts[0], "Help me review project demo in Fixture product.");
+    assert.match(prompts[0]!, /project demo in Fixture product/);
+    assert.match(prompts[0]!, /Call context\(\) first/);
+    assert.match(prompts[0]!, /never repeat join\(\) to resume/);
+    assert.match(prompts[0]!, /Stop for each approval decision/);
+    assert.match(prompts[0]!, /requestReview\(packet, repoName, sha\)/);
     assert.match(root.textContent!, /your pushes need approval on your fork/);
     assert.ok(root.querySelector(".tab-gutter + .content .agent-notice"));
     assert.ok(root.querySelector(".page-header [data-action=ask]"));
