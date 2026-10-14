@@ -65,26 +65,22 @@ The pinned OS provides two routes: an MCP connector and a project-specific gatek
 | Rail artwork needs to work in one color. | The OS renders it as a small, one-color mask. | Selected a silhouette suitable for the rail; cached connection metadata still requires reconnecting to see an icon change. | Document mask rendering, size and cache refresh beside the icon field. |
 | Deployment interrupted the app connection and left a blank frame. | A 2026-10-12 observation recorded socket code 1006 cycling for roughly three minutes, including a 20+ second blank frame. A later cold load took 20–25 seconds well after deployment; deployment alone does not explain all loading delays. | Added loading/reconnect handling, reserved a recording freeze and pre-warmed/reloaded before capture. Recovery and latency remain limitations, not proven fixes. | Surface host loading/recovery state before app HTML arrives, and provide timing across the shell, capability relay and frame. |
 
-## 7. Workers Builds token scope — verification pending
+## 7. Workers Builds token scope
 
-<!-- verify -->
+**Symptom:** production and non-production branch builds use the same token, whose default permissions cover more than one Worker.
 
-**Symptom to verify:** whether the default build token grants account-wide Workers Scripts Edit plus Workers Routes Edit across all zones, and how preview builds handle unreviewed branches.
+**Cause:** the documented auto-created token has Account Settings Read, Workers Scripts Edit, Workers KV Edit and Workers R2 Edit at account scope; Workers Routes Edit for all zones; and User Details and Memberships Read. Account-owned tokens already support per-Worker scope through “Specified Workers” (2026-09-15 changelog), but Workers Builds currently supports only user tokens.
 
-**Cause to verify:** the current default resource scope and preview-build policy must be checked against official Cloudflare documentation; no verified platform default is claimed here.
+**What we did:** the operator checked the token configuration documentation and scoping changelog on 2026-10-13, confirming the account-owned token capability and the token type Workers Builds accepts. Builds of non-production branches use the same token.
 
-**What we did:** retained this as a draft review item. The operator must verify the documented behavior or remove this section before public export.
-
-**Suggestion:** support per-script and selected-zone build credentials, with an explicit boundary between preview builds and production deployment of reviewed commits.
+**Suggestion:** let Workers Builds use account-owned, Worker-scoped tokens.
 
 ## 8. Artifacts to Workers Builds — proposed next step
 
-<!-- verify -->
-
 **Symptom:** canonical Git promotion and runtime deployment are separate owner operations today.
 
-**Cause:** our promotion records an exact reviewed commit; our deployment flow is a separate operation. Native Artifacts-source support in Workers Builds has not been verified for this proposal.
+**Cause:** our deployment flow is separate from promotion, although the documented Workers Builds Artifacts integration can connect them. Pushes to the production branch deploy; other branches produce Worker Previews. The production branch must be `main`.
 
-**What we did:** identified “deploy on promote” as a candidate next step after the contest. Nothing here implements it or claims that a platform integration is available. The operator must check official documentation or cut this draft section.
+**What we did:** the operator verified the Artifacts integration documentation, updated 2026-10-01. Using it for “deploy on promote” from canonical `main` is our planned next step after the contest; it has not shipped in Fork Horse.
 
-**Suggestion:** support building directly from an Artifacts repository after authorized promotion, with the exact promoted commit attached to the build and deployment record, and explicit production approval controls.
+**Suggestion:** connect the documented integration to authorized promotion, retain the exact promoted commit in the build/deployment record, and keep production approval explicit.
