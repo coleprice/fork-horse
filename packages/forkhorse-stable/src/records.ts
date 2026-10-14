@@ -90,8 +90,15 @@ export interface RaceResult {
   finishedAt: string;
   ledgerEntryId: string;
 }
+export interface RaceVerdict {
+  ranking: string[];
+  rationale: string;
+  at: string;
+}
 export interface RaceState {
   packet: string;
+  judge: string | null;
+  verdict: RaceVerdict | null;
   tokenBudget: number | null;
   status: "open" | "finished";
   finishedAt: string | null;
