@@ -34,6 +34,14 @@ export type CoreOperation =
   | { kind: "activity"; project: string; after?: number; limit?: number }
   | { kind: "join"; project: string; agent: string; ttlSeconds?: number }
   | { kind: "claim"; project: string; packet: string; repoName?: string }
+  | {
+      kind: "usage";
+      project: string;
+      packet: string;
+      inputTokens: number;
+      outputTokens: number;
+      model?: string;
+    }
   | { kind: "review"; project: string; packet: string; repoName: string; sha: string }
   | {
       kind: "commit";
@@ -173,6 +181,15 @@ export function coreRequest(token: string, operation: CoreOperation, signal: Abo
     case "review":
       path = `${base}/reviews`;
       data = { repoName: operation.repoName, sha: operation.sha, packet: operation.packet };
+      break;
+    case "usage":
+      path = `${base}/usage`;
+      data = {
+        packet: operation.packet,
+        inputTokens: operation.inputTokens,
+        outputTokens: operation.outputTokens,
+        model: operation.model,
+      };
       break;
     case "commit":
       path = `${base}/forks/${component(operation.repoName)}/commit`;

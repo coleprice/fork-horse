@@ -1,4 +1,4 @@
-import type { Claim, Packet, RaceEntrant, RaceResult, RaceState, Review } from "./workflow-types";
+import type { Claim, Packet, RaceEntrant, RaceRecord, RaceState, Review } from "./workflow-types";
 import { tokenBudgetState, usageSources } from "./usage";
 
 export type { RaceEntrant } from "./workflow-types";
@@ -81,11 +81,12 @@ export async function recordPromoteRejected(storage: DurableObjectStorage, revie
 /** Finish metadata and entrants are committed together by the successful promote. */
 export async function raceStates(storage: Storage, packets: Packet[]): Promise<RaceState[]> {
   const records = await entrants(storage);
-  const results = await storage.list<RaceResult>({ prefix: "race:" });
+  const results = await storage.list<RaceRecord>({ prefix: "race:" });
   return packets.filter(packet => packet.mode === "race").map(packet => {
     const result = results.get(`race:${packet.id}`);
     return {
-      packet: packet.id, status: result ? "finished" : "open",
+      packet: packet.id, status: result?.finishedAt ? "finished" : "open",
+      judge: packet.judge ?? null, verdict: result?.verdict ?? null,
       tokenBudget: packet.tokenBudget ?? null,
       finishedAt: result?.finishedAt ?? null, winner: result?.winner ?? null,
       ledgerEntryId: result?.ledgerEntryId ?? null, places: result?.places ?? [],

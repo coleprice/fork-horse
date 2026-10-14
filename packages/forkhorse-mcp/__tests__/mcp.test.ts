@@ -30,7 +30,7 @@ async function connect(core = new FixtureCore()) {
 }
 
 describe("fixture Streamable HTTP integration", () => {
-  it("initializes with the official SDK and lists eight tools with honest annotations", async () => {
+  it("initializes with the official SDK and lists nine tools with honest annotations", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).toSorted()).toEqual([
@@ -39,6 +39,7 @@ describe("fixture Streamable HTTP integration", () => {
       "get_context",
       "join",
       "refresh_token",
+      "report_usage",
       "request_review",
       "status",
       "submit_work",
@@ -218,7 +219,7 @@ describe("fixture Streamable HTTP integration", () => {
       }),
     );
     expect(oversized.status).toBe(413);
-    core.payload = { work: [], data: '"'.repeat(MAX_BYTES / 3) };
+    core.payload = { claims: [], work: [], data: '"'.repeat(MAX_BYTES / 3) };
     const response = await handler(
       rpc("tools/call", { name: "status", arguments: { project: "demo" } }),
     );

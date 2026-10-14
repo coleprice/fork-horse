@@ -158,7 +158,7 @@ export function RaceCompare({
               <th scope="row">Files changed</th>
               {changes.map((value, i) => (
                 <CompareCell key={race.entrants[i].repoName} agent={race.entrants[i].agent} identity={identities.get(race.entrants[i].agent)}>
-                  {value ?? "Unavailable"}
+                  {value ?? (reviews[i] ? "Unavailable" : "No review yet")}
                   {best(changes, i) && <span className="caption muted">fewest</span>}
                 </CompareCell>
               ))}
