@@ -69,6 +69,7 @@ const eventLabels: Record<LaneMarkKind, string> = {
   review: "review requested",
   passed: "checks passed",
   failed: "checks failed",
+  interrupted: "checks didn't finish",
   approved: "approved",
   promoted: "promoted to main",
 };
@@ -177,7 +178,7 @@ export function forkGraph(state: ProjectState, now = Date.now(), choice: WindowC
       if (receipt && receipt.status !== "running")
         add(
           lane,
-          receipt.status === "passed" ? "passed" : "failed",
+          receipt.status === "passed" ? "passed" : receipt.status === "failed" ? "failed" : "interrupted",
           receipt.finishedAt,
           `${review.id}:${receipt.digest}`,
           `${receipt.status === "passed" ? "checks passed" : receipt.status === "timed-out" ? "checks timed out" : receipt.status === "infrastructure-error" ? "checks couldn't run" : "checks failed"}${receipt.checks
@@ -305,6 +306,7 @@ const significance: Record<LaneMarkKind, number> = {
   promoted: 4,
   passed: 5,
   failed: 5,
+  interrupted: 5,
 };
 /** Adjacent dense events form one cluster; its tooltip retains every recorded event. */
 export function foldMarks(events: ForkEvent[], start: number, now: number, width: number) {

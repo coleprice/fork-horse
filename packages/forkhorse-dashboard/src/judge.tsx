@@ -27,6 +27,9 @@ function AdviceContents({ race, view, actions }: { race: Race; view: ViewModel; 
   const advice = race.verdict;
   const identities = agentIdentities(state.agents);
   const pick = judgePromotion(state, race);
+  const pickedEntrant = race.entrants.find((entrant) => entrant.agent === pick.pick);
+  // The ranking already explains a newer push; keep the action blocked without repeating it.
+  const pickPushedLater = !!pickedEntrant && pushedAfterAdvice(state, race, pickedEntrant);
   const [long, setLong] = useState(!!advice && (advice.rationale.split("\n").length > 5 || advice.rationale.length > 400));
   const rationale = useRef<HTMLParagraphElement>(null);
   useLayoutEffect(() => {
@@ -74,7 +77,7 @@ function AdviceContents({ race, view, actions }: { race: Race; view: ViewModel; 
         {pick.review && <ReviewActions review={pick.review} view={view} actions={actions}
           openReceipt={() => actions.openReceipt ? actions.openReceipt(pick.review!.id) : actions.openReview(pick.review!.id)}
           advice={{ judge: race.judge!, pick: pick.pick!, at: advice.at }} />}
-        {pick.available ? <span className="caption muted">{pick.pick}</span> : <p className="caption muted">{pick.reason}</p>}
+        {pick.available ? <span className="caption muted">{pick.pick}</span> : !pickPushedLater && <p className="caption muted">{pick.reason}</p>}
       </div>}
     </>}
   </section>;
