@@ -85,8 +85,12 @@ so a later packet failure leaves the issued credentials available to the owner.
 
 ## Packet input
 
-JSON accepts exactly `{id,title,goal,paths,acceptance}`. The small YAML subset accepts
-top-level string scalars and two-space-indented lists of strings, blank lines and
+JSON accepts `{id,title,goal,paths,acceptance}` plus optional `mode` (`standard` or
+`race`), `tokenBudget` (a positive safe integer, race only) and `judge` (a lowercase
+agent ID of at most 32 characters with single internal hyphens, race only). Omitted
+fields stay omitted in the request; core checks that the judge is enrolled.
+The small YAML subset accepts top-level string scalars, an unquoted JSON number for
+`tokenBudget`, two-space-indented lists of strings, blank lines and
 whole-line comments. Quote strings using JSON double quotes or YAML single quotes.
 Inline comments, flow arrays/maps, aliases, tags and multiline scalars are unsupported;
 use JSON for more complex input. Files and encoded request bodies are limited to

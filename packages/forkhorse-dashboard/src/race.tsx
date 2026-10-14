@@ -102,7 +102,7 @@ function Lane({
           <LaneMarker
             kind={
               failure
-                ? "failed"
+                ? receipt!.status === "failed" ? "failed" : "interrupted"
                 : promoted
                   ? "promoted"
                   : hurdle && reached && receipt?.status === "passed"

@@ -267,7 +267,7 @@ test("expired session clears old actionable state; project switching shows empty
       }),
     );
     option.click();
-    await until(() => context.root.textContent!.includes("No enrolled agents."));
+    await until(() => context.root.textContent!.includes("No agents yet"));
     assert.equal(context.root.querySelectorAll(".review-card").length, 0);
     context.fixture.expireSession();
     await context.app.refresh();

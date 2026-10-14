@@ -195,3 +195,15 @@ test("the pick shortcut preserves the normal required re-check failure dialog wi
     assert.equal(c.calls.filter((call) => call.startsWith("POST")).length, 1);
   } finally { c.close(); }
 });
+
+// Regression for the rehearsal's doubled picked-entrant caption.
+test("picked entrant's newer push caption appears once while promotion stays blocked", () => {
+  for (const scenario of ["judge-pick-push", "judge-pick-review"]) {
+    for (const owner of [true, false]) {
+      const text = renderedText(render(scenario, owner));
+      assert.equal(text.split("cedar pushed after this advice").length - 1, 1);
+      assert.doesNotMatch(render(scenario, owner), /data-action="promote-judge-pick"/);
+    }
+  }
+  assert.match(renderedText(render("judge-unapproved")), /cedar's review isn't approved yet/);
+});

@@ -466,3 +466,25 @@ owner/agent explanations; resolving a collision leaves the current entrant budge
 gate in force. All eight design fixes remain. Full root tests/lint, fresh-clone/D5 and host workerd acceptance are
 serialized operator checks. Saddler PASS and owner review remain open. This local
 candidate has no live Cloudflare, deployment, or owner-acceptance evidence.
+
+## First-run guidance
+
+Empty owner views show a placeholder owner CLI command using the existing
+clipboard control. Copying it performs no API request. The CLI reads the owner
+credential from the owner's private environment; the dashboard never reads,
+stores or inserts that credential or actual endpoint/config values into commands.
+Agent hosts show the same guidance without commands or Copy controls. Empty
+reviews offer owners a Go to Work button using existing tab navigation.
+
+Overview shows one empty state: enroll agents, create packets, then wait for an
+agent to claim work. Existing forks, promotion history and race entries preserve
+the graph even when no active claim remains. Archive-only Work and reviews with
+retained history keep their existing empty-queue behavior. Race packets share
+Work; there is no separate Races tab or no-races page. Missing race bookmarks and
+real races waiting for entrants retain their existing messages.
+
+The labeled loopback scenarios are `empty-projects`, `empty-agents`,
+`empty-packets`, `empty-forks`, `empty-reviews` and `empty-races`. Select tabs with
+`#overview`, `#work`, `#agents` or `#review`; `role=agent` exercises hidden owner
+commands. `empty-projects` supplies no configured projects and makes no project
+read. These are synthetic fixtures, not evidence from a new deployed instance.

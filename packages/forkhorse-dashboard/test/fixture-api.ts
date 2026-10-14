@@ -1,5 +1,6 @@
 import { judgeScenarios, judgeFixtureState, judgeFixtureDetail } from "./judge-fixtures.ts";
 import { archiveFixtureState, archiveScenarios, archiveRace } from "./archive-fixtures.ts";
+import { emptyFixtureState, emptyScenarios } from "./empty-fixtures.ts";
 
 import { usageScenarios, usageFixtureState, usageFixtureDetail } from "./usage-fixtures.ts";
 import { collisionScenarios, collisionFixtureState } from "./collision-fixtures.ts";
@@ -113,6 +114,13 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const emptyRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (emptyRoute && emptyScenarios.includes(emptyRoute[1])) {
+      send(emptyRoute[2] === "state"
+        ? emptyFixtureState(emptyRoute[1])
+        : { activity: [], nextAfter: 0 });
+      return;
     }
     const judgeRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
     if (judgeRoute && judgeScenarios.includes(judgeRoute[1])) {
