@@ -307,6 +307,29 @@ test("both sources stay separate in race budget and agent totals; unchecked and 
     u.close();
   }
 });
+test("Compare distinguishes an entrant without a review from a host without review detail", async () => {
+  for (const [scenario, noDetail, expected] of [
+    ["usage-no-review", false, ["4", "4", "No review yet"]],
+    ["usage-race", true, ["Unavailable", "Unavailable", "Unavailable"]],
+  ] as const) {
+    const c = setup(scenario, "#race/FH-040", true, noDetail);
+    try {
+      await until(() => {
+        const row = [...c.root.querySelectorAll(".race-compare tbody tr")]
+          .find((r) => r.querySelector("th")?.textContent === "Files changed");
+        return row && [...row.querySelectorAll(".compare-value")]
+          .every((cell, i) => cell.textContent === expected[i]);
+      });
+      const row = [...c.root.querySelectorAll(".race-compare tbody tr")]
+        .find((r) => r.querySelector("th")?.textContent === "Files changed")!;
+      assert.deepEqual([...row.querySelectorAll(".compare-value")].map((cell) => cell.textContent), expected);
+      assert.equal(c.calls.filter((call) => call.url.pathname.includes("/reviews/")).length, noDetail ? 0 : 2);
+      assert.equal(c.calls.some((call) => call.method !== "GET"), false);
+    } finally {
+      c.close();
+    }
+  }
+});
 test("fork graph keeps tokens in tooltip and table, without figures on lane labels", async () => {
   const c = setup("usage-race", "#overview");
   try {

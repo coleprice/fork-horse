@@ -158,6 +158,24 @@ describe("FH-054 offline workerd against fixed FH-052/053 fixtures", () => {
         expect(context.races).toEqual(sample.state.races);
         expect(context.myRaces).toEqual(sample.state.races);
         expect(context.myWork).toEqual(sample.me.work);
+        expect(context.myUsage).toEqual([
+          {
+            packet: "FH-race",
+            repoName: "demo--builder-1",
+            usage: {
+              reported: {
+                inputTokens: 800,
+                outputTokens: 0,
+                model: "fixture-model",
+                source: "reported",
+                at: "2026-01-01T00:00:00.000Z",
+              },
+              metered: null,
+            },
+            tokenBudget: 1000,
+            budget: "near",
+          },
+        ]);
       }
       const { result } = await submit();
       expect(result.isError).toBe(sample === coreWire.open ? undefined : true);

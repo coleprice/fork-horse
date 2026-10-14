@@ -100,6 +100,7 @@ export function archiveFixtureState(id = "archive-ready"): StateResponse {
 export function archiveRace(closedAt: string | null = null): RaceFixture["races"][number] {
   return {
     packet: "FH-040", tokenBudget: null, places: [], status: "open", finishedAt: null, winner: null, ledgerEntryId: null,
+    judge: null, verdict: null,
     entrants: [{
       agent: "builder", repoName: "demo--builder-1", claimedAt: "2026-10-13T14:00:00Z",
       firstPushAt: null, reviewRequestedAt: null, receiptPassedAt: null, approvedAt: null,

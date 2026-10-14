@@ -11,8 +11,8 @@ import { markIconUrl } from "../../../forkhorse-dashboard/src/mark.ts";
 const icon = { url: markIconUrl(brand.mark) };
 
 /** Only an authenticated account may use this metadata; it grants no owner authority. */
-export function sidebarAccountDescription(): AccountDescription {
-  return { displayName: brand.name, avatar: icon, providesUi: { title: brand.name, icon: { url: railIconUrl(brand.railIcon) } } };
+export function sidebarAccountDescription(agent?: string): AccountDescription {
+  return { displayName: agent ? `${brand.name} · ${agent}` : brand.name, avatar: icon, providesUi: { title: brand.name, icon: { url: railIconUrl(brand.railIcon) } } };
 }
 
 /** Trusted host seam supplied by the authenticated, project-bound account. */
