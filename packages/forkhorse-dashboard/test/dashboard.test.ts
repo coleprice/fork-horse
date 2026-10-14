@@ -271,8 +271,8 @@ test("expired session clears old actionable state; project switching shows empty
     assert.equal(context.root.querySelectorAll(".review-card").length, 0);
     context.fixture.expireSession();
     await context.app.refresh();
-    assert.match(context.root.textContent!, /Owner session unavailable/);
-    assert.equal(context.root.querySelector("#reviews"), null);
+    assert.match(context.root.textContent!, /Couldn't refresh\. Showing data from/);
+    assert.ok(context.root.querySelector("#reviews"), "the last loaded project stays visible");
   } finally {
     context.cleanup();
   }

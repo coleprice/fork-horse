@@ -18,6 +18,9 @@ export interface ViewModel {
   state?: ProjectState;
   activity: Activity[];
   busy: boolean;
+  /** Reads keep the last good snapshot on screen; busy is reserved for owner writes. */
+  refreshing?: boolean;
+  stale?: boolean;
   error?: string;
   notice?: string;
   noticeSha?: string;

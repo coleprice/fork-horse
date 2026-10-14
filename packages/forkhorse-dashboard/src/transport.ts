@@ -10,10 +10,14 @@ import type {
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly diagnosticId?: string;
+  constructor(status: number, message: string, diagnosticId?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    // Only the core's bounded UUID is safe to display; never extract IDs from error copy.
+    if (diagnosticId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(diagnosticId))
+      this.diagnosticId = diagnosticId;
   }
 }
 
@@ -44,10 +48,12 @@ export function createHttpTransport(options: HttpTransportOptions): DashboardTra
     });
     if (!response.ok) {
       let message = `Request failed (${response.status}).`;
+      let diagnosticId: string | undefined;
       // Only the core's sanitized {error} convention is displayed; HTML login pages stay out.
       try {
-        const data = (await response.json()) as { error?: unknown };
+        const data = (await response.json()) as { error?: unknown; diagnosticId?: unknown };
         if (typeof data.error === "string") message = data.error;
+        if (typeof data.diagnosticId === "string") diagnosticId = data.diagnosticId;
       } catch {
         /* Non-JSON errors use the status message above. */
       }
@@ -55,7 +61,7 @@ export function createHttpTransport(options: HttpTransportOptions): DashboardTra
         message =
           "Owner session unavailable. Sign in through the configured Access application, then refresh.";
       }
-      throw new ApiError(response.status, message);
+      throw new ApiError(response.status, message, diagnosticId);
     }
     if (!response.headers.get("content-type")?.includes("application/json")) {
       throw new ApiError(

@@ -1,3 +1,4 @@
+import { FreshnessStamp, WriteHint, snapshotAge, staleReason } from "./freshness.tsx";
 import { judgePromotion } from "./judge.ts";
 import { UsageFigures } from "./usage.tsx";
 import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
@@ -263,39 +264,40 @@ export function ReviewActions({
     <>
       {!advice && usageCaption && <p className="caption muted usage-promotion-caption">{usageCaption}</p>}
       {!advice && gate.approve && (
-        <Button
+        <WriteHint reason={staleReason(view)}><Button
           size="sm"
           variant="secondary"
           data-action="approve"
           data-review={review.id}
-          disabled={view.busy}
-          onClick={() => void actions.action("approve", review.id)}
+          disabled={view.busy || view.stale}
+          onClick={() => { if (!view.busy && !view.stale) void actions.action("approve", review.id); }}
         >
           Approve
-        </Button>
+        </Button></WriteHint>
       )}
       {canPromote && !promoting && !rechecking && (
-        <Button
+        <WriteHint reason={staleReason(view)}><Button
           size="sm"
           variant="secondary"
           data-action={advice ? "promote-judge-pick" : "promote"}
           aria-label={advice ? `Promote ${advice.pick}, the judge's pick` : undefined}
           data-review={review.id}
-          disabled={view.busy}
-          onClick={() => (
-            setFailure(false),
+          disabled={view.busy || view.stale}
+          onClick={() => {
+            if (view.busy || view.stale) return;
+            setFailure(false);
             setConfirmation({
               sha: review.sha,
               base: review.base,
               digest: review.receiptDigest,
               branch: view.state!.project.defaultBranch,
               adviceAt: advice?.at,
-            })
-          )}
+            });
+          }}
         >
           <ArrowLineUp size={16} />
           {advice ? "Promote judge's pick" : "Promote"}
-        </Button>
+        </Button></WriteHint>
       )}
       <Dialog.Root
         open={!!confirmation}
@@ -370,13 +372,13 @@ export function ReviewActions({
             <Button disabled={promoting} onClick={() => setConfirmation(undefined)}>
               Cancel
             </Button>
-            <Button
+            <WriteHint reason={staleReason(view)}><Button
               variant="primary"
               data-action="confirm-promote"
-              disabled={!matches || !canPromote || view.busy || promoting || failure}
+              disabled={!matches || !canPromote || view.busy || view.stale || promoting || failure}
               aria-busy={promoting}
               onClick={async () => {
-                if (!matches || !canPromote || promoting) return;
+                if (!matches || !canPromote || promoting || view.busy || view.stale) return;
                 setPromoting(true);
                 try {
                   if (await actions.action("promote", review.id)) setConfirmation(undefined);
@@ -397,7 +399,7 @@ export function ReviewActions({
               ) : (
                 <>Promote to {confirmation?.branch}</>
               )}
-            </Button>
+            </Button></WriteHint>
           </div>
         </Dialog>
       </Dialog.Root>
@@ -617,7 +619,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                 packet={selected}
                 state={state}
                 owner={actions.owner}
-                busy={view.busy}
+                busy={view.busy || !!view.stale}
+                disabledReason={staleReason(view)}
                 archive={actions.archivePacket}
                 unarchive={actions.unarchivePacket}
                 missing={(message) => {
@@ -690,7 +693,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                     state.forks.some((f) => f.repoName === r.repoName && f.head === r.sha));
                   return review && <button className="claim-link caption" onClick={() => actions.openReview(review.id)}>Open review</button>;
                 } : undefined}
-                open={actions.resolveBlocker ? openCollision : undefined} disabled={view.busy} />
+                open={actions.resolveBlocker ? openCollision : undefined} disabled={view.busy || view.stale} disabledReason={staleReason(view)} />
             </section>;
           })()}
           {selected && (
@@ -739,7 +742,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
     <>
       {actions.owner && actions.resolveBlocker && collision &&
         <ResolveCollisionDialog key={`${view.project}:${collision.id}`} blocker={collision}
-          resolve={actions.resolveBlocker} close={closeCollision} />}
+          resolve={actions.resolveBlocker} close={closeCollision} disabled={view.busy || view.stale} disabledReason={staleReason(view)} />}
       <Notice message={view.notice} sha={view.noticeSha} review={actions.getReview ? view.noticeReview : undefined} openReview={actions.openReview} />
       <ReceiptAnnouncements project={view.project} reviews={state?.reviews ?? []} />
       <div className={`app-shell ${panel && !actions.raceId ? "panel-open" : ""} ${actions.raceId ? "race-shell" : ""}`}>
@@ -819,6 +822,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   { className: "text-[13px]", value: "agents", label: "Agents" },
                 ]}
               />
+              <FreshnessStamp view={view} retry={actions.retry} />
             </div>
             <div className="content">
               {view.livePaused && (
@@ -828,7 +832,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   className="live-paused"
                   icon={<Warning size={16} />}
                   role="status"
-                  description={`Live updates paused. Showing data from ${view.updatedAt ?? "the last snapshot"}.`}
+                  description={`Live updates paused. Showing data from ${snapshotAge(view)}.`}
                   action={
                     actions.reconnect && (
                       <Button
@@ -859,14 +863,14 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   description="Local synthetic snapshots only. No account connection."
                 />
               )}
-              {(view.busy || askError) && (
+              {((view.refreshing && !state) || askError) && (
                 <div role="status" aria-live="polite">
-                  {view.busy && !actions.raceId && <p>Loading the latest project snapshot…</p>}
+                  {view.refreshing && !state && !actions.raceId && <p>Loading the latest project snapshot…</p>}
                   {askError && <p>{askError}</p>}
                 </div>
               )}
               {packetError && <Banner variant="error" role="alert" description={packetError} />}
-              {view.error && !actions.raceId && (
+              {view.error && !view.stale && !actions.raceId && (
                 <Banner
                   variant="error"
                   className="text-kumo-default"
@@ -883,7 +887,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                 />
               )}
               {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={{ ...actions, showPacket: (id) => showPacket(id, true), openReceipt: (id) => { actions.openRace?.(); showReceipt(id); } }} /> : !state ? (
-                !view.busy &&
+                !view.refreshing &&
                 !view.error &&
                 empty(view.project ? "No snapshot loaded." : "Select a configured project.")
               ) : (
@@ -958,12 +962,12 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                         {state.project.settings ? (
                           actions.owner && actions.setSettings ? (
                             <>
-                              <Switch
+                              <WriteHint reason={staleReason(view)}><Switch
                                 label="Require passing receipts"
                                 checked={state.project.settings.requireReceipt}
-                                disabled={view.busy}
-                                onCheckedChange={(checked) => void actions.setSettings!(checked)}
-                              />
+                                disabled={view.busy || view.stale}
+                                onCheckedChange={(checked) => { if (!view.busy && !view.stale) void actions.setSettings!(checked); }}
+                              /></WriteHint>
                               <p className="caption muted">Approve waits for a passing receipt.</p>
                             </>
                           ) : (
@@ -1018,7 +1022,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                           {blockers.map((b) => (
                             <CollisionBanner key={b.id} blocker={b} owner={actions.owner}
                               open={actions.resolveBlocker ? openCollision : undefined}
-                              showPacket={showPacket} disabled={view.busy} />
+                              showPacket={showPacket} disabled={view.busy || view.stale} disabledReason={staleReason(view)} />
                           ))}
                         </section>
                       )}

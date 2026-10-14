@@ -1,3 +1,4 @@
+import { WriteHint, staleReason } from "./freshness.tsx";
 import { ReviewAdvice } from "./judge.tsx";
 import { ArchivedBadge } from "./archive.tsx";
 import { UsageFigures } from "./usage.tsx";
@@ -336,12 +337,13 @@ function ReturnAction({
   return (
     <>
       {canReturn && (
-        <Button
+        <WriteHint reason={staleReason(view)}><Button
           variant="secondary"
           size="sm"
           data-action="return"
-          disabled={view.busy}
+          disabled={view.busy || view.stale}
           onClick={() => {
+            if (view.busy || view.stale) return;
             setReason("");
             setError(undefined);
             setConflict(false);
@@ -350,7 +352,7 @@ function ReturnAction({
         >
           <ArrowUUpLeft size={16} weight="bold" />
           Return to agent
-        </Button>
+        </Button></WriteHint>
       )}
       <Dialog.Root
         open={open}
@@ -396,12 +398,12 @@ function ReturnAction({
               {conflict ? "Close" : "Cancel"}
             </Button>
             {!conflict && (
-              <Button
+              <WriteHint reason={staleReason(view)}><Button
                 variant="primary"
                 data-action="confirm-return"
-                disabled={sending || !canReturn || reason.length < 1 || reason.length > 2000}
+                disabled={view.busy || view.stale || sending || !canReturn || reason.length < 1 || reason.length > 2000}
                 onClick={async () => {
-                  if (sending || !actions.returnReview) return;
+                  if (view.busy || view.stale || sending || !actions.returnReview) return;
                   setSending(true);
                   setError(undefined);
                   try {
@@ -420,7 +422,7 @@ function ReturnAction({
                 }}
               >
                 {sending ? "Returning…" : "Return to agent"}
-              </Button>
+              </Button></WriteHint>
             )}
           </div>
         </Dialog>
@@ -442,27 +444,41 @@ export function ReviewView({
 }) {
   const [detail, setDetail] = useState<ReviewDetail>();
   const [error, setError] = useState<"error" | "not-found">();
+  const [slow, setSlow] = useState(false);
+  const [diagnosticId, setDiagnosticId] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [ledger, setLedger] = useState(false);
   const snapshot = view.state;
   useEffect(() => {
     let active = true;
     setError(undefined);
+    setSlow(false);
+    setDiagnosticId(undefined);
     if (!actions.getReview) {
       actions.openReview();
       return;
     }
+    const timer = setTimeout(() => { if (active) setSlow(true); }, 3000);
     void actions
       .getReview(id)
       .then((value) => {
         assertDetail(value, id);
-        if (active) setDetail(value);
+        if (active) {
+          setDetail(value);
+          setSlow(false);
+        }
       })
       .catch((e) => {
-        if (active) setError(e instanceof ApiError && e.status === 404 ? "not-found" : "error");
-      });
+        if (active) {
+          setError(e instanceof ApiError && e.status === 404 ? "not-found" : "error");
+          setDiagnosticId(e instanceof ApiError ? e.diagnosticId : undefined);
+          setSlow(false);
+        }
+      })
+      .finally(() => clearTimeout(timer));
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [id, snapshot, attempt]);
   const raw = detail?.review;
@@ -516,11 +532,13 @@ export function ReviewView({
             ? "This review doesn't exist anymore."
             : "Couldn't load this review."}
         </p>
-        {error === "error" && (
-          <Button variant="secondary" onClick={() => setAttempt(attempt + 1)}>
-            Try again
-          </Button>
-        )}
+        {error === "error" && <p className="caption muted">
+          Reading the fork's repository failed. Try again in a moment.
+        </p>}
+        {actions.owner && diagnosticId && <p className="caption muted">Diagnostic ID <code>{diagnosticId}</code></p>}
+        <Button variant="ghost" size="sm" onClick={() => setAttempt(attempt + 1)}>
+          Try again
+        </Button>
       </section>
     );
   if (!detail || !review)
@@ -531,6 +549,7 @@ export function ReviewView({
         <p className="caption muted" role="status">
           Loading review…
         </p>
+        {slow && <p className="caption muted">The first open of a review reads its commit from the fork and can take up to 30 s. Later opens are quick.</p>}
       </section>
     );
   const approval = !!review.approval;
@@ -702,7 +721,7 @@ export function ReviewView({
           <h2>Collisions</h2>
           {collisions.filter((b) => !b.resolved).map((b) =>
             <CollisionBanner key={b.id} blocker={b} owner={actions.owner}
-              open={actions.openCollision} showPacket={actions.showPacket ?? (() => {})} disabled={view.busy} />)}
+              open={actions.openCollision} showPacket={actions.showPacket ?? (() => {})} disabled={view.busy || view.stale} disabledReason={staleReason(view)} />)}
           <CollisionRows blockers={collisions.filter((b) => b.resolved)} owner={actions.owner} />
         </section>;
       })()}
