@@ -130,4 +130,3 @@ test("rejected host presentation remains collapsed and restores with false", asy
   assert.deepEqual(calls, [true, false]);
   presentation.dispose();
 });
-
