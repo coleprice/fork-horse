@@ -1,3 +1,4 @@
+import { JudgeAdvice, JudgePickBadge } from "./judge.tsx";
 import { ArchivedBadge } from "./archive.tsx";
 import { RaceCompare } from "./race-usage.tsx";
 import { BudgetUsage, UsageFigures } from "./usage.tsx";
@@ -163,6 +164,7 @@ function Lane({
       </td>
       <td className="race-result">
         <Place entrant={entrant} />
+        <JudgePickBadge race={race} agent={entrant.agent} />
         <strong>{entrantResult(entrant, owner)}</strong>
         {entrant.promotedAt && (
           <span className="caption">
@@ -280,6 +282,7 @@ export function RaceView({
           <p className="caption muted">
             <code>{packet}</code> · Race · {entrants.length}{" "}
             {entrants.length === 1 ? "entrant" : "entrants"}
+            {race.judge && <> · Judge {race.judge}</>}
             {start !== undefined && (
               <>
                 {" "}
@@ -359,7 +362,7 @@ export function RaceView({
           ))}
         </tbody>
       </table>
-      {!!entrants.length && <RaceCompare race={race} state={{ ...state, recentActivity: view.activity }} brand={view.brand} getReview={actions.getReview} />}
+      {(!!entrants.length || !!race.judge) && <RaceCompare race={race} state={{ ...state, recentActivity: view.activity }} brand={view.brand} getReview={actions.getReview} advice={<JudgeAdvice race={race} view={view} actions={actions} />} />}
       {!entrants.length && (
         <p className="race-empty">No entrants yet. Agents join by claiming {packet}.</p>
       )}
