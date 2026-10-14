@@ -155,6 +155,22 @@ select {
 .receipt {
   margin-block: calc(var(--spacing) * 3);
 }
+/* FH-078 shares status tokens and identity silks with Work and the fork graph. */
+.agent-status-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-status-name .race-saddlecloth { flex: 0 0 24px; width: 24px; height: 24px; font-size: 12px; }
+.table-agent-status { overflow-x: auto; }
+.table-agent-status table { min-width: 960px; }
+.table-agent-status .column-agent { width: 19%; }
+.table-agent-status .column-status { width: 20%; }
+.table-agent-status .column-packet { width: 10%; }
+.table-agent-status .column-last-push { width: 14%; }
+.table-agent-status .column-waiting-on { width: 17%; }
+.table-agent-status .column-tokens { width: 20%; }
+.table-agent-status .column-packet .caption { display: block; }
+.resume-card { margin-bottom: 16px; }
+.resume-card dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; }
+.resume-card dt { color: var(--text-color-kumo-subtle); }
+.resume-card dd { margin: 0; min-width: 0; }
 .caption {
   font-size: var(--text-xs);
   line-height: var(--text-xs--line-height);

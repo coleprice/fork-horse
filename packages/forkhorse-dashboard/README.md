@@ -63,6 +63,37 @@ review, showing only the latter in the card. Use `role=agent` to check
 absence and `host=queue-only` to check the capability fallback. These snapshots
 are synthetic, and fixture routes are excluded from production assets.
 
+## Agent status and resume
+
+FH-078 shows one Agents row per enrolled identity, ordered by the existing
+saddlecloth rank. Its most urgent live claim determines Status and Packet;
+additional live claims appear as a count. Last push comes from loaded fork
+activity, with exact time in a tooltip. Returned reviews, failed or running
+receipts, current review/approval and pushing-fork collision gates precede
+claim activity. The table uses the existing state words, tones and usage figures.
+
+A held claim is not a heartbeat. After 30 minutes without a loaded push the
+row says **Claimed, no recent push**, with the observed push or claim time.
+That absence requires the oldest loaded activity to reach back at least
+30 minutes. Shorter history keeps the active-claim state and says
+**Not in loaded activity** when no push is visible. A claim newer than the
+loaded history can say **No push yet**. Idle agents, including legacy identities
+without enrollment timestamps, start collapsed; Needs you reveals a targeted
+idle row before focusing it.
+
+The agent Overview starts with **Resume where you left off** when the host
+supplies a caller name found in the existing state. This read-only reduced
+card shows Packet, Fork, assignment-scoped Last push and the table's Status.
+It has no Next row because this host does not provide `myWork` next actions.
+No live claim reads **No live claim.** An unknown caller has no card.
+The owner Overview has no Resume card. No adapter or endpoint changes are needed.
+
+Labeled local scenarios `agents-status`, `agents-short-activity`, `agent-resume`
+and `agent-idle` cover all statuses and the activity-history boundary. Use
+`role=agent` for the read-only frame copy and reduced Resume card. Fixtures
+and source authoring do not establish acceptance; focused/root tests, lint,
+fresh-clone/D5 and light/dark capture review remain separately gated.
+
 ## Race judge advice
 
 FH-063c reads the fixed optional race `judge` and `verdict: {ranking, rationale,

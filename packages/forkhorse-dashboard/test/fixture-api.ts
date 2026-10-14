@@ -1,4 +1,5 @@
 import { judgeScenarios, judgeFixtureState, judgeFixtureDetail } from "./judge-fixtures.ts";
+import { agentStatusScenarios, agentStatusFixtureState } from "./agent-status-fixtures.ts";
 import { archiveFixtureState, archiveScenarios, archiveRace } from "./archive-fixtures.ts";
 
 import { usageScenarios, usageFixtureState, usageFixtureDetail } from "./usage-fixtures.ts";
@@ -113,6 +114,14 @@ export function fixtureMiddleware(calls: FixtureCall[] = []) {
     function send(data: unknown, status = 200) {
       response.statusCode = status;
       response.end(JSON.stringify(data));
+    }
+    const agentStatusRoute = /^\/projects\/([^/]+)\/(state|activity)$/.exec(url.pathname);
+    if (agentStatusRoute && agentStatusScenarios.includes(agentStatusRoute[1])) {
+      if (!states.has(agentStatusRoute[1])) states.set(agentStatusRoute[1], agentStatusFixtureState(agentStatusRoute[1]));
+      const state = states.get(agentStatusRoute[1])!;
+      if (agentStatusRoute[2] === "state") send(state);
+      else send({ activity: [], nextAfter: state.activity.at(-1)?.sequence ?? 0 });
+      return;
     }
     const judgeRoute = /^\/projects\/([^/]+)\/(state|activity|reviews\/([^/]+))$/.exec(url.pathname);
     if (judgeRoute && judgeScenarios.includes(judgeRoute[1])) {

@@ -1,4 +1,5 @@
 import { judgeScenarios } from "../test/judge-fixtures.ts";
+import { agentStatusScenarios } from "../test/agent-status-fixtures.ts";
 import { archiveScenarios } from "../test/archive-fixtures.ts";
 
 import { usageScenarios } from "../test/usage-fixtures.ts";
@@ -67,6 +68,7 @@ mountDashboard(document.getElementById("dashboard")!, {
     { id: "quiet", label: "Quiet project" },
     ...[
       ...judgeScenarios,
+      ...agentStatusScenarios,
       ...archiveScenarios,
       ...raceScenarios,
       ...reviewScenarios,

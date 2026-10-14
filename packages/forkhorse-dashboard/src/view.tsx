@@ -1,6 +1,6 @@
 import { judgePromotion } from "./judge.ts";
 import { UsageFigures } from "./usage.tsx";
-import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
+import { usagePromotionCaption, usageValues } from "./usage.ts";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Badge,
@@ -47,6 +47,7 @@ import { RaceView } from "./race.tsx";
 import { ReviewView } from "./review.tsx";
 import { ForkGraph } from "./fork-graph.tsx";
 import { NeedsYou } from "./needs-you.tsx";
+import { AgentStatusTable, ResumeCard } from "./agent-status.tsx";
 import type { OwnerNeed } from "./needs-you-model.ts";
 import type { ReviewDetail, ReviewDiff, Activity, OwnerReceipt, ProjectState, Review } from "./contracts.ts";
 import { relativeTime as relative } from "./time.ts";
@@ -437,6 +438,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
   const collisionHeading = useRef<HTMLHeadingElement>(null);
   const collisionOrigin = useRef<HTMLElement | null>(null);
   const [highlightedCollision, setHighlightedCollision] = useState<string>();
+  const [agentRepo, setAgentRepo] = useState<string>();
+  useEffect(() => setAgentRepo(undefined), [view.project]);
   const [collision, setCollision] = useState<import("./contracts.ts").BlockerView>();
   useEffect(() => { setCollision(undefined); setHighlightedCollision(undefined); }, [view.project]);
   const [packetId, setPacketId] = useState<string>();
@@ -522,6 +525,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
       setHighlightedCollision(target.collision);
       showPacket(target.packet);
     } else if ("repo" in target) {
+      setAgentRepo(target.repo);
       actions.setSection("agents");
       requestAnimationFrame(() => {
         const row = [...document.querySelectorAll<HTMLElement>("[data-agent-repo]")]
@@ -910,6 +914,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
+                      {!actions.owner && <ResumeCard key={view.project} state={state} activity={view.activity} agent={actions.agent} />}
                       <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
                         openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />
                       {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
@@ -1327,82 +1332,8 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   )}
                   {section(
                     "agents",
-                    <section id="lanes">
-                      <h2 id="agents-heading" tabIndex={-1}>Agents</h2>
-                      <p className="caption muted">Cumulative usage from the latest reports received today, per packet and fork. These snapshots do not measure tokens consumed today.</p>
-                      {state.agents.length ? (
-                        <DataTable
-                          kind="agents"
-                          headings={["Agent", "Fork", "Last push", "Claim", "Events", "Tokens"]}
-                        >
-                          {state.agents.flatMap((agent) => {
-                            const forks = state.forks.filter((f) => f.agent === agent.name);
-                            return (forks.length ? forks : [undefined]).map((fork) => {
-                              const recent = view.activity.findLast((e) =>
-                                fork ? e.repoName === fork.repoName : e.agent === agent.name,
-                              );
-                              return (
-                                <Table.Row key={`${agent.name}-${fork?.repoName ?? "none"}`} data-agent-repo={fork?.repoName} tabIndex={-1}>
-                                  <Table.Cell>
-                                    <Tooltip
-                                      content={agent.name}
-                                      render={<span className="truncated-name" />}
-                                    >
-                                      {agent.name}
-                                    </Tooltip>
-                                    <div className="caption muted folded">
-                                      {fork && <TruncatedCode value={fork.repoName} />}
-                                      <UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} />
-                                    </div>
-                                  </Table.Cell>
-                                  <Table.Cell className="column-fork">
-                                    {fork && <TruncatedCode value={fork.repoName} />}
-                                  </Table.Cell>
-                                  <Table.Cell>
-                                    {recent ? (
-                                      <div className="last-push">
-                                        <Paths paths={recent.changedPaths} event={recent} />
-                                        <div className="caption muted">
-                                          {short(recent.after)} ·{" "}
-                                          <time dateTime={recent.recordedAt}>
-                                            {relative(recent.recordedAt)}
-                                          </time>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      "No recent pushes"
-                                    )}
-                                  </Table.Cell>
-                                  <Table.Cell>
-                                    {claims
-                                      .filter(
-                                        (c) =>
-                                          c.agent === agent.name &&
-                                          (!fork || c.repoName === fork.repoName),
-                                      )
-                                      .map((c) => (
-                                        <button
-                                          key={c.packet}
-                                          className="claim-link"
-                                          onClick={() => showPacket(c.packet)}
-                                        >
-                                          {c.packet}
-                                        </button>
-                                      ))}
-                                  </Table.Cell>
-                                  <Table.Cell>
-                                    <Events value={fork?.events} />
-                                  </Table.Cell>
-                                  <Table.Cell className="column-tokens"><UsageFigures usage={agentUsageToday(state, agent.name)} agent={agent.name} brand={view.brand} /></Table.Cell>
-                                </Table.Row>
-                              );
-                            });
-                          })}
-                        </DataTable>
-                      ) : (
-                        empty("No enrolled agents.")
-                      )}
-                    </section>,
+                    <AgentStatusTable key={view.project} state={state} activity={view.activity}
+                      brand={view.brand} owner={actions.owner} openPacket={showPacket} revealRepo={agentRepo} />,
                   )}
                 </>
               )}
