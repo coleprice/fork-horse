@@ -26,7 +26,7 @@ These observations come from building Fork Horse against a pinned, unmodified Cl
 
 **Symptom:** the returned repository token shape and the working Git Basic-auth representation differed.
 
-**Cause:** the returned shape can include expiry metadata: `art_v1_…?expires=…`. Git Basic auth uses `x:` followed by the token portion before `?expires=`. These are shapes only, with no credential value shown.
+**Cause:** repo tokens can carry an `?expires=` suffix; git Basic auth needs `x:` plus the token without that suffix.
 
 **What we did:** the Git transport uses that token portion and a git-style User-Agent. The operator verified `ls-remote` against an agent fork on 2026-10-12 at 09:48 ET. Scope, expiry and revocation still apply; formatting is not authorization.
 
