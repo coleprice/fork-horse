@@ -353,12 +353,18 @@ authentication/rotation, invalid commit inputs, stale commit and receipt approva
 two promote race scenarios, external CAS races, token cleanup, uncertain-outcome
 fencing, canonical reconciliation, and real Git objects/packs over fixture HTTP.
 The production transport refuses redirects and bounds each Git HTTP request and
-response to 8 MiB with a 30-second fetch timeout. The ephemeral filesystem also caps stored bytes at 32 MiB. These bounds do not
-fully bound transient decompression allocations. Oversized operations fail closed with 413 and need
-the FH-007 sandbox Git runner. `GitOperations`/`PreparedPush` define the integration
+response to 16 MiB with a 30-second fetch timeout. The ephemeral filesystem also
+caps stored bytes at 32 MiB. A 413 names the request, response, or stored-byte limit
+and the cumulative byte count reached. These bounds do not fully bound transient
+decompression allocations. Oversized operations fail closed with 413 and need the
+FH-007 sandbox Git runner. `GitOperations`/`PreparedPush` define the integration
 seam; FH-032 wires container receipts separately from this Git transport. Large-repository
 Git transport and live container acceptance remain separate work; the local suite
 uses mocked container ports.
+
+Promote currently clones the fork's full single-branch history without a checkout.
+After submission, reduce transfer size by negotiating what canonical already has,
+or by pairing a shallow fetch with a server-side ancestry check.
 
 ## Public Worker composition (FH-012)
 

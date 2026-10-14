@@ -16,19 +16,24 @@ declare global {
   } }
 }
 const ORIGIN = "https://core.fixture.idiot.tax";
-const REMOTE = "https://git.fixture.idiot.tax/fork-alpha.git";
+const REMOTE = "https://git.fixture.idiot.tax/fixture--alpha-1.git";
 const OLD = "a".repeat(40), NEXT = "b".repeat(40);
 const CREDENTIAL = "fixture-agent-credential-only";
 let head = OLD, role = "agent", agent = "alpha", scopes: string[], pushes: string[], unauthorized = false;
 let moveDuringPush = false, badGrant = false, redirectCore = false, redirectGit = false;
 let pulls: string[] = [];
-const state = () => fixtureState("fixture");
+let workflowCalls: { path: string; method: string; body: unknown }[] = [];
+let pushFailure: "applied" | "absent" | null = null;
+let workflowMode: "standard" | "race" = "standard";
+let workflowFailure = false;
+const state = () => { const value = fixtureState("fixture"); value.forks.push({ repoName: "fixture--alpha-1", agent: "alpha", remote: REMOTE, head, createdAt: "2026-01-01" }); value.packets.push({ id: "workflow-packet", mode: workflowMode, title: "Workflow fixture", goal: "Fixture", paths: [], acceptance: [] }); return { ...value, races: [] }; };
 function packets(lines: string[]): string {
   const chunks = [...lines.map(encodePktLine), FLUSH_PKT];
   return chunks.map(c => new TextDecoder().decode(c)).join("");
 }
 beforeEach(() => {
-  head = OLD; role = "agent"; agent = "alpha"; scopes = []; pushes = []; unauthorized = false; moveDuringPush = false; badGrant = false; redirectCore = false; redirectGit = false; pulls = [];
+  workflowCalls = []; workflowMode = "standard"; workflowFailure = false;
+  pushFailure = null; head = OLD; role = "agent"; agent = "alpha"; scopes = []; pushes = []; unauthorized = false; moveDuringPush = false; badGrant = false; redirectCore = false; redirectGit = false; pulls = [];
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -37,13 +42,22 @@ beforeEach(() => {
       if (redirectCore) return new Response(null, { status: 302, headers: { location: "https://foreign.idiot.tax" } });
       expect(request.headers.get("authorization")).toBe(`Bearer ${CREDENTIAL}`);
       if (url.pathname.endsWith("/me")) return Response.json({ role, agent,
-        forks: [{ repoName: "fork-alpha", remote: REMOTE, head, createdAt: "2026-01-01T00:00:00Z" }],
+        forks: [{ repoName: "fixture--alpha-1", remote: REMOTE, head, createdAt: "2026-01-01T00:00:00Z" }], work: [],
       }, { status: unauthorized ? 401 : 200 });
       if (url.pathname.endsWith("/state")) return Response.json(state());
-      if (url.pathname.endsWith("/forks/fork-alpha/token")) {
+      if (url.pathname.endsWith("/reviews/workflow-review") && request.method === "GET") {
+        return Response.json({ review: { id: "workflow-review", receipt: null } });
+      }
+      if (url.pathname.endsWith("/join") || url.pathname.endsWith("/packets/workflow-packet/claim") || url.pathname.endsWith("/reviews")) {
+        const body = request.method === "DELETE" ? null : await request.json();
+        workflowCalls.push({ path: url.pathname, method: request.method, body });
+        if (workflowFailure) return new Response("fixture-secret-error", { status: 503 });
+        return Response.json({ token: "fixture-join-secret-never-return", repoName: "fixture--alpha-2", expiresAt: new Date(Date.now() + 60_000).toISOString() });
+      }
+      if (url.pathname.endsWith("/forks/fixture--alpha-1/token")) {
         const requested = await request.json<{ scope: string; ttlSeconds: number }>();
         scopes.push(requested.scope); expect(requested.ttlSeconds).toBe(60);
-        return Response.json({ repoName: "fork-alpha", remote: badGrant ? "https://other.idiot.tax/repo" : REMOTE,
+        return Response.json({ repoName: "fixture--alpha-1", remote: badGrant ? "https://other.idiot.tax/repo" : REMOTE,
           scope: requested.scope, token: "fixture-git-token?expires=fixture", expiresAt: new Date(Date.now() + 60_000).toISOString() }, { status: 201 });
       }
     }
@@ -62,7 +76,9 @@ beforeEach(() => {
       const body = new TextDecoder().decode(await request.arrayBuffer()); pushes.push(body);
       expect(body).toContain(`${OLD} ${NEXT} refs/heads/main`);
       if (moveDuringPush) return new Response(packets(["unpack ok", "ng refs/heads/main stale old sha"]));
+      if (pushFailure === "absent") throw new Error("Fixture failed before push");
       head = NEXT;
+      if (pushFailure === "applied") throw new Error("Fixture lost successful push reply");
       return new Response(packets(["unpack ok", "ok refs/heads/main"]));
     }
     throw new Error("Unexpected offline fixture request.");
@@ -121,7 +137,7 @@ class Queue extends RpcTarget {
 async function resource() {
   const { user } = await connect();
   const workspace = env.WORKSPACES.getByName(crypto.randomUUID());
-  await workspace.bind(user as unknown as Parameters<typeof workspace.bind>[0], `${ORIGIN}/projects/fixture/forks/fork-alpha`);
+  await workspace.bind(user as unknown as Parameters<typeof workspace.bind>[0], `${ORIGIN}/projects/fixture/forks/fixture--alpha-1`);
   const gatekeeper = workspace;
   const queue = new Queue();
   const session = await gatekeeper.startSession(queue as unknown as ApprovalQueue) as AgentForkSession;
@@ -133,12 +149,12 @@ it("connects an enrolled agent, advertises only its owned resource and embeds th
   expect(await env.VENDOR.describe()).toMatchObject({ displayName: brand.name, logo: icon, providesAuth: false, autoProvisionsAccount: false });
   expect(await env.VENDOR.getSupportedResources()).toMatchObject([{ title: "Agent fork", icon }]);
   const { user, url } = await connect();
-  expect(await user.describe()).toMatchObject({ uniqueName: "alpha · fixture", providesUi: { title: brand.name } });
+  expect(await user.describe()).toMatchObject({ displayName: `${brand.name} · alpha`, uniqueName: "alpha · fixture", providesUi: { title: brand.name } });
   expect((await user.getSupportedResources())).toHaveLength(1);
   expect(await user.getSupportedResources()).toMatchObject([{ icon }]);
   expect((await submit(url)).status).toBe(400);
-  await refuse(() => user.getGatekeeperClassFor(`${ORIGIN}/projects/fixture/forks/foreign`), "does not own");
-  await refuse(() => user.getGatekeeperClassFor(`${ORIGIN}/projects/other/forks/fork-alpha`), "outside");
+  await refuse(() => user.getGatekeeperClassFor(`${ORIGIN}/projects/fixture/forks/fixture--foreign-1`), "does not own");
+  await refuse(() => user.getGatekeeperClassFor(`${ORIGIN}/projects/other/forks/fixture--alpha-1`), "outside");
   const frame = await user.startAppUi!({ isAdmin: true });
   expect(frame.iframeHtml).toContain("Ask an agent");
   const batch = await (frame.ui as any).snapshot();
@@ -169,7 +185,7 @@ it("refuses owner credentials, changed agent identity, unsafe origins and cross-
 
 it("advertises heads and submits approval without minting or pushing until apply; retry is idempotent", async () => {
   const { gatekeeper, queue, session } = await resource();
-  expect(await session.getHead()).toEqual({ repoName: "fork-alpha", branch: "main", commitId: OLD });
+  expect(await session.getHead()).toEqual({ repoName: "fixture--alpha-1", branch: "main", commitId: OLD });
   expect(queue.observations).toBe(1); expect(queue.cache.advertised).toEqual([OLD]);
   await session.push("main", NEXT);
   expect(scopes).toEqual([]); expect(pushes).toEqual([]);
@@ -267,4 +283,128 @@ it("pulls through kit protocol v2 with a read token and refuses redirects", asyn
   redirectGit = true;
   await refuse(() => gatekeeper.applyAction(queue.submitted[0].id, queue.cache as unknown as GitCache), "Git push failed");
   expect(pushes).toEqual([]);
+});
+
+it("publishes Stable Code Mode types, exact resource addresses, and six distinct eligible kinds", async () => {
+  const { user, gatekeeper } = await resource();
+  expect(await gatekeeper.describeFork()).toMatchObject({
+    url: `${ORIGIN}/projects/fixture/forks/fixture--alpha-1`,
+    snippet: `Agent-owned Git fork. Attach this exact address: ${ORIGIN}/projects/fixture/forks/fixture--alpha-1`,
+  });
+  expect((await user.getSupportedResources())[0]!.description).toContain(`${ORIGIN}/projects/fixture/forks/<repoName>`);
+  const types = await gatekeeper.forkTypes();
+  for (const method of ["context", "join", "claim", "release", "requestReview", "readReview", "readReceipts"]) expect(types).toContain(`${method}(`);
+  expect(types).toContain("export type ContextResponse");
+  expect(types).not.toMatch(/from ["']\./);
+  expect((await gatekeeper.autoApprovable()).map(kind => kind.tag)).toEqual(["claim", "race-entry", "join", "push", "request-review", "release"]);
+});
+
+it("runs production workflow calls through the account provider, with observations and no early writes", async () => {
+  const { session, gatekeeper, queue } = await resource();
+  expect(await session.context()).toMatchObject({ project: { id: "fixture" }, myWork: [] });
+  expect(await session.readReview("workflow-review")).toMatchObject({ review: { id: "workflow-review" } });
+  expect(await session.readReceipts("workflow-review")).toEqual({ receipt: null });
+  expect(queue.observations).toBe(3);
+  const operations = [
+    () => session.join(),
+    () => session.claim("workflow-packet", "fixture--alpha-1"),
+    () => session.requestReview("workflow-packet", "fixture--alpha-1", OLD),
+    () => session.release("workflow-packet"),
+  ];
+  for (const [index, operation] of operations.entries()) {
+    expect(await operation()).toBeUndefined();
+    expect(workflowCalls).toHaveLength(index);
+    const action = queue.submitted[index]!;
+    expect(action.description).toMatchObject({ awaitDecision: true, autoApprovable: true });
+    if (index === 0) expect(action.description.description).toBe("Create one new fork of fixture for alpha.");
+    if (index === 2) expect(action.description.description).toBe(`Request review of commit ${OLD.slice(0, 7)} on fork fixture--alpha-1 for workflow-packet.`);
+    await gatekeeper.applyAction(action.id, queue.cache as unknown as GitCache);
+    await gatekeeper.applyAction(action.id, queue.cache as unknown as GitCache);
+    expect(workflowCalls).toHaveLength(index + 1);
+  }
+  expect(workflowCalls).toEqual([
+    { path: "/projects/fixture/join", method: "POST", body: { agent: "alpha", ttlSeconds: 60 } },
+    { path: "/projects/fixture/packets/workflow-packet/claim", method: "POST", body: { repoName: "fixture--alpha-1" } },
+    { path: "/projects/fixture/reviews", method: "POST", body: { packet: "workflow-packet", repoName: "fixture--alpha-1", sha: OLD } },
+    { path: "/projects/fixture/packets/workflow-packet/claim", method: "DELETE", body: null },
+  ]);
+  expect(JSON.stringify(queue.submitted)).not.toContain("fixture-join-secret");
+});
+
+it("classifies race entry from core and prevents push/workflow queue conflicts", async () => {
+  const { session, gatekeeper, queue } = await resource();
+  workflowMode = "race";
+  await session.claim("workflow-packet", "fixture--alpha-1");
+  expect(queue.submitted[0]!.description.actionKind.tag).toBe("race-entry");
+  expect(queue.submitted[0]!.description.description).toBe("Enter alpha in race workflow-packet on fork fixture--alpha-1.");
+  await refuse(() => session.push("main", NEXT), "pending workflow");
+  await gatekeeper.rejectAction(queue.submitted[0]!.id);
+  await session.push("main", NEXT);
+  expect(queue.submitted[1]!.description.actionKind.tag).toBe("push");
+  await refuse(() => session.join(), "pending push");
+  await gatekeeper.rejectAction(queue.submitted[1]!.id);
+  workflowMode = "standard";
+  await session.claim("workflow-packet");
+  expect(queue.submitted[2]!.description.actionKind.tag).toBe("claim");
+  workflowMode = "race";
+  await refuse(() => gatekeeper.applyAction(queue.submitted[2]!.id, queue.cache as unknown as GitCache), "kind changed");
+  expect(workflowCalls).toEqual([]);
+});
+
+it("bounds absent-join retries and keeps provider errors private", async () => {
+  const { session, gatekeeper, queue, user } = await resource();
+  await session.join();
+  workflowFailure = true;
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "outcome uncertain");
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "outcome uncertain");
+  workflowFailure = false;
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "outcome uncertain");
+  expect(workflowCalls).toHaveLength(2);
+  await user.revoke();
+  await refuse(() => session.context(), "connection unavailable");
+});
+
+it("uses the injected Stable provider bearer for every workflow HTTP call instead of the draft key", async () => {
+  const { CoreClient } = await import("../src/worker/core-client.ts");
+  const getBearer = vi.fn(async () => `Bearer ${CREDENTIAL}` as const);
+  const client = new CoreClient({ coreOrigin: ORIGIN, project: "fixture", agentCredential: "fixture-unused-draft-credential" }, "alpha", () => {}, { getBearer });
+  await client.context();
+  await client.executeWorkflow({ kind: "join" });
+  await client.executeWorkflow({ kind: "claim", packet: "workflow-packet" });
+  await client.executeWorkflow({ kind: "requestReview", packet: "workflow-packet", repoName: "fixture--alpha-1", sha: OLD });
+  await client.executeWorkflow({ kind: "release", packet: "workflow-packet" });
+  await client.readReview("workflow-review");
+  await client.readReceipts("workflow-review");
+  expect(getBearer).toHaveBeenCalledTimes(14);
+  for (const args of getBearer.mock.calls) expect(args).toEqual([{ origin: ORIGIN, project: "fixture" }]);
+});
+
+
+it("reconciles a successful push with a lost reply from the exact head", async () => {
+  const { session, gatekeeper, queue } = await resource();
+  await session.push("main", NEXT);
+  pushFailure = "applied";
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "Git push failed");
+  expect((await session.getHead()).commitId).toBe(NEXT);
+  await gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache);
+  expect(pushes).toHaveLength(1);
+  await session.join();
+  expect(queue.submitted).toHaveLength(2);
+});
+
+it("allows one push retry at the original head and fences further or divergent attempts", async () => {
+  const { session, gatekeeper, queue } = await resource();
+  await session.push("main", NEXT);
+  pushFailure = "absent";
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "Git push failed");
+  await session.push("main", NEXT);
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "Git push failed");
+  pushFailure = null;
+  await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "outcome uncertain");
+  expect(pushes).toHaveLength(2);
+  head = "c".repeat(40);
+  await refuse(() => session.push("main", NEXT), "outcome uncertain");
+  head = NEXT;
+  await session.getHead();
+  await session.join();
 });
