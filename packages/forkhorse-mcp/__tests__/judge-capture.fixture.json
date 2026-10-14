@@ -1,0 +1,239 @@
+{
+  "fixture": "FH-063b offline fixed-contract MCP capture, not live authorization or deployment evidence",
+  "captures": [
+    {
+      "tool": "list_judge_races",
+      "args": {
+        "project": "demo"
+      },
+      "response": {
+        "races": [
+          {
+            "packet": "FH-judge",
+            "status": "open",
+            "finishedAt": null,
+            "winner": null,
+            "ledgerEntryId": null,
+            "places": [],
+            "entrants": [
+              {
+                "agent": "builder",
+                "repoName": "demo--builder-1",
+                "claimedAt": "2026-01-01T00:00:00.000Z",
+                "firstPushAt": "2026-01-01T00:00:00.000Z",
+                "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+                "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+                "approvedAt": null,
+                "promotedAt": null,
+                "place": null,
+                "closedAt": null,
+                "closedBy": null,
+                "promoteRejected": null,
+                "usage": {
+                  "reported": {
+                    "inputTokens": 120,
+                    "outputTokens": 40,
+                    "source": "reported",
+                    "at": "2026-01-01T00:00:00.000Z"
+                  },
+                  "metered": null
+                }
+              },
+              {
+                "agent": "second",
+                "repoName": "demo--second-1",
+                "claimedAt": "2026-01-01T00:00:00.000Z",
+                "firstPushAt": "2026-01-01T00:00:00.000Z",
+                "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+                "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+                "approvedAt": null,
+                "promotedAt": null,
+                "place": null,
+                "closedAt": null,
+                "closedBy": null,
+                "promoteRejected": null,
+                "usage": {
+                  "reported": null,
+                  "metered": null
+                }
+              }
+            ],
+            "judge": "judge",
+            "verdict": null
+          }
+        ]
+      }
+    },
+    {
+      "tool": "get_review",
+      "args": {
+        "project": "demo",
+        "review": "review-builder"
+      },
+      "response": {
+        "review": {
+          "id": "review-builder",
+          "packet": "FH-judge",
+          "agent": "builder",
+          "repoName": "demo--builder-1",
+          "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "base": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "stale": false,
+          "promoted": false,
+          "returned": null,
+          "approval": null,
+          "receipt": {
+            "status": "passed",
+            "digest": "fixture-digest",
+            "durationMs": 40,
+            "checks": []
+          },
+          "usageAtReview": {
+            "reported": {
+              "inputTokens": 120,
+              "outputTokens": 40,
+              "source": "reported",
+              "at": "2026-01-01T00:00:00.000Z"
+            },
+            "metered": null
+          }
+        },
+        "packet": {
+          "id": "FH-judge",
+          "title": "Judge fixture",
+          "goal": "Offline contract validation",
+          "paths": [
+            "src/"
+          ],
+          "acceptance": [
+            "Workerd fixture"
+          ]
+        },
+        "changes": {
+          "base": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "fileCount": 1,
+          "truncated": false,
+          "files": [
+            {
+              "path": "src/changed file.ts",
+              "status": "modified"
+            }
+          ]
+        },
+        "commits": [],
+        "commitsTruncated": false,
+        "promotion": null,
+        "blockers": []
+      }
+    },
+    {
+      "tool": "get_review_diff",
+      "args": {
+        "project": "demo",
+        "review": "review-builder",
+        "path": "src/changed file.ts"
+      },
+      "response": {
+        "path": "src/changed file.ts",
+        "status": "modified",
+        "binary": false,
+        "truncated": false,
+        "patch": "--- a/src/changed file.ts\n+++ b/src/changed file.ts\n@@ -1 +1 @@\n-fixture before\n+fixture after\n"
+      }
+    },
+    {
+      "tool": "submit_verdict",
+      "args": {
+        "project": "demo",
+        "packet": "FH-judge",
+        "ranking": [
+          "second",
+          "builder"
+        ],
+        "rationale": "Receipts pass; compare diff size and elapsed time. Tokens are reported, not independently measured. This ranking is advice; the owner promotes."
+      },
+      "response": {
+        "verdict": {
+          "ranking": [
+            "second",
+            "builder"
+          ],
+          "rationale": "Receipts pass; compare diff size and elapsed time. Tokens are reported, not independently measured. This ranking is advice; the owner promotes.",
+          "at": "2026-01-01T00:01:00.000Z"
+        }
+      }
+    },
+    {
+      "tool": "list_judge_races",
+      "args": {
+        "project": "demo"
+      },
+      "response": {
+        "races": [
+          {
+            "packet": "FH-judge",
+            "status": "open",
+            "finishedAt": null,
+            "winner": null,
+            "ledgerEntryId": null,
+            "places": [],
+            "entrants": [
+              {
+                "agent": "builder",
+                "repoName": "demo--builder-1",
+                "claimedAt": "2026-01-01T00:00:00.000Z",
+                "firstPushAt": "2026-01-01T00:00:00.000Z",
+                "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+                "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+                "approvedAt": null,
+                "promotedAt": null,
+                "place": null,
+                "closedAt": null,
+                "closedBy": null,
+                "promoteRejected": null,
+                "usage": {
+                  "reported": {
+                    "inputTokens": 120,
+                    "outputTokens": 40,
+                    "source": "reported",
+                    "at": "2026-01-01T00:00:00.000Z"
+                  },
+                  "metered": null
+                }
+              },
+              {
+                "agent": "second",
+                "repoName": "demo--second-1",
+                "claimedAt": "2026-01-01T00:00:00.000Z",
+                "firstPushAt": "2026-01-01T00:00:00.000Z",
+                "reviewRequestedAt": "2026-01-01T00:00:00.000Z",
+                "receiptPassedAt": "2026-01-01T00:00:00.000Z",
+                "approvedAt": null,
+                "promotedAt": null,
+                "place": null,
+                "closedAt": null,
+                "closedBy": null,
+                "promoteRejected": null,
+                "usage": {
+                  "reported": null,
+                  "metered": null
+                }
+              }
+            ],
+            "judge": "judge",
+            "verdict": {
+              "ranking": [
+                "second",
+                "builder"
+              ],
+              "rationale": "Receipts pass; compare diff size and elapsed time. Tokens are reported, not independently measured. This ranking is advice; the owner promotes.",
+              "at": "2026-01-01T00:01:00.000Z"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

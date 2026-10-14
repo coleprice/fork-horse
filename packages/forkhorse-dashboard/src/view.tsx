@@ -1,3 +1,4 @@
+import { judgePromotion } from "./judge.ts";
 import { UsageFigures } from "./usage.tsx";
 import { agentUsageToday, usagePromotionCaption, usageValues } from "./usage.ts";
 import { useState, useEffect, useRef, type ReactNode } from "react";
@@ -32,6 +33,7 @@ import {
   workPackets,
   blockerGatesReview,
   promotionReceipt,
+  promotionAvailable,
   recentReceipts,
   receiptGateCaption,
   reviewGate,
@@ -58,6 +60,7 @@ export interface ViewActions {
   openRace?(id?: string): void;
   reviewId?: string;
   openReview(id?: string): void;
+  openReceipt?(id: string): void;
   getReview?(id: string): Promise<ReviewDetail>;
   getDiff?(id: string, path: string): Promise<ReviewDiff>;
   returnReview?(id: string, reason: string): Promise<boolean>;
@@ -221,17 +224,20 @@ export function ReviewActions({
   view,
   actions,
   openReceipt,
+  advice,
 }: {
   review: Review;
   view: ViewModel;
   actions: ViewActions;
   openReceipt(): void;
+  advice?: { judge: string; pick: string; at: string };
 }) {
   const [confirmation, setConfirmation] = useState<{
     sha: string;
     base?: string;
     digest: string | null;
     branch: string;
+    adviceAt?: string;
   }>();
   const [promoting, setPromoting] = useState(false);
   const [failure, setFailure] = useState(false);
@@ -241,9 +247,13 @@ export function ReviewActions({
     review.sha === confirmation.sha &&
     review.base === confirmation.base &&
     review.receiptDigest === confirmation.digest &&
-    view.state!.project.defaultBranch === confirmation.branch;
+    view.state!.project.defaultBranch === confirmation.branch &&
+    (!advice || confirmation.adviceAt === advice.at);
   const gate = reviewGate(review, view.state!, actions.owner);
   const race = view.state!.races?.find((entry) => entry.packet === review.packet && entry.status === "open");
+  const advised = race && advice ? judgePromotion({ ...view.state!, recentActivity: view.activity }, race) : undefined;
+  const canPromote = promotionAvailable(review, view.state!, actions.owner) &&
+    (!advice || (advised?.available && advised.review?.id === review.id && race?.verdict?.at === advice.at));
   const otherEntrants = race?.entrants.filter((entrant) => entrant.repoName !== review.repoName && !entrant.closedAt).map((entrant) => entrant.agent) ?? [];
   const rechecking =
     required && review.receipt?.status === "running" && review.receipt.trigger === "before-promote";
@@ -251,8 +261,8 @@ export function ReviewActions({
   if (!actions.owner) return usageCaption ? <p className="caption muted usage-promotion-caption">{usageCaption}</p> : null;
   return (
     <>
-      {usageCaption && <p className="caption muted usage-promotion-caption">{usageCaption}</p>}
-      {gate.approve && (
+      {!advice && usageCaption && <p className="caption muted usage-promotion-caption">{usageCaption}</p>}
+      {!advice && gate.approve && (
         <Button
           size="sm"
           variant="secondary"
@@ -264,11 +274,12 @@ export function ReviewActions({
           Approve
         </Button>
       )}
-      {gate.promote && !promoting && !rechecking && (
+      {canPromote && !promoting && !rechecking && (
         <Button
           size="sm"
           variant="secondary"
-          data-action="promote"
+          data-action={advice ? "promote-judge-pick" : "promote"}
+          aria-label={advice ? `Promote ${advice.pick}, the judge's pick` : undefined}
           data-review={review.id}
           disabled={view.busy}
           onClick={() => (
@@ -278,11 +289,12 @@ export function ReviewActions({
               base: review.base,
               digest: review.receiptDigest,
               branch: view.state!.project.defaultBranch,
+              adviceAt: advice?.at,
             })
           )}
         >
           <ArrowLineUp size={16} />
-          Promote
+          {advice ? "Promote judge's pick" : "Promote"}
         </Button>
       )}
       <Dialog.Root
@@ -345,13 +357,14 @@ export function ReviewActions({
               </Button>
             </div>
           )}
-          {!promoting && !failure && (!matches || !gate.promote) && (
+          {!promoting && !failure && (!matches || !canPromote) && (
             <Banner
               variant="alert"
               size="sm"
               description="Review changed. Close and review again."
             />
           )}
+          {advice && <p className="caption judge-promote-caption">{advice.judge} picked {advice.pick}. This is advice; promoting is your call.</p>}
           {race && <p className="caption race-promote-warning">Promoting this finishes the race.{otherEntrants.length > 0 && <> {otherEntrants.join(" and ")} will be closed and placed.</>}</p>}
           <div className="dialog-actions">
             <Button disabled={promoting} onClick={() => setConfirmation(undefined)}>
@@ -360,10 +373,10 @@ export function ReviewActions({
             <Button
               variant="primary"
               data-action="confirm-promote"
-              disabled={!matches || !gate.promote || view.busy || promoting || failure}
+              disabled={!matches || !canPromote || view.busy || promoting || failure}
               aria-busy={promoting}
               onClick={async () => {
-                if (!matches || !gate.promote || promoting) return;
+                if (!matches || !canPromote || promoting) return;
                 setPromoting(true);
                 try {
                   if (await actions.action("promote", review.id)) setConfirmation(undefined);
@@ -869,7 +882,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   }
                 />
               )}
-              {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={{ ...actions, showPacket: (id) => showPacket(id, true) }} /> : !state ? (
+              {actions.raceId ? <RaceView key={`${view.project}:${actions.raceId}`} packet={actions.raceId} view={view} actions={{ ...actions, showPacket: (id) => showPacket(id, true), openReceipt: (id) => { actions.openRace?.(); showReceipt(id); } }} /> : !state ? (
                 !view.busy &&
                 !view.error &&
                 empty(view.project ? "No snapshot loaded." : "Select a configured project.")

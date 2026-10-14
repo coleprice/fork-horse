@@ -1,3 +1,4 @@
+import { ReviewAdvice } from "./judge.tsx";
 import { ArchivedBadge } from "./archive.tsx";
 import { UsageFigures } from "./usage.tsx";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -549,6 +550,7 @@ export function ReviewView({
             {review.requestedAt && ` · requested ${relativeTime(review.requestedAt)}`}
           </p>
           <div className="review-usage caption"><span><strong>Usage</strong> · Tokens to this review:</span><UsageFigures usage={review.usageAtReview} agent={review.agent} brand={view.brand} split /></div>
+          <ReviewAdvice state={snapshot} review={review} />
         </div>
         {snapshot && (
           <div className="actions review-actions">

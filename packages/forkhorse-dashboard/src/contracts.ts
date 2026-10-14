@@ -332,7 +332,11 @@ export interface RaceEntrant {
   closedBy?: "release" | "owner" | "race-finished" | null;
   promoteRejected?: { at: string; expected: string; found: string } | null;
 }
+/** FH-063 fixed public read seam; absent fields preserve races created before judges. */
+export interface RaceAdvice { ranking: string[]; rationale: string; at: string; }
 export interface Race {
+  judge?: string | null;
+  verdict?: RaceAdvice | null;
   packet: string;
   status: "open" | "finished";
   tokenBudget?: number | null;
