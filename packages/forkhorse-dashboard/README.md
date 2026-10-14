@@ -510,12 +510,30 @@ reviews offer owners a Go to Work button using existing tab navigation.
 Overview shows one empty state: enroll agents, create packets, then wait for an
 agent to claim work. Existing forks, promotion history and race entries preserve
 the graph even when no active claim remains. Archive-only Work and reviews with
-retained history keep their existing empty-queue behavior. Race packets share
-Work; there is no separate Races tab or no-races page. Missing race bookmarks and
-real races waiting for entrants retain their existing messages.
+retained history keep their existing empty-queue behavior. Race packets remain in
+Work. The additive Races tab lists all recorded races and has its own first-run
+guidance. Missing race bookmarks and real races waiting for entrants retain their
+existing messages.
 
 The labeled loopback scenarios are `empty-projects`, `empty-agents`,
 `empty-packets`, `empty-forks`, `empty-reviews` and `empty-races`. Select tabs with
 `#overview`, `#work`, `#agents` or `#review`; `role=agent` exercises hidden owner
 commands. `empty-projects` supplies no configured projects and makes no project
 read. These are synthetic fixtures, not evidence from a new deployed instance.
+
+## Races tab (FH-081)
+
+The last tab, `#races`, reads the existing state snapshot without new requests or
+owner write controls. Its badge counts open races with entrants. Rows retain lane
+order and enrollment identities, separate the judge's advice from the winner,
+and link to the existing race view. Opening from this list changes that view's
+back link to “← Races”; opening from Work retains “← Work”. Judge and start metadata
+fold beneath the title at viewport widths up to 899px or pane widths up to 819px.
+
+`fixtures.html?scenario=races-list#races` supplies labeled synthetic open,
+zero-entrant, finished, photo-finish, archived, judged and awaiting-advice races.
+`scenario=races-empty` covers first-run guidance; `role=agent` hides the owner CLI
+command. Additive fixture tests cover ordering, separate winner/advice semantics,
+tab naming, read-only requests, refreshes and return navigation. Browser captures
+and scroll measurements at 1440/1024/900/800, dashboard tests/types/lint/build,
+fresh-clone review and Saddler approval are operator acceptance gates.

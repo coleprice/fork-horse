@@ -7,6 +7,7 @@ import { emptyScenarios } from "../test/empty-fixtures.ts";
 import { usageScenarios } from "../test/usage-fixtures.ts";
 import { collisionScenarios } from "../test/collision-fixtures.ts";
 import { raceScenarios } from "../test/race-fixtures.ts";
+import { racesScenarios } from "../test/races-fixtures.ts";
 import { forkScenarios } from "../test/fork-graph-fixtures.ts";
 import { needsScenarios } from "../test/needs-you-fixtures.ts";
 import { reviewScenarios } from "../test/review-fixtures.ts";
@@ -77,6 +78,7 @@ const dashboard = mountDashboard(document.getElementById("dashboard")!, {
       ...archiveScenarios,
       ...emptyScenarios.filter((id) => id !== "empty-projects"),
       ...raceScenarios,
+      ...racesScenarios,
       ...reviewScenarios,
       ...usageScenarios,
       ...collisionScenarios,

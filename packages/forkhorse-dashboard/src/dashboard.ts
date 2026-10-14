@@ -45,7 +45,7 @@ export function mountDashboard(
   const sectionFromHash = (): Section => {
     const hash = window.location.hash.slice(1).split("/")[0];
     if (hash === "race") return "work";
-    return ["overview", "work", "review", "agents"].includes(hash) ? (hash as Section) : "overview";
+    return ["overview", "work", "review", "agents", "races"].includes(hash) ? (hash as Section) : "overview";
   };
   const reviewFromHash = () => {
     const match = /^#review\/(.+)$/.exec(window.location.hash);
@@ -74,6 +74,10 @@ export function mountDashboard(
   };
   let selectedRaceId = raceFromHash();
   let section = sectionFromHash();
+  const raceReturnFromHistory = (): "work" | "races" =>
+    window.history.state?.raceReturnSection === "races" ? "races" : "work";
+  let raceReturnSection = raceReturnFromHistory();
+  if (selectedRaceId) section = raceReturnSection;
   let selectedReviewId = reviewFromHash();
   function openReview(id?: string) {
     if (id && !options.transport.getReview) return;
@@ -90,18 +94,25 @@ export function mountDashboard(
   }
   function openRace(id?: string) {
     const previous = selectedRaceId;
-    section = "work";
+    if (id && !previous) raceReturnSection = section === "races" ? "races" : "work";
+    section = raceReturnSection;
     selectedRaceId = id;
     selectedReviewId = undefined;
-    const hash = id ? `race/${encodeURIComponent(id)}` : "work";
+    const hash = id ? `race/${encodeURIComponent(id)}` : raceReturnSection;
     try {
-      window.history.pushState(null, "", `#${hash}`);
+      window.history.pushState(id ? { raceReturnSection } : null, "", `#${hash}`);
     } catch {
       window.location.hash = hash;
     }
     draw();
     if (!id && previous)
       requestAnimationFrame(() => {
+        if (raceReturnSection === "races") {
+          [...root.querySelectorAll<HTMLElement>("[data-race-packet]")]
+            .find((row) => row.dataset.racePacket === previous)
+            ?.querySelector<HTMLElement>(".race-list-link")?.focus();
+          return;
+        }
         [...root.querySelectorAll<HTMLElement>("[data-packet-id]")]
           .find((row) => row.dataset.packetId === previous)
           ?.querySelector<HTMLElement>(".packet-link")
@@ -122,9 +133,15 @@ export function mountDashboard(
     draw();
   }
   function onHash() {
+    const previousRaceId = selectedRaceId;
     section = sectionFromHash();
     selectedReviewId = reviewFromHash();
     selectedRaceId = raceFromHash();
+    if (selectedRaceId) {
+      // The opaque-frame hash fallback already recorded its source in memory.
+      if (selectedRaceId !== previousRaceId) raceReturnSection = raceReturnFromHistory();
+      section = raceReturnSection;
+    }
     draw();
   }
   window.addEventListener("hashchange", onHash);
@@ -138,6 +155,7 @@ export function mountDashboard(
           actions: {
             section,
             raceId: selectedRaceId,
+            raceBackSection: raceReturnSection,
             openRace,
             reviewId: selectedReviewId,
             openReview,
