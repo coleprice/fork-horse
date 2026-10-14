@@ -1460,7 +1460,7 @@ footer {
     animation: none;
   }
 }
-@media (max-width: 639px) {
+@media (max-width: 1023px) {
   .race-header {
     flex-direction: column;
     margin-bottom: 24px;
