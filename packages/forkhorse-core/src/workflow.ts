@@ -1,5 +1,6 @@
 import { claimForAgent, entrantKey, entrants, liveClaims, markEntrant, MAX_RACE_ENTRANTS, openEntrants, placedEntrants, raceStates, recordPromoteRejected } from "./race-entrants";
 import { ReviewReader } from "./review-detail";
+import { judgeMayRead, raceFinished, saveVerdict } from "./race-judge";
 import { requireTokenBudget, tokenCount, usageSources } from "./usage";
 import { publicReview, readReceipt, settings } from "./receipts";
 import type { Receipts } from "./receipts";
@@ -25,7 +26,7 @@ import type {
   LedgerEntry,
   Packet,
   RaceEntrant,
-  RaceResult,
+  RaceRecord,
   ReconcilerAlert,
   Review,
   SettingsChange,
@@ -150,7 +151,7 @@ export class Workflow {
     const records = await entrants(txn, claim.packet);
     const winner = records.find(entrant => entrant.agent === claim.agent);
     if (!winner || winner.closedAt !== null || winner.repoName !== claim.repoName ||
-        winner.createdAt !== claim.createdAt || await txn.get(`race:${claim.packet}`))
+        winner.createdAt !== claim.createdAt || await raceFinished(txn, claim.packet))
       throw new Error("Race binding changed during promotion");
     // The durable intent predates external Git I/O. Finish only after that I/O succeeds,
     // including milestones reached by advisory receipts while the push was in flight.
@@ -170,16 +171,18 @@ export class Workflow {
         await txn.put(entrantKey(entrant.packet, entrant.agent), finished);
       }
     }
+    const advice = await txn.get<RaceRecord>(`race:${claim.packet}`);
     await txn.put(`race:${claim.packet}`, {
+      ...advice,
       winner: winner.agent, places: placed.map((entrant, index) => ({ agent: entrant.agent, place: index + 1 })),
       finishedAt, ledgerEntryId: entry.id,
-    } satisfies RaceResult);
+    } satisfies RaceRecord);
   }
 
   private async rejectRacePromote(project: Project, review: Review, found?: string, rejection = staleBase()): Promise<never> {
     try {
       const head = found ?? await this.head(project.repoName, project.defaultBranch);
-      if (head !== review.base || await this.storage.get(`race:${review.packet}`))
+      if (head !== review.base || await raceFinished(this.storage, review.packet))
         await recordPromoteRejected(this.storage, review, head);
     }
     catch {
@@ -203,7 +206,8 @@ export class Workflow {
       return json({ released: true });
     }
     const agent = this.agent(actor);
-    if (await this.storage.get(`race:${packet.id}`)) throw new HttpError(409, "Race finished.");
+    if (packet.judge === agent) throw new HttpError(409, "The judge can't race.");
+    if (await raceFinished(this.storage, packet.id)) throw new HttpError(409, "Race finished.");
     const current = await this.storage.get<RaceEntrant>(entrantKey(packet.id, agent));
     if (current) {
       if (current.closedAt !== null) throw new HttpError(409, "Race entrant is closed.");
@@ -350,9 +354,13 @@ export class Workflow {
         !data.acceptance.every((entry) => text(entry, 2000))
       )
         throw new HttpError(400, "Invalid packet fields.");
+      if (data.judge !== undefined && (data.mode !== "race" || !slug(data.judge, 32) ||
+          !(await this.storage.get(`agent:${data.judge}`))))
+        throw new HttpError(400, "judge must be an enrolled agent on a race packet.");
       const packet: Packet = {
         id: data.id,
         mode: data.mode ?? "standard",
+        ...(data.judge !== undefined ? { judge: data.judge as string } : {}),
         ...(data.tokenBudget !== undefined ? { tokenBudget: data.tokenBudget as number } : {}),
         title: data.title,
         goal: data.goal,
@@ -364,6 +372,14 @@ export class Workflow {
         throw new HttpError(409, "Packet already exists.");
       await this.storage.put(`packet:${packet.id}`, packet);
       return json({ packet }, 201);
+    }
+    const verdictRoute = /^\/races\/([^/]+)\/verdict$/.exec(path);
+    if (verdictRoute && method === "POST") {
+      const agent = this.agent(actor);
+      const packet = await this.storage.get<Packet>(`packet:${verdictRoute[1]}`);
+      if (packet?.mode !== "race" || packet.judge !== agent)
+        throw new HttpError(403, "Only this race's judge can submit a verdict.");
+      return json({ verdict: await saveVerdict(this.storage, packet.id, await body(request)) });
     }
     const archiving = /^\/packets\/([^/]+)\/(archive|unarchive)$/.exec(path);
     if (archiving && method === "POST") {
@@ -525,7 +541,7 @@ export class Workflow {
     if (detail && method === "GET") {
       const review = await this.storage.get<Review>(`review:${detail[1]}`);
       if (!review) throw new HttpError(404, "Review not found.");
-      if (!actor.owner && actor.agent !== review.agent)
+      if (!actor.owner && actor.agent !== review.agent && !await judgeMayRead(this.storage, actor.agent, review))
         throw new HttpError(403, "Review belongs to another agent.");
       using repo = await this.env.ARTIFACTS.get(review.repoName);
       const reader = new ReviewReader(repo);
@@ -582,7 +598,7 @@ export class Workflow {
       const race = packet?.mode === "race";
       // Finished entrants have no live binding and their reviews are stale. Preserve
       // the photo-finish response before those guards hide the canonical CAS loss.
-      if (race && reviewing[2] === "promote" && await this.storage.get(`race:${review.packet}`))
+      if (race && reviewing[2] === "promote" && await raceFinished(this.storage, review.packet))
         return this.rejectRacePromote(project, review);
       const { claim, fork } = await this.binding(project, review.packet, review.repoName, review.agent);
       if (race && reviewing[2] === "promote") requireTokenBudget(packet.tokenBudget, claim.usage);

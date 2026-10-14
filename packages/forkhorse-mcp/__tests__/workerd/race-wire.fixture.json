@@ -13,11 +13,13 @@
           ],
           "acceptance": [
             "Fixture only"
-          ]
+          ],
+          "archived": null
         },
         {
           "id": "FH-race",
           "mode": "race",
+          "tokenBudget": 1000,
           "title": "Core wire fixture",
           "goal": "Offline wire validation",
           "paths": [
@@ -25,7 +27,8 @@
           ],
           "acceptance": [
             "Fixture only"
-          ]
+          ],
+          "archived": null
         }
       ],
       "claims": [],
@@ -33,6 +36,7 @@
         {
           "packet": "FH-race",
           "status": "open",
+          "tokenBudget": 1000,
           "finishedAt": null,
           "winner": null,
           "ledgerEntryId": null,
@@ -49,8 +53,19 @@
               "place": null,
               "closedAt": null,
               "closedBy": null,
+              "usage": {
+                "reported": {
+                  "inputTokens": 800,
+                  "outputTokens": 0,
+                  "model": "fixture-model",
+                  "source": "reported",
+                  "at": "2026-01-01T00:00:00.000Z"
+                },
+                "metered": null
+              },
               "claimedAt": "2026-01-01T00:00:00.000Z",
-              "promoteRejected": null
+              "promoteRejected": null,
+              "budget": "near"
             },
             {
               "agent": "second",
@@ -63,8 +78,19 @@
               "place": null,
               "closedAt": null,
               "closedBy": null,
+              "usage": {
+                "reported": {
+                  "inputTokens": 400,
+                  "outputTokens": 0,
+                  "model": "fixture-model",
+                  "source": "reported",
+                  "at": "2026-01-01T00:00:00.000Z"
+                },
+                "metered": null
+              },
               "claimedAt": "2026-01-01T00:00:00.000Z",
-              "promoteRejected": null
+              "promoteRejected": null,
+              "budget": "within"
             },
             {
               "agent": "third",
@@ -77,8 +103,19 @@
               "place": null,
               "closedAt": null,
               "closedBy": null,
+              "usage": {
+                "reported": {
+                  "inputTokens": 1001,
+                  "outputTokens": 0,
+                  "model": "fixture-model",
+                  "source": "reported",
+                  "at": "2026-01-01T00:00:00.000Z"
+                },
+                "metered": null
+              },
               "claimedAt": "2026-01-01T00:00:00.000Z",
-              "promoteRejected": null
+              "promoteRejected": null,
+              "budget": "over"
             }
           ]
         }
@@ -126,11 +163,13 @@
           ],
           "acceptance": [
             "Fixture only"
-          ]
+          ],
+          "archived": null
         },
         {
           "id": "FH-race",
           "mode": "race",
+          "tokenBudget": 1000,
           "title": "Core wire fixture",
           "goal": "Offline wire validation",
           "paths": [
@@ -138,7 +177,8 @@
           ],
           "acceptance": [
             "Fixture only"
-          ]
+          ],
+          "archived": null
         }
       ],
       "claims": [],
@@ -146,6 +186,7 @@
         {
           "packet": "FH-race",
           "status": "finished",
+          "tokenBudget": 1000,
           "finishedAt": "2026-01-01T00:00:00.000Z",
           "winner": "second",
           "ledgerEntryId": "ledger-wire-fixture-id",
@@ -175,12 +216,23 @@
               "place": 2,
               "closedAt": "2026-01-01T00:00:00.000Z",
               "closedBy": "race-finished",
+              "usage": {
+                "reported": {
+                  "inputTokens": 800,
+                  "outputTokens": 0,
+                  "model": "fixture-model",
+                  "source": "reported",
+                  "at": "2026-01-01T00:00:00.000Z"
+                },
+                "metered": null
+              },
               "promoteRejected": {
                 "at": "2026-01-01T00:00:00.000Z",
                 "expected": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "found": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
               },
-              "claimedAt": "2026-01-01T00:00:00.000Z"
+              "claimedAt": "2026-01-01T00:00:00.000Z",
+              "budget": "near"
             },
             {
               "agent": "second",
@@ -193,8 +245,19 @@
               "place": 1,
               "closedAt": "2026-01-01T00:00:00.000Z",
               "closedBy": "race-finished",
+              "usage": {
+                "reported": {
+                  "inputTokens": 400,
+                  "outputTokens": 0,
+                  "model": "fixture-model",
+                  "source": "reported",
+                  "at": "2026-01-01T00:00:00.000Z"
+                },
+                "metered": null
+              },
               "claimedAt": "2026-01-01T00:00:00.000Z",
-              "promoteRejected": null
+              "promoteRejected": null,
+              "budget": "within"
             },
             {
               "agent": "third",
@@ -207,8 +270,19 @@
               "place": 3,
               "closedAt": "2026-01-01T00:00:00.000Z",
               "closedBy": "release",
+              "usage": {
+                "reported": {
+                  "inputTokens": 1001,
+                  "outputTokens": 0,
+                  "model": "fixture-model",
+                  "source": "reported",
+                  "at": "2026-01-01T00:00:00.000Z"
+                },
+                "metered": null
+              },
               "claimedAt": "2026-01-01T00:00:00.000Z",
-              "promoteRejected": null
+              "promoteRejected": null,
+              "budget": "over"
             }
           ]
         }

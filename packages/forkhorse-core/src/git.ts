@@ -7,7 +7,13 @@ import type { ArtifactsBinding } from "./types";
 import type { CommitFile, Fork } from "./workflow-types";
 
 export const staleBase = () => new HttpError(409, "stale base, rebase");
-const transportLimit = 8 * 1024 * 1024;
+// Builder-fork packs can exceed 8 MiB; the stored-byte budget remains 32 MiB.
+const transportLimit = 16 * 1024 * 1024;
+const transportLimitError = (direction: "request" | "response", size: number) =>
+  new HttpError(
+    413,
+    `Git HTTP ${direction} exceeds the ${transportLimit}-byte transport limit; reached ${size} bytes. Repository requires the sandbox Git runner.`,
+  );
 
 /** Bounded raw Git HTTP, with no redirects or provider error text escaping to callers. */
 export const gitHttp: HttpClient = {
@@ -18,7 +24,7 @@ export const gitHttp: HttpClient = {
       for await (const chunk of body) {
         length += chunk.byteLength;
         if (length > transportLimit)
-          throw new HttpError(413, "Repository requires the sandbox Git runner.");
+          throw transportLimitError("request", length);
         chunks.push(chunk);
       }
     const requestBody = new Uint8Array(length);
@@ -54,7 +60,7 @@ export const gitHttp: HttpClient = {
             if (done) return;
             size += value.byteLength;
             if (size > transportLimit)
-              throw new HttpError(413, "Repository requires the sandbox Git runner.");
+              throw transportLimitError("response", size);
             yield value;
           }
         } finally {

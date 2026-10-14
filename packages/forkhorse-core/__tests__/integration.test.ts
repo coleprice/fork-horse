@@ -182,6 +182,7 @@ describe("public core integration with offline signed JWTs, KV, DO and built das
       "activity",
       "join",
       "claim",
+      "report_usage",
       "request_review",
       "submit_work",
     ]);
