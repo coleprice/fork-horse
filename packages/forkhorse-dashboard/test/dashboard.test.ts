@@ -423,6 +423,7 @@ test("top tabs select one visible view and preserve focus across refreshes", asy
       getByRole(context.root, "tab", { name: /^Work\s*,\s+\d+$/ }),
       getByRole(context.root, "tab", { name: /^Review\s*,\s+\d+$/ }),
       getByRole(context.root, "tab", { name: "Agents" }),
+      getByRole(context.root, "tab", { name: /^Races(\s*,\s+\d+)?$/ }),
     ];
     assert.equal(context.root.querySelectorAll('[role="tab"]').length, tabs.length);
     tabs[1].focus();
