@@ -148,3 +148,33 @@ test("FH-081 last tab is named and read-only for both roles; race navigation ret
     }
   }
 });
+
+test("tab round trips keep exactly one copy of each Overview card (unique sibling keys)", async () => {
+  for (const owner of [true, false]) {
+    const dom = new JSDOM('<div id="dashboard"></div>', { url: "https://fixture.idiot.tax/#overview" });
+    installDom(dom.window);
+    const root = dom.window.document.getElementById("dashboard")! as HTMLElement;
+    const wire = racesFixtureState();
+    const transport = createHttpTransport({ origin: "https://fixture.idiot.tax", fetch: async (input) =>
+      Response.json(String(input).endsWith("/state") ? wire : { activity: [], nextAfter: 0 }) });
+    const app = mountDashboard(root, { brand, transport, initialProject: wire.project.id, owner, agent: owner ? undefined : "fixture-agent" });
+    const cards = () => [".fork-picture", '[aria-labelledby="needs-you-title"]', ".resume-card", ".project-card"]
+      .map((selector) => root.querySelectorAll(`#view-overview ${selector}`).length);
+    try {
+      await until(() => cards()[0] > 0);
+      const first = cards();
+      for (const tab of [/^Races/, /^Work/, /^Review/, /^Agents/]) {
+        getByRole(root, "tab", { name: tab }).click();
+        getByRole(root, "tab", { name: "Overview" }).click();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.deepEqual(cards(), first, `${owner ? "owner" : "agent"} Overview after ${tab}`);
+      }
+      assert.equal(first[0], 1);
+      assert.equal(first[3], 1);
+      assert.ok(first.every((count) => count <= 1), `no Overview card repeats: ${first}`);
+    } finally {
+      app.dispose();
+      dom.window.close();
+    }
+  }
+});

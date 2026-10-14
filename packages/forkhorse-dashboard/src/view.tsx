@@ -932,14 +932,14 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   {section(
                     "overview",
                     <>
-                      {!actions.owner && <ResumeCard key={view.project} state={state} activity={view.activity} agent={actions.agent} />}
+                      {!actions.owner && <ResumeCard key={`resume:${view.project}`} state={state} activity={view.activity} agent={actions.agent} />}
                       {overviewEmpty ? (
                         <section aria-label="Forks">
                           <FirstRunEmpty kind={overviewEmpty} owner={actions.owner} />
                         </section>
-                      ) : <ForkGraph brand={view.brand} key={view.project} state={state} owner={actions.owner}
+                      ) : <ForkGraph brand={view.brand} key={`forks:${view.project}`} state={state} owner={actions.owner}
                         openReview={actions.openReview} openPacket={showPacket} openReceipt={showReceipt} />}
-                      {actions.owner && <NeedsYou key={view.project} state={state} brand={view.brand} open={openNeed} />}
+                      {actions.owner && <NeedsYou key={`needs:${view.project}`} state={state} brand={view.brand} open={openNeed} />}
                       <LayerCard className="p-4 project-card">
                         <div className="section-heading">
                           <h2>
@@ -1357,7 +1357,7 @@ function DashboardContent({ view, actions }: { view: ViewModel; actions: ViewAct
                   )}
                   {section(
                     "agents",
-                    <AgentStatusTable key={view.project} state={state} activity={view.activity}
+                    <AgentStatusTable key={`agents:${view.project}`} state={state} activity={view.activity}
                       brand={view.brand} owner={actions.owner} openPacket={showPacket} revealRepo={agentRepo} />,
                   )}
                   {section("races", <Races state={state} owner={actions.owner} openRace={(id) => actions.openRace?.(id)} />)}
