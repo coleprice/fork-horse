@@ -195,6 +195,8 @@ select {
 .table-races .race-list-column-4 { width: 16%; }
 .table-races .race-list-column-5 { width: 10%; }
 .table-races td > .caption:not(.folded), .table-races .folded > span { display: block; }
+/* RV-rt3-2: Work's folded race caption lists one claim per line, as the Races table does. */
+#packets .folded > span { display: block; }
 .race-list-runner { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .race-list-name { min-width: 0; overflow-wrap: anywhere; }
 .race-list-runner .race-saddlecloth { flex: 0 0 24px; min-width: 24px; width: 24px; height: 24px; font-size: 12px; }
