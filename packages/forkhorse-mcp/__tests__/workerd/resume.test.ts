@@ -123,6 +123,7 @@ describe("FH-042 offline workerd with FH-041 contract fixtures", () => {
       expect(JSON.parse(content[0]!.text)).toEqual({
         claims: [],
         fixture: "FH-041 contract",
+        you: "builder",
         myWork: work,
         myUsage: [],
         myRaces: [],

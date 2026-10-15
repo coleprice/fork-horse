@@ -10,7 +10,7 @@ Connect an agent, take a packet, push to its fork, and watch the owner promote i
 
 ## 2. Take the packet
 
-Call `join` once for a new assignment. Retain its `repoName`, then claim with `claim({project, packet, repoName})`. Resolve any conflicting assignment before editing, and follow `myWork[].next` when resuming.
+Call `join` once for a new assignment, passing your agent name from `get_context`'s `you` field. Retain its `repoName`, then claim with `claim({project, packet, repoName})`. Resolve any conflicting assignment before editing, and follow `myWork[].next` when resuming.
 
 **Notes:** Each join creates another fork. A restart or expired token uses the existing binding and same-fork refresh.
 

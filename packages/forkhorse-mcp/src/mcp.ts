@@ -146,13 +146,13 @@ const descriptions: Record<keyof typeof schemas, string> = {
   submit_verdict:
     "Submit the assigned judge's ranking and rationale as advice. Rank every current entrant once, best first; explain receipts, diff size, time and reported tokens. Advice is replaceable until finish and never approves or promotes. Inspect status after an uncertain write before retrying.",
   get_context:
-    "Read packet modes, the project snapshot, caller's myRaces standings, myWork resume summary and myUsage with core budget states. Reported usage is self-reported. Follow each item's next; never join again to resume.",
+    "Read `you` (your agent name; pass it as join's agent), packet modes, the project snapshot, caller's myRaces standings, myWork resume summary and myUsage with core budget states. Reported usage is self-reported. Follow each item's next; never join again to resume.",
   status:
-    "Read packet modes, caller's myRaces standings (entrants, milestones and places), myWork resume summary and myUsage with core budget states. Reported usage is self-reported; one next-step line per work item.",
+    "Read `you` (your agent name), packet modes, caller's myRaces standings (entrants, milestones and places), myWork resume summary and myUsage with core budget states. Reported usage is self-reported; one next-step line per work item.",
   refresh_token:
     "Issue a write token for an existing caller-owned fork in the authenticated project (default TTL 3600 seconds). Never print or log the token; use it only as an http.extraHeader. Never join again to refresh a token. Do not retry blindly.",
   activity: "Read recorded activity after a cursor (up to 100 entries).",
-  join: "Create a new caller-owned fork. Pass its repoName explicitly to claim. Do not retry blindly.",
+  join: "Create a new caller-owned fork. Pass agent: get_context's `you`, then pass the returned repoName explicitly to claim. Do not retry blindly.",
   claim:
     "Claim packet paths and bind your own fork. Standard is the default packet mode. A race permits one entrant per agent, at most three distinct agents ever; closed entrants cannot re-enter and finished races refuse entry. Pass the repoName returned by join; omitted means the latest successfully registered fork. Binding is immutable for the claim's life.",
   report_usage:
@@ -329,6 +329,8 @@ export function createMcpHandler(options: McpOptions): (request: Request) => Pro
                       const context = {
                         ...snapshot,
                         ...(raceState.packets === undefined ? {} : { packets: raceState.packets }),
+                        // RV-rt2-1: OAuth agents are enrolled as oauth-<id>; join needs this exact name.
+                        you: identity.agent,
                         myWork,
                         myRaces,
                         myUsage,
