@@ -47,9 +47,7 @@ Find your hosted instance name — call it `N` — in the wizard, or read it off
 | `N` | The public URL | `workers.router.name` |
 
 The Gatekeeper suffixes are the hosted flow's choice, not the starter's, so confirm all three
-against the dashboard worker list rather than assuming the pattern. The starter also deploys two
-Workers the hosted flow does not: the example custom Gatekeeper and the Error Reporter. Give those
-new names; nothing depends on them yet. It also deploys the upstream MCP connector by default: if
+against the dashboard worker list rather than assuming the pattern. The starter also deploys a Worker the hosted flow does not: the Error Reporter. Give it a new name; nothing depends on it yet. It also deploys the upstream MCP connector by default: if
 one already exists, preserve its Worker identity and MCP accounts; otherwise choose a new unique
 `workers.mcp.name`.
 
@@ -61,7 +59,6 @@ one already exists, preserve its Worker identity and MCP accounts; otherwise cho
   "context": { "name": "N-gk-context" },
   "scheduler": { "name": "N-gk-scheduler" },
   "mcp": { "name": "N-gk-mcp" },
-  "customGatekeeper": { "name": "N-gk-custom" },
   "errorReporter": { "name": "N-errors" }
 }
 ```

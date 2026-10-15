@@ -32,7 +32,6 @@ The custom logo appears in the app chrome, sign-in screens, and browser tab on e
 | `access` | Cloudflare Access trust and administrator list | Access team issuer, application audience, and verified email list |
 | `aiGateway` | Deployment-managed model catalog | Enabled by default over the Workers AI binding; which providers to advertise, and which gateway |
 | `context` | Context sharing boundary, snapshot KV, and optional Artifacts repositories | `null` to scope data to the public origin, or a pinned stable label; automatic or existing KV; Git-backed collections disabled or enabled |
-| `customGatekeeper` | Example integration identity and guidance | Organization-specific display text |
 | `errorReporting` | Private explicit-issue destination | Console Reporter enabled state, environment, and release metadata |
 | `resources` | Blueprint/avatar KV and blueprint-content R2 | `null` to provision or explicit IDs/names to reuse |
 | `observability` | Worker telemetry | Structured logs, invocation logs, traces, and sampling; see the [observability guide](observability.md) |
@@ -50,7 +49,7 @@ The OS deployment is seven Workers with error reporting enabled, plus the option
 | `context` | The Context Gatekeeper. |
 | `scheduler` | The Scheduler Gatekeeper, which gives agents scheduled and recurring work. |
 | `mcp` | The upstream MCP connector for user-supplied server endpoints. Deployed by default. |
-| `customGatekeeper` | This repository's example integration. |
+| `forkhorseGatekeeper` | Fork Horse's project gatekeeper and sidebar app (when `forkhorseGatekeeper.enabled`). |
 | `errorReporter` | The private explicit-issue destination. |
 
 Context and Scheduler are *ambient*: upstream's release marks both `PREINSTALL`, so the hosted flow installs them on every instance and this starter deploys them for the same reason. Neither takes configuration beyond its name — the Scheduler takes none at all.
@@ -190,7 +189,7 @@ The starter enables structured custom logs and a private console-backed Error Re
 
 ## Custom Gatekeepers
 
-Keep deployment-owned Gatekeepers under `packages/`, outside the `cloudflare-os` submodule. `scripts/deploy.ts` binds this repository's example as `GATEKEEPER_CUSTOM` and Context as `GATEKEEPER_CONTEXT`, twice each: on the Workshop with the `GatekeeperVendor` entrypoint for RPC, and on the router with no entrypoint, where the binding name is what routes `/gatekeeper/custom` and `/gatekeeper/context` to it. A Gatekeeper that serves HTTP — an OAuth redirect, for instance — needs both.
+Keep deployment-owned Gatekeepers under `packages/`, outside the `cloudflare-os` submodule. `scripts/deploy.ts` binds Fork Horse's gatekeeper as `GATEKEEPER_FORKHORSE` (when enabled) and Context as `GATEKEEPER_CONTEXT`, twice each: on the Workshop with the `GatekeeperVendor` entrypoint for RPC, and on the router with no entrypoint, where the binding name is what routes `/gatekeeper/forkhorse` and `/gatekeeper/context` to it. A Gatekeeper that serves HTTP (an OAuth redirect, for instance) needs both. The starter's sample in `packages/custom-gatekeeper` is retired and no longer deployed; it remains a source example to copy and wire the same way.
 
 The minimal example flow is:
 

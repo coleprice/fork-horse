@@ -72,12 +72,12 @@ Each call has a 25-second deadline, including authentication, input and output b
 
 The real `@cloudflare/workers-oauth-provider` library handles RFC 9728 resource discovery, authorization-server discovery, DCR, token exchange and encrypted grant props. The composed core Worker supplies `OAUTH_KV`; the provider supplies `OAUTH_PROVIDER` to its authorization handler.
 
-- Discovery: `/.well-known/oauth-protected-resource` and the path-qualified form, plus `/.well-known/oauth-authorization-server`.
+- Discovery: `/.well-known/oauth-protected-resource/mcp` (path-qualified for the configured MCP path; the bare root form returns 404), plus `/.well-known/oauth-authorization-server`.
 - Registration/token endpoints: `/oauth/register`, `/oauth/token`.
 - Consent: `/authorize`, protected by the required `authorizeOwner(request, signal)` callback. FH-012 must validate Access JWT signature, issuer, audience, expiry and the owner allowlist. Merely checking an Access header is not sufficient. The fixture test callback is explicitly not a deployment implementation.
 - Public client authorization requires S256 PKCE and the coarse `mcp:agent` scope. That scope permits only the agent tools, subject to core authorization.
 - Consent requires an exact registered `redirect_uri`, including loopback ports. The browser response remains a 302 to that callback with only the OAuth result parameters added. The final Location is checked against the registered target and result fields; the wrapper rejects every other 3xx, and never fetches a returned Location.
-- The page shows escaped client metadata, redirect host, project and permissions. Provider helpers supply anti-framing headers and a browser-bound, single-use consent handle. Denial creates no agent.
+- The page shows escaped client metadata, redirect host, project and permissions. Provider helpers supply anti-framing headers and a browser-bound consent handle that is refused on reuse; the pinned provider's KV consume is not atomic, so two simultaneous submits from the same signed-in browser could each enroll an agent (known limit). Denial creates no agent.
 - Each approved grant enrolls a fresh agent. Its core credential is stored only in encrypted provider props, never sent to the OAuth client. MCP revalidates it on every call, so core rotation immediately removes effective access.
 - Access tokens last one hour; refresh grants and dynamic registrations expire after one day. Client metadata URL fetching and token-exchange grants are disabled.
 

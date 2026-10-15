@@ -92,7 +92,7 @@ fields stay omitted in the request; core checks that the judge is enrolled.
 The small YAML subset accepts top-level string scalars, an unquoted JSON number for
 `tokenBudget`, two-space-indented lists of strings, blank lines and
 whole-line comments. Quote strings using JSON double quotes or YAML single quotes.
-Inline comments, flow arrays/maps, aliases, tags and multiline scalars are unsupported;
+Inline comments, flow arrays/maps, aliases, tags and multiline scalars are unsupported, and a ` #` inside a quoted value is also rejected;
 use JSON for more complex input. Files and encoded request bodies are limited to
 16 KiB; core remains authoritative for packet paths and validation.
 
