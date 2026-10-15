@@ -121,6 +121,12 @@ test("FH-078 reduced Resume card is read-only, absent for unknown callers and ha
   assert.match(markup(createElement(ResumeCard, { state: incomplete, activity: incomplete.recentActivity!, agent: "held" })), /Not in loaded activity/);
 });
 
+test("RV-rt3-1 the no-push placeholder in the table carries the wrapping class", () => {
+  const incomplete = fixture("agents-short-activity");
+  const table = markup(createElement(AgentStatusTable, { state: incomplete, activity: incomplete.recentActivity!, brand, owner: true, openPacket() {} }));
+  assert.match(table, /<span class="agent-missing-push caption muted">(Not in loaded activity|No push yet)<\/span>/);
+});
+
 async function until(check: () => boolean) {
   for (let attempt = 0; attempt < 200; attempt++) {
     if (check()) return;

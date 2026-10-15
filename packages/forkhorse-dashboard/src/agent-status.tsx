@@ -26,7 +26,7 @@ function LastPush({ row, now, stacked = false }: { row: AgentStatusRow; now: num
   return row.lastPush ? <Tooltip content={new Date(row.lastPush.recordedAt).toLocaleString()}
     render={<span className={`agent-last-push${stacked ? " agent-last-push-stacked" : ""}`} />}>
     <code>{row.lastPush.after.slice(0, 7)}</code>{!stacked && " · "}<time className={stacked ? "caption muted" : undefined} dateTime={row.lastPush.recordedAt}>{relativeTime(row.lastPush.recordedAt, now)}</time>
-  </Tooltip> : <span>{row.missingPush}</span>;
+  </Tooltip> : <span className="agent-missing-push caption muted">{row.missingPush}</span>;
 }
 function Fork({ value }: { value?: string }) {
   return value ? <Tooltip content={value} render={<code className="truncated-code" />}>{value}</Tooltip> : null;

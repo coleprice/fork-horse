@@ -170,6 +170,8 @@ select {
 .table-agent-status .column-packet .caption { display: block; }
 .table-agent-status .agent-packet-link { display: block; width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .agent-last-push-stacked > code, .agent-last-push-stacked > time { display: block; }
+/* RV-rt3-1: the no-push placeholder wraps inside its narrow column instead of painting over the next one. */
+.table-agent-status .agent-missing-push { white-space: normal; overflow-wrap: break-word; }
 /* Match the existing fold boundaries for both active and disclosed idle rows. */
 @container (max-width: 819px) {
   .table-agent-status { --agent-table-min-width: 0; --agent-name-width: 35%; --agent-status-width: 23%; --agent-packet-width: 12%; --agent-push-width: 14%; --agent-waiting-width: 16%; }
