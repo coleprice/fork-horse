@@ -86,10 +86,11 @@ export class CoreClient {
 
   #workflow() {
     return workflowSource({
+      project: this.draft.project,
       identity: async () => {
         const me = await this.identity();
         if (!me.work) throw new Error("Core resume summary unavailable.");
-        return { agent: me.agent, work: me.work };
+        return { agent: me.agent, work: me.work, forks: me.forks };
       },
       request: (path, init) => this.#json(path, init),
     });
@@ -100,6 +101,7 @@ export class CoreClient {
     return result;
   }
   async executeWorkflow(operation: WorkflowWrite): Promise<void> { await this.#workflow().execute(operation); }
+  async workflowSubmission(operation: WorkflowWrite) { return this.#workflow().submission(operation); }
   async readReview(review: string): Promise<ReadReviewResponse> {
     if (!/^[a-zA-Z0-9-]{1,128}$/.test(review)) throw new Error("Invalid review ID.");
     await this.identity();

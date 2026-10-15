@@ -26,6 +26,10 @@ let workflowCalls: { path: string; method: string; body: unknown }[] = [];
 let pushFailure: "applied" | "absent" | null = null;
 let workflowMode: "standard" | "race" = "standard";
 let workflowFailure = false;
+let coreReads: string[] = [];
+let discoveredForks: { repoName: string; remote: string; head: string; createdAt: string }[] = [];
+let packetReply: unknown;
+let revokeAfterPackets = false;
 const state = () => { const value = fixtureState("fixture"); value.forks.push({ repoName: "fixture--alpha-1", agent: "alpha", remote: REMOTE, head, createdAt: "2026-01-01" }); value.packets.push({ id: "workflow-packet", mode: workflowMode, title: "Workflow fixture", goal: "Fixture", paths: [], acceptance: [] }); return { ...value, races: [] }; };
 function packets(lines: string[]): string {
   const chunks = [...lines.map(encodePktLine), FLUSH_PKT];
@@ -34,6 +38,8 @@ function packets(lines: string[]): string {
 beforeEach(() => {
   workflowCalls = []; workflowMode = "standard"; workflowFailure = false;
   pushFailure = null; head = OLD; role = "agent"; agent = "alpha"; scopes = []; pushes = []; unauthorized = false; moveDuringPush = false; badGrant = false; redirectCore = false; redirectGit = false; pulls = [];
+  coreReads = []; packetReply = undefined; revokeAfterPackets = false;
+  discoveredForks = [{ repoName: "fixture--alpha-1", remote: REMOTE, head: OLD, createdAt: "2026-01-01T00:00:00Z" }];
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -41,10 +47,15 @@ beforeEach(() => {
       expect(request.redirect).toBe("manual");
       if (redirectCore) return new Response(null, { status: 302, headers: { location: "https://foreign.idiot.tax" } });
       expect(request.headers.get("authorization")).toBe(`Bearer ${CREDENTIAL}`);
+      if (request.method === "GET") coreReads.push(url.pathname);
       if (url.pathname.endsWith("/me")) return Response.json({ role, agent,
-        forks: [{ repoName: "fixture--alpha-1", remote: REMOTE, head, createdAt: "2026-01-01T00:00:00Z" }], work: [],
+        forks: discoveredForks.map(fork => ({ ...fork, head: fork.repoName === "fixture--alpha-1" ? head : fork.head })), work: [],
       }, { status: unauthorized ? 401 : 200 });
       if (url.pathname.endsWith("/state")) return Response.json(state());
+      if (url.pathname.endsWith("/packets") && request.method === "GET") {
+        if (revokeAfterPackets) unauthorized = true;
+        return Response.json(packetReply ?? { packets: state().packets });
+      }
       if (url.pathname.endsWith("/reviews/workflow-review") && request.method === "GET") {
         return Response.json({ review: { id: "workflow-review", receipt: null } });
       }
@@ -304,6 +315,7 @@ it("publishes Stable Code Mode types, exact resource addresses, and six distinct
   const types = await gatekeeper.forkTypes();
   for (const method of ["context", "join", "claim", "release", "requestReview", "readReview", "readReceipts"]) expect(types).toContain(`${method}(`);
   expect(types).toContain("export type ContextResponse");
+  expect(types).toContain("After a write, end your turn. The OS posts 'approved and applied' when it's done. Don't poll context().");
   expect(types).not.toMatch(/from ["']\./);
   expect((await gatekeeper.autoApprovable()).map(kind => kind.tag)).toEqual(["claim", "race-entry", "join", "push", "request-review", "release"]);
 });
@@ -321,7 +333,10 @@ it("runs production workflow calls through the account provider, with observatio
     () => session.release("workflow-packet"),
   ];
   for (const [index, operation] of operations.entries()) {
+    coreReads = [];
     expect(await operation()).toBeUndefined();
+    expect(coreReads).not.toContain("/projects/fixture/state");
+    expect(coreReads.filter(path => path.endsWith("/packets"))).toHaveLength(index === 1 ? 1 : 0);
     expect(workflowCalls).toHaveLength(index);
     const action = queue.submitted[index]!;
     expect(action.description).toMatchObject({ awaitDecision: true, autoApprovable: true });
@@ -339,6 +354,85 @@ it("runs production workflow calls through the account provider, with observatio
   ]);
   expect(JSON.stringify(queue.submitted)).not.toContain("fixture-join-secret");
 });
+
+for (const mode of ["standard", "race"] as const) {
+  it(`queues a ${mode} claim using the latest authenticated fork without reading /state`, async () => {
+    const { session, queue, gatekeeper } = await resource();
+    workflowMode = mode;
+    // /state deliberately has only the original fork; /me is authoritative.
+    discoveredForks.unshift({ repoName: "fixture--alpha-latest", remote: "https://git.fixture.idiot.tax/fixture--alpha-latest.git", head: OLD, createdAt: "2026-03-01T00:00:00Z" });
+    discoveredForks.push({ repoName: "fixture--alpha-middle", remote: "https://git.fixture.idiot.tax/fixture--alpha-middle.git", head: OLD, createdAt: "2026-02-01T00:00:00Z" });
+    coreReads = [];
+    await session.claim("workflow-packet");
+    expect(coreReads).not.toContain("/projects/fixture/state");
+    expect(coreReads.filter(path => path.endsWith("/packets"))).toEqual(["/projects/fixture/packets"]);
+    expect(workflowCalls).toEqual([]);
+    expect(queue.submitted[0]!.description).toMatchObject({
+      title: mode === "race" ? "Enter race workflow-packet" : "Claim workflow-packet",
+      description: mode === "race" ? "Enter alpha in race workflow-packet on fork fixture--alpha-latest." : "Claim packet workflow-packet on fork fixture--alpha-latest.",
+      actionKind: { tag: mode === "race" ? "race-entry" : "claim" },
+      awaitDecision: true, autoApprovable: true, implementsRevert: false,
+    });
+    discoveredForks.push({ repoName: "fixture--alpha-after", remote: "https://git.fixture.idiot.tax/fixture--alpha-after.git", head: OLD, createdAt: "2026-04-01T00:00:00Z" });
+    await session.claim("workflow-packet");
+    expect(queue.submitted).toHaveLength(1);
+    await gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache);
+    expect(workflowCalls).toEqual([{ path: "/projects/fixture/packets/workflow-packet/claim", method: "POST", body: { repoName: "fixture--alpha-latest" } }]);
+  });
+}
+
+it("refuses unavailable packet metadata and authorization lost during the narrow read before queuing", async () => {
+  const { session, queue } = await resource();
+  for (const [reply, message] of [
+    [{ packets: [] }, "Packet is unavailable"],
+    [{ packets: null }, "Invalid packet response"],
+    [{ packets: [{ id: "workflow-packet", mode: "unknown" }] }, "Invalid packet response"],
+  ] as const) {
+    packetReply = reply;
+    await refuse(() => session.claim("workflow-packet"), message);
+  }
+  packetReply = undefined;
+  revokeAfterPackets = true;
+  await refuse(() => session.claim("workflow-packet"), "authorization");
+  expect(queue.submitted).toEqual([]);
+  expect(workflowCalls).toEqual([]);
+  expect(scopes).toEqual([]);
+});
+
+it("keeps the selected fork and approval ID after a lost claim submission reply", async () => {
+  const { session, queue } = await resource();
+  queue.loseReply = true;
+  await refuse(() => session.claim("workflow-packet"), "submission interrupted");
+  discoveredForks.push({ repoName: "fixture--alpha-later", remote: "https://git.fixture.idiot.tax/fixture--alpha-later.git", head: OLD, createdAt: "2026-02-01T00:00:00Z" });
+  queue.loseReply = false;
+  coreReads = [];
+  await session.claim("workflow-packet");
+  expect(queue.submitted.map(action => action.id)).toEqual([1, 1]);
+  expect(queue.submitted[1]!.description).toEqual(queue.submitted[0]!.description);
+  expect(coreReads).not.toContain("/projects/fixture/state");
+  expect(coreReads).not.toContain("/projects/fixture/packets");
+  expect(workflowCalls).toEqual([]);
+});
+
+for (const result of ["applied", "absent"] as const) {
+  it(`still reads recovery evidence before a workflow write after an uncertain ${result} push`, async () => {
+    const { session, queue, gatekeeper } = await resource();
+    await session.push("main", NEXT);
+    pushFailure = result;
+    await refuse(() => gatekeeper.applyAction(queue.submitted[0]!.id, queue.cache as unknown as GitCache), "Git push failed");
+    coreReads = [];
+    if (result === "applied") {
+      await session.join();
+      expect(queue.submitted).toHaveLength(2);
+    } else {
+      await refuse(() => session.join(), "pending push");
+      expect(queue.submitted).toHaveLength(1);
+    }
+    expect(coreReads).toContain("/projects/fixture/state");
+    expect(pushes).toHaveLength(1);
+    expect(workflowCalls).toEqual([]);
+  });
+}
 
 it("classifies race entry from core and prevents push/workflow queue conflicts", async () => {
   const { session, gatekeeper, queue } = await resource();

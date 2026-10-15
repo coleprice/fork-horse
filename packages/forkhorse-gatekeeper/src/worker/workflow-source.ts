@@ -1,12 +1,13 @@
 import type { ContextResponse, WorkItem, ReadReviewResponse } from "../../../forkhorse-stable/src/index.ts";
-import type { WorkflowSource } from "./workflow.ts";
+import type { WorkflowSource, WorkflowSubmission } from "./workflow.ts";
 
 /**
  * Server-side transport seam, relative to one authenticated project. The adapter
  * obtains bearer credentials through the accepted Stable provider in CoreClient.
  */
 export interface WorkflowTransport {
-  identity(): Promise<{ agent: string; work: WorkItem[] }>;
+  project: string;
+  identity(): Promise<{ agent: string; work: WorkItem[]; forks: { repoName: string; createdAt: string }[] }>;
   request(path: string, init?: RequestInit): Promise<unknown>;
 }
 
@@ -22,6 +23,29 @@ export function workflowSource(transport: WorkflowTransport): WorkflowSource {
         throw new Error("Invalid project context.");
       }
       return { ...result, myWork: identity.work };
+    },
+    async submission(operation) {
+      const identity = await transport.identity();
+      let packets: WorkflowSubmission["packets"] = [];
+      if (operation.kind === "claim") {
+        // Core has GET /packets, but no single-packet GET. Never load /state
+        // just to choose the approval kind; apply/recovery still read full evidence.
+        const result = await transport.request("/packets") as Pick<WorkflowSubmission, "packets">;
+        if (!result || !Array.isArray(result.packets)) throw new Error("Invalid packet response.");
+        const packet = result.packets.find(candidate => candidate.id === operation.packet);
+        if (packet) {
+          if (packet.mode !== undefined && packet.mode !== "standard" && packet.mode !== "race") {
+            throw new Error("Invalid packet response.");
+          }
+          packets = [{ id: packet.id, mode: packet.mode }];
+        }
+      }
+      return {
+        project: { id: transport.project }, packets,
+        forks: operation.kind === "claim" && !operation.repoName
+          ? identity.forks.map(fork => ({ repoName: fork.repoName, createdAt: fork.createdAt, agent: identity.agent }))
+          : [],
+      };
     },
     async readReview(review) {
       if (!/^[a-zA-Z0-9-]{1,128}$/.test(review)) throw new Error("Invalid review ID.");

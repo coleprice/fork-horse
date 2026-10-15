@@ -28,11 +28,16 @@ export class ForkGatekeeper extends DurableObject<Env, Props> implements Gatekee
     return new WorkflowActions(this.ctx.storage.kv, {
       authorize: async () => { await account.fork(this.ctx.props.repoName); return account.identity(); },
       context: () => account.workflowContext(),
+      submission: operation => account.workflowSubmission(operation),
       execute: operation => account.executeWorkflow(operation),
       readReview: (review): Promise<ReadReviewResponse> => account.readReview(review),
       readReceipts: (review): Promise<ReadReceiptsResponse> => account.readReceipts(review),
     }, this.#serial, async () => {
-      this.#reconcilePush(await this.readHead());
+      // Only uncertain pushes need head/state evidence. Keep the conflict fence
+      // for every pending push without loading /state on a fresh workflow write.
+      if ([...this.ctx.storage.kv.list<Push>({ prefix: "push:" })].some(([, action]) => ["applying", "retryable"].includes(action.status))) {
+        this.#reconcilePush(await this.readHead());
+      }
       if ([...this.ctx.storage.kv.list<Push>({ prefix: "push:" })].some(([, action]) => ["preparing", "pending", "applying", "retryable"].includes(action.status))) {
         throw new Error("Resolve the pending push before submitting a workflow action.");
       }

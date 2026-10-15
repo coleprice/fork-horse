@@ -26,7 +26,8 @@ export class FixtureConnectCallback extends WorkerEntrypoint implements Gatekeep
 export class FixtureWorkspace extends DurableObject {
   #workflow() {
     return new WorkflowActions(this.ctx.storage.kv, workflowSource({
-      identity: async () => ({ agent: "fixture-agent", work: [] }),
+      project: "fixture",
+      identity: async () => ({ agent: "fixture-agent", work: [], forks: [] }),
       request: async (path, init) => {
         if (!init) return { project: { id: "fixture" }, packets: [{ id: "fixture-packet", mode: "standard" }], forks: [], claims: [], races: [], reviews: [] };
         const calls = this.ctx.storage.kv.get<unknown[]>("fixtureCalls") ?? [];

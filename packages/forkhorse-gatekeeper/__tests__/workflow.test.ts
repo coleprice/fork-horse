@@ -13,9 +13,9 @@ function fixture() {
     },
   };
   const context = { project: { id: "fixture" }, packets: [{ id: "fixture-packet", mode: "standard" }], myWork: [], forks: [{ repoName: "fixture-fork", agent: "fixture-agent", createdAt: "2026-01-01" }], claims: [], races: [], reviews: [] } as unknown as WorkflowContext;
-  const identity = vi.fn(async () => ({ agent: "fixture-agent", work: context.myWork }));
+  const identity = vi.fn(async () => ({ agent: "fixture-agent", work: context.myWork, forks: context.forks.filter(fork => fork.agent === "fixture-agent") }));
   const request = vi.fn(async (_path: string, _init?: RequestInit): Promise<unknown> => context);
-  const source = workflowSource({ identity, request });
+  const source = workflowSource({ project: "fixture", identity, request });
   const queue = { authorizeObservation: vi.fn(async () => {}), submitAction: vi.fn(async (_id: number, _description: unknown) => {}) };
   const actions = new WorkflowActions(store as unknown as DurableObjectStorage["kv"], source);
   return { data, store, context, identity, request, source, queue, actions };
@@ -234,4 +234,15 @@ it("keeps a claim's resolved fork fixed while waiting for approval", async () =>
   await f.actions.apply(1);
   const write = f.request.mock.calls.find(([, init]) => init)!;
   expect(JSON.parse(String(write[1]!.body))).toEqual({ repoName: "fixture-fork" });
+});
+
+it("prepares a claim from /packets and the caller's latest fork without reading full context", async () => {
+  const f = fixture();
+  f.context.forks.unshift({ repoName: "latest-fork", agent: "fixture-agent", createdAt: "2026-03-01" } as WorkflowContext["forks"][number]);
+  f.context.forks.push({ repoName: "foreign-newer-fork", agent: "other-agent", createdAt: "2026-04-01" } as WorkflowContext["forks"][number]);
+  await f.actions.submit(f.queue, { kind: "claim", packet: "fixture-packet" });
+  expect(f.request).toHaveBeenCalledExactlyOnceWith("/packets");
+  expect(f.queue.submitAction.mock.calls[0]![1]).toMatchObject({
+    title: "Claim fixture-packet", description: "Claim packet fixture-packet on fork latest-fork.",
+  });
 });

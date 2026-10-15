@@ -5,7 +5,8 @@ export type WorkflowContext = ContextResponse;
 
 /**
  * Writes queue approval and return before the action is applied.
- * Read context after approval; no applied result is fabricated while pending.
+ * After a write, end your turn. The OS posts 'approved and applied' when it's done. Don't poll context().
+ * No applied result is fabricated while pending.
  */
 export interface AgentWorkflowSession extends RpcTarget {
   /** Observe state and authenticated work; follow existing work before joining. */

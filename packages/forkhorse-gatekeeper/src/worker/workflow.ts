@@ -13,10 +13,18 @@ export type WorkflowWrite =
   | { kind: "requestReview"; packet: string; repoName: string; sha: string }
   | { kind: "release"; packet: string };
 
+/** Only the public fields needed to prepare an approval card. */
+export interface WorkflowSubmission {
+  project: { id: string };
+  forks: Pick<WorkflowContext["forks"][number], "agent" | "repoName" | "createdAt">[];
+  packets: Pick<WorkflowContext["packets"][number], "id" | "mode">[];
+}
+
 /** Credential-free seam. Production implementation must use the accepted Stable provider. */
 export interface WorkflowSource {
   authorize(): Promise<{ agent: string }>;
   context(): Promise<WorkflowContext>;
+  submission(operation: WorkflowWrite): Promise<WorkflowSubmission>;
   readReview(review: string): Promise<ReadReviewResponse>;
   readReceipts(review: string): Promise<ReadReceiptsResponse>;
   execute(operation: WorkflowWrite): Promise<void>;
@@ -75,7 +83,7 @@ export class WorkflowActions {
     return [...this.store.list<Action>({ prefix: "workflow:" })]
       .some(([, action]) => ["preparing", "pending", "applying", "retryable"].includes(action.status));
   }
-  #kind(operation: WorkflowWrite, context: WorkflowContext): ActionKind {
+  #kind(operation: WorkflowWrite, context: Pick<WorkflowSubmission, "packets">): ActionKind {
     if (operation.kind !== "claim") return actionKinds[operation.kind];
     const packet = context.packets.find(candidate => candidate.id === operation.packet);
     if (!packet) throw new Error("Packet is unavailable.");
@@ -144,7 +152,7 @@ export class WorkflowActions {
         id = Number(key.slice("workflow:".length));
         action = existing;
       } else {
-        const snapshot = await this.source.context();
+        const snapshot = await this.source.submission(operation);
         await this.source.authorize();
         if (operation.kind === "claim" && !operation.repoName) {
           const forks = snapshot.forks.filter(fork => fork.agent === identity.agent);

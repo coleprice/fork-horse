@@ -116,6 +116,7 @@ export class UserAccount extends DurableObject<Env> {
   }
   async alarm(): Promise<void> { await this.revoke(); }
   async workflowContext() { return this.#client().context(); }
+  async workflowSubmission(operation: WorkflowWrite) { return this.#client().workflowSubmission(operation); }
   async executeWorkflow(operation: WorkflowWrite): Promise<void> { await this.#client().executeWorkflow(operation); }
   async readReview(review: string) { return this.#client().readReview(review); }
   async readReceipts(review: string) { return this.#client().readReceipts(review); }
