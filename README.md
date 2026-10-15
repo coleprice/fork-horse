@@ -205,7 +205,7 @@ This repository is licensed under [Apache-2.0](LICENSE). [NOTICE](NOTICE) and [T
 
 ## Cloudflare OS starter deployment reference
 
-The original starter instructions below are preserved. Apply deployment values to the ignored local overlay described above; the template remains public-safe. These instructions cover the OS base and its example custom gatekeeper, while core prerequisites and open gates are covered above.
+The original starter instructions below are preserved. Apply deployment values to the ignored local overlay described above; the template remains public-safe. These instructions cover the OS base (the starter's sample custom gatekeeper is retired and no longer deployed), while core prerequisites and open gates are covered above.
 
 <p align="center">
   <img src="docs/assets/cloudflareOS.svg" alt="Cloudflare OS" width="480">
@@ -231,7 +231,7 @@ The original starter instructions below are preserved. Apply deployment values t
 ## Four steps
 
 1. Install the dependencies and run `pnpm exec wrangler login`.
-2. Fill in `deployment.jsonc`: account ID, Worker names, hostname, Access audience, admin emails.
+2. Copy `deployment.jsonc` to the gitignored `deployment.local.jsonc` and fill that in: account ID, Worker names, hostname, Access audience, admin emails.
 3. Run `pnpm check`, then `pnpm deploy`.
 4. Open `/admin` and set the site name, logo, and accent color; branding needs no redeploy.
 
@@ -255,7 +255,7 @@ This repository adds deployment controls around a pinned [Cloudflare OS](https:/
 
 <img src="docs/assets/architecture.svg" alt="Cloudflare OS deployment architecture: users reach one public route, owned by the router Worker, which serves the frontend and proxies /api to the Workshop backend and /gatekeeper/&lt;name&gt; to the matching Gatekeeper. Behind it is the pinned Cloudflare OS release, holding the Workshop kernel, Gadgets, Blueprints, and the default Gatekeepers. Service bindings connect it to the Workers and resources this repository owns: AI Gateway with no API token, custom Gatekeepers, the Error Reporter, and KV and R2 storage.">
 
-The deployment is six Workers. A **router** owns the public route and serves the frontend, proxying `/api` to the Workshop backend and `/gatekeeper/<name>` to whichever Gatekeeper the binding name matches; the Workshop, the Context, Scheduler and custom Gatekeepers, and the Error Reporter sit behind it with no route of their own, reachable only over service bindings.
+The OS base is six Workers. A **router** owns the public route and serves the frontend, proxying `/api` to the Workshop backend and `/gatekeeper/<name>` to whichever Gatekeeper the binding name matches; the Workshop, the Context and Scheduler Gatekeepers, the MCP connector and the Error Reporter sit behind it with no route of their own, reachable only over service bindings. Fork Horse adds its core and gatekeeper Workers, described above.
 
 The deploy command derives temporary Wrangler files from upstream base configs, builds the frontend in Cloudflare Access mode, deploys the private Error Reporter, the Gatekeepers and the Workshop before the router that binds them, and removes generated files even on failure. Secrets never enter tracked configuration.
 
@@ -289,7 +289,7 @@ Cloudflare OS supports several sign-in methods. This starter deploys [Cloudflare
 1. Choose a public hostname in an [active Cloudflare zone](https://developers.cloudflare.com/dns/zone-setups/), such as `os.example.com`.
 2. Create a [self-hosted Access application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/) for that hostname.
 3. Copy its [application audience tag](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/#get-your-aud-tag).
-4. Open [`deployment.jsonc`](deployment.jsonc) and replace the active placeholders. Every control is annotated in place.
+4. Copy [`deployment.jsonc`](deployment.jsonc) to the gitignored `deployment.local.jsonc` and replace the active placeholders there. Every control is annotated in place.
 
 The hostname belongs to the router, the only Worker here with a public route. Wrangler creates its DNS and TLS at deploy time. For an evaluation without a zone, switch the annotated route to `{ "workersDev": true }` and set `publicBaseUrl` to the resulting origin.
 
@@ -313,19 +313,19 @@ Backend error reporting is enabled without a vendor account. Explicit upstream i
 - Open the router's hostname and confirm Access signs in with the expected identity, and that it is the only public route into the deployment.
 - Open `/admin`, confirm the email is an administrator, and set Context, Scheduler and Custom Gatekeepers to disabled, optional, or enabled.
 - If Context Artifacts is enabled, create a Git-backed collection and confirm its repository can be populated and refreshed.
-- Enable the Custom Gatekeeper, ask for deployment information, and confirm its read appears as an observation.
+- In Admin → Gatekeepers, enable the Fork Horse gatekeeper, connect an enrolled agent, and confirm the Fork Horse app opens in the sidebar.
 - Open the Error Reporter Worker's [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/) and verify its structured `error_report` query surface.
 - Ask an agent to schedule something a few minutes out, and confirm it runs — that exercises the Scheduler Gatekeeper end to end.
-- Review logs for the router, Workshop, Context, Scheduler, custom Gatekeeper, and Error Reporter Workers.
+- Review logs for the router, Workshop, Context, Scheduler, MCP connector, Fork Horse core and gatekeeper, and Error Reporter Workers.
 
 ## Customization
 
 | Customize | Best place | Deploy required |
 | --- | --- | --- |
 | Site name, logo, color, announcements, instructions, connectors | `/admin` | No |
-| Sign-in, routes, AI, storage, observability, Worker identities | [`deployment.jsonc`](deployment.jsonc) | Yes |
+| Sign-in, routes, AI, storage, observability, Worker identities | `deployment.local.jsonc` (copied from [`deployment.jsonc`](deployment.jsonc)) | Yes |
 | Logs, traces, error destinations, browser reporting | [Observability guide](docs/observability.md) | Sometimes |
-| Organization APIs and capabilities | [`packages/custom-gatekeeper`](packages/custom-gatekeeper/README.md) | Yes |
+| Organization APIs and capabilities | [`packages/custom-gatekeeper`](packages/custom-gatekeeper/README.md) (a source example; the deploy no longer ships it, so wire your own) | Yes |
 | Product behavior unavailable through Worker boundaries | Pinned upstream fork/commit | Yes |
 
 The complete control reference and recipes live in [Customization](docs/customization.md). The upstream [`write-gatekeeper` skill](https://github.com/cloudflare/cloudflare-os/blob/main/.agents/skills/write-gatekeeper/SKILL.md) covers richer integrations.
