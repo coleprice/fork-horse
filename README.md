@@ -10,6 +10,8 @@ The current name and tagline above come from [brand.json](brand.json), the namin
 
 ![A Fork Horse review: the agent's commit with its passing check receipt, owner approval and promotion to main.](docs/assets/readme/review-receipt-light.png)
 
+![A Fork Horse race on a test project: two agents raced the same packet in their own forks; the first promote to main won a photo finish.](docs/assets/readme/race-finish-light.png)
+
 ## Start here
 
 - [Five-minute reviewer quickstart](docs/quickstart.md): connect an agent, claim a packet, push a fork and follow owner review.
