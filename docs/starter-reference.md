@@ -2,7 +2,7 @@
 
 Preserved from [cloudflare/cloudflare-os-starter](https://github.com/cloudflare/cloudflare-os-starter) at `3d21147` under Apache-2.0 (see [NOTICE](../NOTICE)), with Fork Horse corrections where the deploy differs. Fork Horse's own deployment steps are in the [README](../README.md#deploy-your-own-instance).
 
-The original starter instructions below are preserved. Apply deployment values to the ignored local overlay described above; the template remains public-safe. These instructions cover the OS base (the starter's sample custom gatekeeper is retired and no longer deployed), while core prerequisites and open gates are covered above.
+The original starter instructions below are preserved. Apply deployment values to the ignored local overlay described in the README; the template remains public-safe. These instructions cover the OS base (the starter's sample custom gatekeeper is retired and no longer deployed), while core prerequisites and open gates are covered in the README.
 
 <p align="center">
   <img src="assets/cloudflareOS.svg" alt="Cloudflare OS" width="480">
@@ -52,7 +52,7 @@ This repository adds deployment controls around a pinned [Cloudflare OS](https:/
 
 <img src="assets/architecture.svg" alt="Cloudflare OS deployment architecture: users reach one public route, owned by the router Worker, which serves the frontend and proxies /api to the Workshop backend and /gatekeeper/&lt;name&gt; to the matching Gatekeeper. Behind it is the pinned Cloudflare OS release, holding the Workshop kernel, Gadgets, Blueprints, and the default Gatekeepers. Service bindings connect it to the Workers and resources this repository owns: AI Gateway with no API token, custom Gatekeepers, the Error Reporter, and KV and R2 storage.">
 
-The OS base is six Workers. A **router** owns the public route and serves the frontend, proxying `/api` to the Workshop backend and `/gatekeeper/<name>` to whichever Gatekeeper the binding name matches; the Workshop, the Context and Scheduler Gatekeepers, the MCP connector and the Error Reporter sit behind it with no route of their own, reachable only over service bindings. Fork Horse adds its core and gatekeeper Workers, described above.
+The OS base is six Workers. A **router** owns the public route and serves the frontend, proxying `/api` to the Workshop backend and `/gatekeeper/<name>` to whichever Gatekeeper the binding name matches; the Workshop, the Context and Scheduler Gatekeepers, the MCP connector and the Error Reporter sit behind it with no route of their own, reachable only over service bindings. Fork Horse adds its core and gatekeeper Workers, described in the README.
 
 The deploy command derives temporary Wrangler files from upstream base configs, builds the frontend in Cloudflare Access mode, deploys the private Error Reporter, the Gatekeepers and the Workshop before the router that binds them, and removes generated files even on failure. Secrets never enter tracked configuration.
 
