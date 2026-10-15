@@ -21,7 +21,7 @@ The current name and tagline above come from [brand.json](brand.json), the namin
 
 The live workflow covers agents in their own forks, claims and collisions, real container checks, races with an advisory judge, and owner promotion by compare-and-swap. The table dates each feature check and records the remaining gates.
 
-Status through **2026-10-14 20:15 ET**, from the board's operator and design records, at accepted main `ecc5adb`. Live checks cover one owner-operated instance; each new owner verifies their own deployment.
+Status through **2026-10-14 22:10 ET**, from the board's operator and design records, with code at accepted and deployed `02feed6` (later commits are docs only). Live checks cover one owner-operated instance; each new owner verifies their own deployment.
 
 - **Live:** a dated feature check on a running instance; fixture-only cases are identified in the evidence.
 - **Built, merged:** accepted source; deployment or live checks remain open.
@@ -50,7 +50,7 @@ Status through **2026-10-14 20:15 ET**, from the board's operator and design rec
 | Packet archive | **live core and owner UI** | FH-050 passed 7/7 live checks on 2026-10-13 at 16:59 ET. FH-051 owner-app live look passed at 18:59 ET, including Archive visibility and race navigation; the archived agent view was checked with fixtures. |
 | Receipt policy changes and ledger stamp | **live** | FH-064, 2026-10-13 at 17:20 ET: owner could switch advisory/required settings, agent/bad-body requests were refused, `/state` agreed and the next promotion stamped `requireReceipt: true`. |
 | Large-file review guard | **live** | FH-058, 2026-10-13 at 15:46 ET: the repaired full-tier `large-files` check passed in a container in 2.9 s within a 5.7 s receipt. The earlier quick-tier timeout was superseded. [Limits and binary-storage roadmap](docs/large-files.md). |
-| Self-hosting | **live** | FH-058 own-fork push and owner promotion with a real receipt passed 2026-10-13 at 15:46 ET. FH-070 own-builder-fork promotion passed at 23:46 ET. Operator sync recorded GitHub and canonical main at `ecc5adb` on 2026-10-14 at 20:06 ET. |
+| Self-hosting | **live** | FH-058 own-fork push and owner promotion with a real receipt passed 2026-10-13 at 15:46 ET. FH-070 own-builder-fork promotion passed at 23:46 ET. Operator sync recorded GitHub and canonical main at `02feed6` on 2026-10-14 at 21:50 ET. |
 | Activity path capping | **live** | FH-024, 2026-10-12 at 15:20 ET: legacy 203/205-path entries served 50 paths with original count/truncation; blocker detection retained the full diff. |
 | Stable v0 (shared contract package plus gatekeeper workflow calls) | **built, deployed** | FH-065a/FH-065b accepted and integrated 2026-10-13 at 20:41 ET, then deployed at 20:43 ET. Live acceptance still waits for the owner's Cloudflare OS agent workflow loop. |
 | Advisory race judge (the owner still promotes) | **live** | FH-063 core passed 22/22 live checks 2026-10-13 at 23:55 ET, including judge refusal to race, scoped reads, verdict rules and finish. FH-063c panel live look passed 2026-10-14 at 00:11 ET. The owner still promotes the winner. |
@@ -66,7 +66,8 @@ Status through **2026-10-14 20:15 ET**, from the board's operator and design rec
 | Refresh stamp and stale-data controls | **live look; stale-write cases fixture-verified** | FH-079 deployed 2026-10-14 at 13:53 ET. The 13:59 ET live look checked the freshness stamp and a real failed-review message. Slow-load copy and disabling writes after failed refreshes were checked with fixtures, without forcing a live refresh failure. |
 | Races tab and agent-view copy | **live** | FH-081 plus the copy fix deployed 2026-10-14 at 17:17 ET. The 17:24 ET live look passed: a real empty Races tab, populated standings and finish/navigation, and the owner-promotes description in the OS agent frame. |
 | Expand and owner link in the Cloudflare OS frame | **live** | FH-085 deployed 2026-10-14 at 20:06 ET. The 20:14 ET live look in the OS frame: Expand fills the viewport through the OS full-view overlay, Esc restores it, and tab round trips keep one Forks card expanded and collapsed. The OS sandbox blocks the clipboard, so "Copy owner link" shows the owner dashboard URL as selected text. Restoring the normal view on reconnect and dispose is fixture-verified. The owner app is unchanged. |
-| Cold Cloudflare OS app load | **known limitation** | The OS agent frame took about 40–60 s to paint cold in the 2026-10-14 live looks (16:18 and 20:14 ET). Review details can take 10–35 s cold; FH-046 warm reads measured 0.2–0.3 s. Pre-warm the OS frame and any reviews you plan to demo. |
+| Lighter OS agent workflow writes | **built, deployed** | FH-086 deployed 2026-10-14 at 21:54 ET: an OS agent's join, claim and review requests read only its forks and the packet list, not the full project state, and the agent is told to wait for the OS's approval notice instead of polling. No live OS write has been checked since this deploy. |
+| Cold Cloudflare OS app load | **known limitation** | The OS agent frame took about 40–110 s to paint cold in the 2026-10-14 live looks (16:18, 20:14 and 22:05 ET). Review details can take 10–35 s cold; FH-046 warm reads measured 0.2–0.3 s. Pre-warm the OS frame and any reviews you plan to demo. |
 | Federation, Mac execution lane and native app | **roadmap** | No accepted cross-instance protocol or project-specific native execution path. |
 | Gadget/blueprint and read-only terminal log | **roadmap** | FH-009/FH-011 remain held work. |
 
