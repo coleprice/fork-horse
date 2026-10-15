@@ -79,7 +79,7 @@ The Error Reporter intentionally flattens the normalized event and trusted produ
 
 ## Sampling and traces
 
-The deployment controls apply consistently to the Workshop, Context, Scheduler, custom Gatekeeper, and Error Reporter:
+The deployment controls apply consistently to the router, Workshop, Context, Scheduler, MCP connector, Error Reporter, and Fork Horse's core and gatekeeper Workers:
 
 ```jsonc
 "observability": {
