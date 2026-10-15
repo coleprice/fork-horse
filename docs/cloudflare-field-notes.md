@@ -38,7 +38,7 @@ These observations come from building Fork Horse against a pinned, unmodified Cl
 
 **Cause:** workerd rejected `fetch` with `redirect: "error"`, accepting only follow or manual. Tests that replaced `globalThis.fetch` hid RequestInit validation.
 
-**What we did:** FH-004b and FH-021 use `redirect: "manual"` for outbound subrequests and refuse every 3xx without following or exposing provider targets. Core's Git regression goes through real workerd fetch to a fixture peer; MCP's workerd tests use an in-process fixture adapter with outbound fetch blocked, so they cover response handling, not native RequestInit validation. OAuth consent's own 302 response remains allowed only to the exactly registered callback; it is not an outbound fetch. The edge clone path was verified on 2026-10-12 at 12:43 ET.
+**What we did:** FH-004b and FH-021 use `redirect: "manual"` for outbound subrequests and refuse every 3xx without following or exposing provider targets. Core's Git regression goes through real workerd fetch to a fixture peer; MCP's workerd tests use an in-process fixture adapter with outbound fetch blocked, so they cover response handling, not native outbound fetch validation. OAuth consent's own 302 response remains allowed only to the exactly registered callback; it is not an outbound fetch. The edge clone path was verified on 2026-10-12 at 12:43 ET.
 
 **Suggestion:** document runtime differences next to RequestInit options and provide conformance examples that exercise native fetch validation. A stubbed transport test should be accompanied by a Worker runtime test.
 
