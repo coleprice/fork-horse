@@ -126,7 +126,7 @@ A claim binds a packet, agent and fork immutably. Owner approval binds the revie
 Use these owner-operated instructions to deploy your own instance. The live records above do not verify a new owner's configuration. Use Node.js 24.19 or newer and pnpm 11.17. Keep the reviewed submodule pin unchanged.
 
 ```sh
-git clone --recurse-submodules https://github.com/coleprice/forkhorse.git
+git clone --recurse-submodules https://github.com/coleprice/fork-horse.git forkhorse
 cd forkhorse
 pnpm install --frozen-lockfile
 pnpm --dir cloudflare-os install --frozen-lockfile
