@@ -197,7 +197,7 @@ application to cover it — before deploying, and along with `context.sharingDom
 
 ## 8. Verify
 
-Beyond the [standard checks](../README.md#4-verify-the-deployment):
+Beyond the [standard checks](starter-reference.md#4-verify-the-deployment):
 
 1. Sign in as an existing user and confirm the identity is recognised, not re-created.
 2. Open the model picker. It must list models — an empty picker means section 5 was skipped.
