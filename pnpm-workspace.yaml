@@ -41,7 +41,7 @@ catalog:
   # Oxc's `decorator: { legacy: true }` does load them, but with TypeScript-legacy semantics that
   # differ from the Stage-3 lowering wrangler deploys, so it only works while capnweb-validate's
   # decorators ignore their `context` argument.
-  vite: 7.3.6
+  vite: 7.3.7
   vite-plus: ^1.0.0
   vitest: ^4.1.11
   wrangler: ^4.147.0
